@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% block body %}
+<div class="login-shell">
+  <div class="login-card">
+    <h1>WeCom Ops Console</h1>
+    <p class="muted">企业微信群机器人可视化运营后台</p>
+    {% if error %}<div class="alert error">{{ error }}</div>{% endif %}
+    <form method="post" action="/login" class="stack gap-md">
+      <label>
+        <span>用户名</span>
+        <input name="username" placeholder="admin">
+      </label>
+      <label>
+        <span>密码</span>
+        <input name="password" type="password" placeholder="********">
+      </label>
+      <button class="btn primary" type="submit">登录</button>
+    </form>
+    <div class="tips">
+      <div>管理员：admin / Admin123456</div>
+      <div>教练：coach / Coach123456</div>
+    </div>
+  </div>
+</div>
+{% endblock %}

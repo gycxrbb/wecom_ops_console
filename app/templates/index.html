@@ -1,0 +1,51 @@
+{% extends 'base.html' %}
+{% block body %}
+<div id="app" class="app-shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-badge">企微</div>
+      <div>
+        <div class="brand-title">WeCom Ops Console</div>
+        <div class="muted small">教练运营后台</div>
+      </div>
+    </div>
+    <nav class="nav-list">
+      <button class="nav-item active" data-view="dashboard">仪表盘</button>
+      <button class="nav-item" data-view="send">发送中心</button>
+      <button class="nav-item" data-view="groups">群管理</button>
+      <button class="nav-item" data-view="templates">模板中心</button>
+      <button class="nav-item" data-view="assets">素材库</button>
+      <button class="nav-item" data-view="schedules">定时任务</button>
+      <button class="nav-item" data-view="logs">发送记录</button>
+      {% if user.role == 'admin' %}<button class="nav-item" data-view="users">用户管理</button>{% endif %}
+    </nav>
+    <form method="post" action="/logout" class="logout-form">
+      <button class="btn ghost" type="submit">退出登录</button>
+    </form>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div>
+        <h1 id="view-title">仪表盘</h1>
+        <div class="muted">当前用户：{{ user.display_name or user.username }}（{{ user.role }}）</div>
+      </div>
+      <div class="badge">webhook 仅保存在后端</div>
+    </header>
+
+    <section id="dashboard" class="view active"></section>
+    <section id="send" class="view"></section>
+    <section id="groups" class="view"></section>
+    <section id="templates" class="view"></section>
+    <section id="assets" class="view"></section>
+    <section id="schedules" class="view"></section>
+    <section id="logs" class="view"></section>
+    {% if user.role == 'admin' %}<section id="users" class="view"></section>{% endif %}
+  </main>
+</div>
+<script>
+window.__BOOTSTRAP__ = {
+  currentUser: {{ {'id': user.id, 'username': user.username, 'display_name': user.display_name, 'role': user.role}|tojson }}
+};
+</script>
+{% endblock %}
