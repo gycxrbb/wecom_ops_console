@@ -17,6 +17,7 @@
       <button class="nav-item" data-view="assets">素材库</button>
       <button class="nav-item" data-view="schedules">定时任务</button>
       <button class="nav-item" data-view="logs">发送记录</button>
+      <button class="nav-item" data-view="approvals">审批中心</button>
       {% if user.role == 'admin' %}<button class="nav-item" data-view="users">用户管理</button>{% endif %}
     </nav>
     <form method="post" action="/logout" class="logout-form">
@@ -40,6 +41,7 @@
     <section id="assets" class="view"></section>
     <section id="schedules" class="view"></section>
     <section id="logs" class="view"></section>
+    <section id="approvals" class="view"></section>
     {% if user.role == 'admin' %}<section id="users" class="view"></section>{% endif %}
   </main>
 </div>

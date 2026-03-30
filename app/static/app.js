@@ -1,11 +1,14 @@
 const state = {
   currentUser: window.__BOOTSTRAP__?.currentUser || null,
   dashboard: {},
+  messageTrend: [],
+  failureDistribution: [],
   groups: [],
   templates: [],
   assets: [],
   schedules: [],
   logs: [],
+  approvals: [],
   users: [],
   selectedTemplateId: null,
 };
@@ -18,6 +21,7 @@ const views = {
   assets: { title: '素材库', render: renderAssets },
   schedules: { title: '定时任务', render: renderSchedules },
   logs: { title: '发送记录', render: renderLogs },
+  approvals: { title: '审批中心', render: renderApprovals },
   users: { title: '用户管理', render: renderUsers },
 };
 
@@ -71,6 +75,11 @@ async function loadAll() {
   state.assets = await api.get('/api/v1/assets');
   state.schedules = await api.get('/api/v1/schedules');
   state.logs = await api.get('/api/v1/logs');
+  state.approvals = (await api.get('/api/v1/approvals')).list;
+  
+  api.get('/api/v1/dashboard/message-trend').then(res => state.messageTrend = res.trend).catch(console.error);
+  api.get('/api/v1/dashboard/failure-distribution').then(res => state.failureDistribution = res.distribution).catch(console.error);
+
   if (state.currentUser.role === 'admin') {
     state.users = await api.get('/api/v1/users');
   }
@@ -85,12 +94,14 @@ function mountView(viewName) {
 
 function renderDashboard(root) {
   const recentLogs = state.logs.slice(0, 8);
+  const pendingCount = (state.approvals || []).filter(a => a.status === 'pending').length;
   root.innerHTML = `
     <div class="kpi-grid">
       <div class="kpi"><div class="muted">群聊数</div><div class="num">${state.dashboard.group_count || 0}</div></div>
       <div class="kpi"><div class="muted">模板数</div><div class="num">${state.dashboard.template_count || 0}</div></div>
       <div class="kpi"><div class="muted">任务数</div><div class="num">${state.dashboard.schedule_count || 0}</div></div>
       <div class="kpi"><div class="muted">发送记录</div><div class="num">${state.dashboard.log_count || 0}</div></div>
+      <div class="kpi"><div class="muted">待审批</div><div class="num" style="color:var(--primary)">${pendingCount}</div></div>
       <div class="kpi"><div class="muted">成功率</div><div class="num">${state.dashboard.success_rate || 0}%</div></div>
     </div>
     <div class="grid grid-2" style="margin-top:16px;">
@@ -590,4 +601,82 @@ async function init() {
   mountView('dashboard');
 }
 
+function renderApprovals(root) {
+  root.innerHTML = `
+    <div class="card">
+      <div class="panel-title">
+        <h3>审批中心</h3>
+        <button class="btn btn-sm" onclick="refreshApprovals()">刷新</button>
+      </div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>申请人ID</th>
+              <th>类型</th>
+              <th>目标ID</th>
+              <th>理由</th>
+              <th>状态</th>
+              <th>时间</th>
+              <th>备注</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${state.approvals.map(a => `
+              <tr>
+                <td>${a.id}</td>
+                <td>${a.applicant_id}</td>
+                <td>${escapeHtml(a.target_type)}</td>
+                <td>${a.target_id}</td>
+                <td>${escapeHtml(a.reason || '-')}</td>
+                <td>
+                  <span class="pill ${a.status === 'approved' ? 'success' : a.status === 'rejected' ? 'error' : ''}">
+                    ${a.status === 'pending' ? '待审批' : a.status === 'approved' ? '已通过' : '已拒绝'}
+                  </span>
+                </td>
+                <td>${(a.created_at || '').replace('T', ' ').slice(0, 19)}</td>
+                <td>${escapeHtml(a.comment || '-')}</td>
+                <td>
+                  ${state.currentUser.role === 'admin' && a.status === 'pending' ? `
+                    <button class="btn btn-sm" onclick="handleApprovalAction(${a.id}, 'approved')">通过</button>
+                    <button class="btn btn-sm error" onclick="handleApprovalAction(${a.id}, 'rejected')">拒绝</button>
+                  ` : '-'}
+                </td>
+              </tr>
+            `).join('')}
+            ${state.approvals.length === 0 ? '<tr><td colspan="9" class="empty">暂无审批数据</td></tr>' : ''}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+window.refreshApprovals = async () => {
+  try {
+    state.approvals = (await api.get('/api/v1/approvals')).list;
+    renderApprovals(qs('approvals'));
+  } catch(err) {
+    toast(err.message, true);
+  }
+};
+
+window.handleApprovalAction = async (id, action) => {
+  const comment = prompt('请输入审批备注(选填)：', '');
+  if (comment === null) return;
+  try {
+    await api.post(`/api/v1/approvals/${id}/approve`, { action, comment });
+    toast('审批成功！');
+    await refreshApprovals();
+    if (state.schedules) {
+        state.schedules = await api.get('/api/v1/schedules');
+    }
+  } catch (err) {
+    toast(err.message, true);
+  }
+};
+
 window.addEventListener('DOMContentLoaded', init);
+

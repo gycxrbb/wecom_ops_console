@@ -16,8 +16,52 @@ from ..security import decrypt_webhook, encrypt_webhook, get_current_user, json_
 from ..services.template_engine import default_context, render_value
 from ..services.wecom import WeComService
 from ..services.scheduler_service import schedule_service
+from ..route_helper import UnifiedResponseRoute
+from ..security import create_access_token, create_refresh_token, authenticate
 
-router = APIRouter(prefix='/api', tags=['api'])
+router = APIRouter(prefix='/api/v1', tags=['api_v1'], route_class=UnifiedResponseRoute)
+
+@router.post('/auth/login')
+async def api_login(request: Request, db: Session = Depends(get_db)):
+    body = parse_body(await request.json())
+    username = body.get('username')
+    password = body.get('password')
+    user = authenticate(db, username, password)
+    if not user:
+        return {'code': 40100, 'message': '用户名或密码错误', 'data': {}}
+    
+    access_token = create_access_token(data={"sub": str(user.id)})
+    refresh_token = create_refresh_token(data={"sub": str(user.id)})
+    
+    return {
+        'code': 0,
+        'message': 'ok',
+        'data': {
+            'access_token': access_token,
+            'refresh_token': refresh_token,
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'display_name': user.display_name,
+                'role': user.role
+            }
+        }
+    }
+
+@router.get('/auth/me')
+def api_get_me(request: Request, db: Session = Depends(get_db)):
+    user = get_current_user(request, db)
+    return {
+        'code': 0,
+        'message': 'ok',
+        'data': {
+            'id': user.id,
+            'username': user.username,
+            'display_name': user.display_name,
+            'role': user.role
+        }
+    }
+
 
 
 def serialize_group(group: models.Group):
@@ -436,6 +480,11 @@ async def create_or_update_schedule(request: Request, db: Session = Depends(get_
         job.approved_by_id = user.id
     job.status = requested_status
     db.commit()
+    if requested_status == 'pending_approval':
+        req = db.query(models.ApprovalRequest).filter(models.ApprovalRequest.target_type == 'schedule', models.ApprovalRequest.target_id == job.id, models.ApprovalRequest.status == 'pending').first()
+        if not req:
+            db.add(models.ApprovalRequest(target_type='schedule', target_id=job.id, status='pending', applicant_id=user.id, reason=f'创建/更新定时任务 {job.title} 需要审批'))
+            db.commit()
     schedule_service.add_or_update_job(job)
     return serialize_job(job)
 
@@ -575,3 +624,154 @@ async def upsert_user(request: Request, db: Session = Depends(get_db)):
         target.password_hash = hash_password(data['password'])
     db.commit()
     return {'id': target.id, 'username': target.username, 'display_name': target.display_name, 'role': target.role, 'is_active': target.is_active}
+
+
+# ==========================================
+# Dashboard APIs
+# ==========================================
+
+from sqlalchemy import func
+
+@router.get('/dashboard/summary')
+def get_dashboard_summary(request: Request, db: Session = Depends(get_db)):
+    user = get_user_or_401(request, db)
+    total_logs = db.query(models.SendLog).count()
+    success_logs = db.query(models.SendLog).filter(models.SendLog.success == True).count()
+    return {
+        'group_count': db.query(models.Group).count(),
+        'template_count': db.query(models.Template).count(),
+        'schedule_count': db.query(models.MessageJob).filter(models.MessageJob.schedule_type != 'none').count(),
+        'log_count': total_logs,
+        'success_rate': round((success_logs / total_logs) * 100, 2) if total_logs else 0,
+    }
+
+import sqlalchemy
+from sqlalchemy import func
+from datetime import timedelta
+
+@router.get('/dashboard/message-trend')
+def get_message_trend(days: int = 7, db: Session = Depends(get_db)):
+    start_date = datetime.utcnow() - timedelta(days=days)
+    logs = db.query(
+        func.date(models.SendLog.created_at).label('date'),
+        func.count().label('count'),
+        func.sum(func.cast(models.SendLog.success, sqlalchemy.Integer)).label('success_count')
+    ).filter(models.SendLog.created_at >= start_date).group_by(func.date(models.SendLog.created_at)).all()
+    
+    trend = [{"date": str(log.date), "count": log.count, "success": log.success_count} for log in logs]
+    return {"trend": trend, "days": days}
+
+@router.get('/dashboard/failure-distribution')
+def get_failure_distribution(days: int = 7, db: Session = Depends(get_db)):
+    start_date = datetime.utcnow() - timedelta(days=days)
+    logs = db.query(
+        models.SendLog.error_message,
+        func.count().label('count')
+    ).filter(
+        models.SendLog.created_at >= start_date,
+        models.SendLog.success == False,
+        models.SendLog.error_message != None
+    ).group_by(models.SendLog.error_message).all()
+    
+    distribution = [{"error": log.error_message, "count": log.count} for log in logs]
+    return {"distribution": distribution, "days": days}
+
+
+# ==========================================
+# Approval APIs
+# ==========================================
+
+@router.get('/approvals')
+def list_approvals(page: int = 1, page_size: int = 20, status: str = None, request: Request = None, db: Session = Depends(get_db)):
+    user = get_user_or_401(request, db)
+    query = db.query(models.ApprovalRequest)
+    if status:
+        query = query.filter(models.ApprovalRequest.status == status)
+    # If not admin, maybe only see their own?
+    if user.role != 'admin':
+        query = query.filter(models.ApprovalRequest.applicant_id == user.id)
+        
+    total = query.count()
+    approvals = query.order_by(models.ApprovalRequest.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    
+    return {
+        "list": [{
+            "id": a.id,
+            "target_type": a.target_type,
+            "target_id": a.target_id,
+            "status": a.status,
+            "applicant_id": a.applicant_id,
+            "reason": a.reason,
+            "comment": a.comment,
+            "created_at": a.created_at.isoformat() if hasattr(a, 'created_at') else None
+        } for a in approvals],
+        "pagination": {
+            "page": page,
+            "page_size": page_size,
+            "total": total
+        }
+    }
+
+@router.post('/approvals')
+async def create_approval(request: Request, db: Session = Depends(get_db)):
+    user = get_user_or_401(request, db)
+    data = parse_body(await request.body())
+    
+    req = models.ApprovalRequest(
+        target_type=data.get('target_type'),
+        target_id=data.get('target_id'),
+        reason=data.get('reason'),
+        applicant_id=user.id,
+        status='pending'
+    )
+    db.add(req)
+    db.commit()
+    return {"id": req.id}
+
+@router.post('/approvals/{approval_id}/approve')
+async def approve_request(approval_id: int, request: Request, db: Session = Depends(get_db)):
+    user = get_user_or_401(request, db)
+    require_role(user, 'admin')
+    
+    appr = db.query(models.ApprovalRequest).filter(models.ApprovalRequest.id == approval_id).first()
+    if not appr:
+        raise HTTPException(404, "审批单不存在")
+        
+    data = parse_body(await request.body())
+    appr.status = 'approved'
+    appr.approver_id = user.id
+    appr.comment = data.get('comment', '')
+    appr.approved_at = datetime.utcnow()
+    
+    # If target_type is schedule, update the target's approval status
+    if appr.target_type == 'schedule':
+        job = db.query(models.MessageJob).filter(models.MessageJob.id == appr.target_id).first()
+        if job:
+            job.approved_at = datetime.utcnow()
+            job.approved_by_id = user.id
+            job.status = 'approved' if job.schedule_type == 'cron' else job.status
+    
+    db.commit()
+    return {"id": appr.id, "status": appr.status}
+
+@router.post('/approvals/{approval_id}/reject')
+async def reject_request(approval_id: int, request: Request, db: Session = Depends(get_db)):
+    user = get_user_or_401(request, db)
+    require_role(user, 'admin')
+    
+    appr = db.query(models.ApprovalRequest).filter(models.ApprovalRequest.id == approval_id).first()
+    if not appr:
+        raise HTTPException(404, "审批单不存在")
+        
+    data = parse_body(await request.body())
+    appr.status = 'rejected'
+    appr.approver_id = user.id
+    appr.comment = data.get('comment', '')
+    
+    if appr.target_type == 'schedule':
+        job = db.query(models.MessageJob).filter(models.MessageJob.id == appr.target_id).first()
+        if job:
+            job.status = 'rejected'
+            
+    db.commit()
+    return {"id": appr.id, "status": appr.status}
