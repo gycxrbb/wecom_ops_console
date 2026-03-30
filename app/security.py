@@ -82,7 +82,7 @@ def get_current_user(request: Request, db: Session):
     if not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Not authenticated')
         
-    user = db.query(models.User).filter(models.User.id == int(user_id), models.User.is_active == True).first()
+    user = db.query(models.User).filter(models.User.id == int(user_id), models.User.status == 1).first()
     if not user:
         if 'user_id' in request.session:
             request.session.clear()

@@ -586,7 +586,7 @@ def list_users(request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
     require_role(user, 'admin')
     users = db.query(models.User).order_by(models.User.id.desc()).all()
-    return [{'id': u.id, 'username': u.username, 'display_name': u.display_name, 'role': u.role, 'is_active': u.is_active, 'created_at': u.created_at.isoformat()} for u in users]
+    return [{'id': u.id, 'username': u.username, 'display_name': u.display_name, 'role': u.role, 'is_active': u.status, 'created_at': u.created_at.isoformat()} for u in users]
 
 @router.post('/users')
 async def upsert_user(request: Request, db: Session = Depends(get_db)):
@@ -599,11 +599,11 @@ async def upsert_user(request: Request, db: Session = Depends(get_db)):
     target.username = data['username']
     target.display_name = data.get('display_name', data['username'])
     target.role = data.get('role', 'coach')
-    target.is_active = bool(data.get('is_active', True))
+    target.status = bool(data.get('is_active', True))
     if data.get('password'):
         target.password_hash = hash_password(data['password'])
     db.commit()
-    return {'id': target.id, 'username': target.username, 'display_name': target.display_name, 'role': target.role, 'is_active': target.is_active}
+    return {'id': target.id, 'username': target.username, 'display_name': target.display_name, 'role': target.role, 'is_active': target.status}
 
 
 # ==========================================
