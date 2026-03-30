@@ -58,3 +58,7 @@ Thumbs.db
 # Project specific
 logs/
 *.log
+
+
+frontend/node_modules/.bin
+frontend/node_modules

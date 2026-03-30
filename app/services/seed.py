@@ -160,8 +160,8 @@ def seed_all(db: Session):
 
     if db.query(models.Group).count() == 0:
         db.add_all([
-            models.Group(name='测试群', alias='TEST_GROUP', is_test_group=True, description='建议先把测试消息发到这里', webhook_encrypted=encrypt_webhook('https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=replace-test-key')),
-            models.Group(name='正式训练营1群', alias='CAMP_1', description='正式群示例，请替换 webhook', webhook_encrypted=encrypt_webhook('https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=replace-prod-key')),
+            models.Group(name='测试群', alias='TEST_GROUP', group_type='test', tags='["测试"]', webhook_cipher=encrypt_webhook('https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=replace-test-key')),
+            models.Group(name='正式训练营1群', alias='CAMP_1', group_type='formal', tags='["正式"]', webhook_cipher=encrypt_webhook('https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=replace-prod-key')),
         ])
         db.commit()
 
@@ -172,10 +172,9 @@ def seed_all(db: Session):
                 name=item['name'],
                 category=item.get('category', 'general'),
                 msg_type=item['msg_type'],
-                description=item.get('description', ''),
-                content_json=json_dumps(item['content_json']),
-                variables_json=json_dumps(item.get('variables_json', {})),
-                is_system=True,
-                created_by_id=admin.id if admin else None,
+                content=json_dumps(item['content_json']),
+                variable_schema=json_dumps(item.get('variables_json', {})),
+                is_system=1,
+                owner_id=admin.id if admin else None,
             ))
         db.commit()

@@ -1,0 +1,6 @@
+Task ID,Name,Assigned Agent/Thread,Status,Evidence
+1,V2: Backend DB & Redis Migration,DB Thread,Draft,models.py config
+2,V2: Celery Setup & APScheduler Migration,Celery Thread,Draft,celery_app.py config
+3,V2: Frontend Vue3+TS+Vite Setup,Frontend Thread,Draft,package.json
+4,V2: Frontend Component Migration,Frontend Thread,Draft,vue files
+5,V2: E2E Integration & Testing,Review Thread,Draft,test logs

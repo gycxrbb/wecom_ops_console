@@ -8,7 +8,6 @@ from .routers.auth import router as auth_router
 from .routers.pages import router as pages_router
 from .routers.api import router as api_router
 from .services.seed import seed_all
-from .services.scheduler_service import schedule_service
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -18,10 +17,7 @@ async def lifespan(app: FastAPI):
         seed_all(db)
     finally:
         db.close()
-    schedule_service.start()
-    schedule_service.sync_from_db()
     yield
-    schedule_service.shutdown()
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
 app.add_middleware(SessionMiddleware, secret_key=settings.app_secret_key)

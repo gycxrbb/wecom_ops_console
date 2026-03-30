@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     coach_username: str = 'coach'
     coach_password: str = 'Coach123456'
     database_url: str = 'sqlite:///./data/app.db'
+    redis_url: str = 'redis://127.0.0.1:6379/0'
     default_timezone: str = 'Asia/Shanghai'
     host: str = '0.0.0.0'
     port: int = 8000

@@ -1,7 +1,0 @@
-Task ID,Name,Assigned Agent/Thread,Status,Evidence
-1,Analyze current gap vs API_SPEC,Main T,Completed,spec.md
-2,Align DB Models & Auth to API_SPEC,DB Thread,Completed,models.py+security.py
-3,Refactor API responses & /api/v1 paths,API Thread,Completed,route_helper.py+api.py
-4,Add Dashboard & Approval missing endpoints,API Thread,Completed,api.py
-5,Verification & Tests,Review Thread,Draft,
-5,Update Frontend UI for Approvals & Dashboard,Views Thread,Completed,app.js+index.html

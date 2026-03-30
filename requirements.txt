@@ -11,3 +11,7 @@ cryptography==44.0.2
 pydantic-settings==2.8.1
 itsdangerous==2.2.0
 pyjwt>=2.8.0
+pyjwt
+redis
+pymysql
+celery

@@ -72,8 +72,8 @@ def serialize_group(group: models.Group):
         'description': group.description,
         'tags': json_loads(group.tags_json, []),
         'is_enabled': group.is_enabled,
-        'is_test_group': group.is_test_group,
-        'webhook_configured': bool(group.webhook_encrypted),
+        'is_test_group': group.group_type == 'test',
+        'webhook_configured': bool(group.webhook_cipher),
         'created_at': group.created_at.isoformat(),
     }
 
@@ -85,15 +85,15 @@ def serialize_template(tpl: models.Template):
         'category': tpl.category,
         'msg_type': tpl.msg_type,
         'description': tpl.description,
-        'content_json': json_loads(tpl.content_json, {}),
-        'variables_json': json_loads(tpl.variables_json, {}),
+        'content_json': json_loads(tpl.content, {}),
+        'variables_json': json_loads(tpl.variables, {}),
         'is_system': tpl.is_system,
         'created_by_id': tpl.created_by_id,
         'updated_at': tpl.updated_at.isoformat(),
     }
 
 
-def serialize_asset(asset: models.Asset):
+def serialize_material(material: models.Material):
     return {
         'id': asset.id,
         'name': asset.name,
@@ -106,15 +106,15 @@ def serialize_asset(asset: models.Asset):
     }
 
 
-def serialize_job(job: models.MessageJob):
+def serialize_schedule(schedule: models.Schedule):
     return {
         'id': job.id,
         'title': job.title,
         'group_ids': json_loads(job.group_ids_json, []),
         'template_id': job.template_id,
         'msg_type': job.msg_type,
-        'content_json': json_loads(job.content_json, {}),
-        'variables_json': json_loads(job.variables_json, {}),
+        'content_json': json_loads(job.content, {}),
+        'variables_json': json_loads(job.variables, {}),
         'schedule_type': job.schedule_type,
         'run_at': job.run_at.isoformat() if job.run_at else None,
         'cron_expr': job.cron_expr,
@@ -132,7 +132,7 @@ def serialize_job(job: models.MessageJob):
     }
 
 
-def serialize_log(log: models.SendLog):
+def serialize_log(log: models.MessageLog):
     return {
         'id': log.id,
         'job_id': log.job_id,
@@ -180,7 +180,7 @@ def attach_asset_paths(db: Session, msg_type: str, content: dict):
     asset_id = content.get('asset_id')
     if not asset_id:
         return content
-    asset = db.query(models.Asset).filter(models.Asset.id == int(asset_id)).first()
+    asset = db.query(models.Material).filter(models.Material.id == int(asset_id)).first()
     if not asset:
         raise HTTPException(400, '引用的资产不存在')
     content['file_path'] = asset.stored_path
@@ -189,79 +189,59 @@ def attach_asset_paths(db: Session, msg_type: str, content: dict):
     return content
 
 
-async def do_send_to_groups(db: Session, groups: list[models.Group], msg_type: str, content_json: dict, variables_json: dict, user: models.User, job: models.MessageJob | None = None, run_mode: str = 'immediate'):
+
+async def do_send_to_groups(db: Session, groups: list[models.Group], msg_type: str, content_json: dict, variables_json: dict, user: models.User, schedule: models.Schedule | None = None, run_mode: str = 'immediate'):
     results = []
+    from ..tasks import send_message_task
+    
     for group in groups:
-        webhook = decrypt_webhook(group.webhook_encrypted)
-        if not webhook:
-            raise HTTPException(400, f'群 {group.name} 未配置 webhook')
         rendered_content = render_message_content(msg_type, content_json, variables_json, user, group)
         rendered_content = attach_asset_paths(db, msg_type, rendered_content)
-        try:
-            payload, response = await WeComService.send(webhook, msg_type, rendered_content, group_key=str(group.id))
-            log = models.SendLog(
-                job_id=job.id if job else None,
-                group_id=group.id,
-                initiated_by_id=user.id,
-                msg_type=msg_type,
-                run_mode=run_mode,
-                request_json=json_dumps(payload),
-                response_json=json_dumps(response),
-                success=True,
-                error_message='',
-            )
-            db.add(log)
-            results.append({'group_id': group.id, 'group_name': group.name, 'success': True, 'response': response})
-        except Exception as exc:
-            log = models.SendLog(
-                job_id=job.id if job else None,
-                group_id=group.id,
-                initiated_by_id=user.id,
-                msg_type=msg_type,
-                run_mode=run_mode,
-                request_json=json_dumps(rendered_content),
-                response_json='{}',
-                success=False,
-                error_message=str(exc),
-            )
-            db.add(log)
-            results.append({'group_id': group.id, 'group_name': group.name, 'success': False, 'error': str(exc)})
+        
+        msg = models.Message(
+            source_type='schedule' if schedule else 'manual',
+            source_id=schedule.id if schedule else None,
+            group_id=group.id,
+            template_id=schedule.template_id if schedule else None,
+            msg_type=msg_type,
+            rendered_content=json_dumps(rendered_content),
+            request_payload='{}',
+            status='pending',
+            created_by=user.id
+        )
+        db.add(msg)
         db.commit()
+        
+        send_message_task.delay(msg.id)
+        results.append({'group_id': group.id, 'group_name': group.name, 'success': True, 'response': 'Queued'})
+        
     return results
 
-
-async def perform_job_send(db: Session, job: models.MessageJob, run_mode: str = 'scheduled'):
-    user = job.created_by or db.query(models.User).filter(models.User.role == 'admin').first()
-    if job.approval_required and not job.approved_at:
+async def perform_job_send(db: Session, schedule: models.Schedule, run_mode: str = 'scheduled'):
+    user = schedule.owner or db.query(models.User).filter(models.User.role == 'admin').first()
+    if schedule.require_approval and schedule.approval_status != 'approved':
         return {'skipped': True, 'reason': 'pending approval'}
-    group_ids = json_loads(job.group_ids_json, [])
+        
+    group_ids = json_loads(schedule.group_ids_json, [])
     groups = db.query(models.Group).filter(models.Group.id.in_(group_ids), models.Group.is_enabled == True).all()
-    results = await do_send_to_groups(db, groups, job.msg_type, json_loads(job.content_json, {}), json_loads(job.variables_json, {}), user, job=job, run_mode=run_mode)
-    if any(not item.get('success') for item in results):
-        job.status = 'failed'
-        job.last_error = '; '.join([item.get('error', '') for item in results if not item.get('success')])
-    else:
-        job.status = 'approved' if job.schedule_type == 'cron' else 'completed'
-        job.last_error = ''
-        job.last_sent_at = datetime.utcnow()
-    db.commit()
+    
+    results = await do_send_to_groups(db, groups, schedule.msg_type, json_loads(schedule.content, {}), json_loads(schedule.variables, {}), user, schedule=schedule, run_mode=run_mode)
+    
     return results
-
-
 def get_user_or_401(request: Request, db: Session):
     return get_current_user(request, db)
 
 @router.get('/bootstrap')
 def bootstrap(request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
-    total_logs = db.query(models.SendLog).count()
-    success_logs = db.query(models.SendLog).filter(models.SendLog.success == True).count()
+    total_logs = db.query(models.MessageLog).count()
+    success_logs = db.query(models.MessageLog).filter(models.MessageLog.success == True).count()
     return {
         'current_user': {'id': user.id, 'username': user.username, 'display_name': user.display_name, 'role': user.role},
         'dashboard': {
             'group_count': db.query(models.Group).count(),
             'template_count': db.query(models.Template).count(),
-            'schedule_count': db.query(models.MessageJob).filter(models.MessageJob.schedule_type != 'none').count(),
+            'schedule_count': db.query(models.Schedule).filter(models.Schedule.schedule_type != 'none').count(),
             'log_count': total_logs,
             'success_rate': round((success_logs / total_logs) * 100, 2) if total_logs else 0,
         }
@@ -270,7 +250,7 @@ def bootstrap(request: Request, db: Session = Depends(get_db)):
 @router.get('/groups')
 def list_groups(request: Request, db: Session = Depends(get_db)):
     get_user_or_401(request, db)
-    groups = db.query(models.Group).order_by(models.Group.is_test_group.desc(), models.Group.id.desc()).all()
+    groups = db.query(models.Group).order_by(models.Groupgroup_type == 'test'.desc(), models.Group.id.desc()).all()
     return [serialize_group(g) for g in groups]
 
 @router.post('/groups')
@@ -287,9 +267,9 @@ async def upsert_group(request: Request, db: Session = Depends(get_db)):
     group.description = data.get('description', '')
     group.tags_json = json_dumps(data.get('tags', []))
     group.is_enabled = bool(data.get('is_enabled', True))
-    group.is_test_group = bool(data.get('is_test_group', False))
+    group.group_type = 'test' if data.get('is_test_group') else 'formal'
     if data.get('webhook'):
-        group.webhook_encrypted = encrypt_webhook(data['webhook'])
+        group.webhook_cipher = encrypt_webhook(data['webhook'])
     db.commit()
     return serialize_group(group)
 
@@ -327,8 +307,8 @@ async def upsert_template(request: Request, db: Session = Depends(get_db)):
     tpl.category = data.get('category', 'general')
     tpl.msg_type = data['msg_type']
     tpl.description = data.get('description', '')
-    tpl.content_json = json_dumps(data.get('content_json', {}))
-    tpl.variables_json = json_dumps(data.get('variables_json', {}))
+    tpl.content = json_dumps(data.get('content_json', {}))
+    tpl.variables = json_dumps(data.get('variables_json', {}))
     tpl.is_system = bool(data.get('is_system', False)) if user.role == 'admin' else False
     db.commit()
     return serialize_template(tpl)
@@ -344,8 +324,8 @@ def clone_template(template_id: int, request: Request, db: Session = Depends(get
         category=tpl.category,
         msg_type=tpl.msg_type,
         description=tpl.description,
-        content_json=tpl.content_json,
-        variables_json=tpl.variables_json,
+        content_json=tpl.content,
+        variables_json=tpl.variables,
         is_system=False,
         created_by_id=user.id,
     )
@@ -370,8 +350,8 @@ def delete_template(template_id: int, request: Request, db: Session = Depends(ge
 @router.get('/assets')
 def list_assets(request: Request, db: Session = Depends(get_db)):
     get_user_or_401(request, db)
-    assets = db.query(models.Asset).order_by(models.Asset.id.desc()).all()
-    return [serialize_asset(a) for a in assets]
+    assets = db.query(models.Material).order_by(models.Material.id.desc()).all()
+    return [serialize_material(a) for a in assets]
 
 @router.post('/assets')
 async def upload_asset(request: Request, file: UploadFile = File(...), db: Session = Depends(get_db)):
@@ -382,16 +362,16 @@ async def upload_asset(request: Request, file: UploadFile = File(...), db: Sessi
     with stored_path.open('wb') as fh:
         shutil.copyfileobj(file.file, fh)
     asset_type = 'image' if (file.content_type or '').startswith('image/') else 'file'
-    asset = models.Asset(name=Path(file.filename).stem, asset_type=asset_type, file_name=file.filename, stored_path=str(stored_path), mime_type=file.content_type or 'application/octet-stream', size=stored_path.stat().st_size, created_by_id=user.id)
+    asset = models.Material(name=Path(file.filename).stem, asset_type=asset_type, file_name=file.filename, stored_path=str(stored_path), mime_type=file.content_type or 'application/octet-stream', size=stored_path.stat().st_size, created_by_id=user.id)
     db.add(asset)
     db.commit()
-    return serialize_asset(asset)
+    return serialize_material(asset)
 
 @router.get('/assets/{asset_id}/download')
 def download_asset(asset_id: int, request: Request, db: Session = Depends(get_db)):
     from fastapi.responses import FileResponse
     get_user_or_401(request, db)
-    asset = db.query(models.Asset).filter(models.Asset.id == asset_id).first()
+    asset = db.query(models.Material).filter(models.Material.id == asset_id).first()
     if not asset:
         raise HTTPException(404, '资产不存在')
     return FileResponse(asset.stored_path, media_type=asset.mime_type, filename=asset.file_name)
@@ -400,7 +380,7 @@ def download_asset(asset_id: int, request: Request, db: Session = Depends(get_db
 def delete_asset(asset_id: int, request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
     require_role(user, 'admin', 'coach')
-    asset = db.query(models.Asset).filter(models.Asset.id == asset_id).first()
+    asset = db.query(models.Material).filter(models.Material.id == asset_id).first()
     if not asset:
         raise HTTPException(404, '资产不存在')
     try:
@@ -429,7 +409,7 @@ async def send_message(request: Request, db: Session = Depends(get_db)):
     data = parse_body(await request.body())
     group_ids = data.get('group_ids', [])
     if data.get('test_group_only'):
-        groups = db.query(models.Group).filter(models.Group.is_test_group == True, models.Group.is_enabled == True).all()
+        groups = db.query(models.Group).filter(models.Groupgroup_type == 'test' == True, models.Group.is_enabled == True).all()
     else:
         groups = db.query(models.Group).filter(models.Group.id.in_(group_ids), models.Group.is_enabled == True).all()
     if not groups:
@@ -440,18 +420,18 @@ async def send_message(request: Request, db: Session = Depends(get_db)):
 @router.get('/schedules')
 def list_schedules(request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
-    query = db.query(models.MessageJob)
+    query = db.query(models.Schedule)
     if user.role != 'admin':
-        query = query.filter(models.MessageJob.created_by_id == user.id)
-    jobs = query.order_by(models.MessageJob.created_at.desc()).all()
-    return [serialize_job(job) for job in jobs]
+        query = query.filter(models.Schedule.created_by_id == user.id)
+    jobs = query.order_by(models.Schedule.created_at.desc()).all()
+    return [serialize_schedule(job) for job in jobs]
 
 @router.post('/schedules')
 async def create_or_update_schedule(request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
     data = parse_body(await request.body())
     job_id = data.get('id')
-    job = db.query(models.MessageJob).filter(models.MessageJob.id == job_id).first() if job_id else models.MessageJob(created_by_id=user.id)
+    job = db.query(models.Schedule).filter(models.Schedule.id == job_id).first() if job_id else models.Schedule(created_by_id=user.id)
     if job_id and user.role != 'admin' and job.created_by_id != user.id:
         raise HTTPException(403, '不能修改其他人的任务')
     if not job_id:
@@ -460,8 +440,8 @@ async def create_or_update_schedule(request: Request, db: Session = Depends(get_
     job.group_ids_json = json_dumps(data.get('group_ids', []))
     job.template_id = data.get('template_id')
     job.msg_type = data['msg_type']
-    job.content_json = json_dumps(data.get('content_json', {}))
-    job.variables_json = json_dumps(data.get('variables_json', {}))
+    job.content = json_dumps(data.get('content_json', {}))
+    job.variables = json_dumps(data.get('variables_json', {}))
     job.schedule_type = data.get('schedule_type', 'none')
     run_at = data.get('run_at')
     job.run_at = datetime.fromisoformat(run_at) if run_at else None
@@ -486,21 +466,21 @@ async def create_or_update_schedule(request: Request, db: Session = Depends(get_
             db.add(models.ApprovalRequest(target_type='schedule', target_id=job.id, status='pending', applicant_id=user.id, reason=f'创建/更新定时任务 {job.title} 需要审批'))
             db.commit()
     schedule_service.add_or_update_job(job)
-    return serialize_job(job)
+    return serialize_schedule(job)
 
 @router.post('/schedules/{job_id}/clone')
 def clone_schedule(job_id: int, request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
-    job = db.query(models.MessageJob).filter(models.MessageJob.id == job_id).first()
+    job = db.query(models.Schedule).filter(models.Schedule.id == job_id).first()
     if not job:
         raise HTTPException(404, '任务不存在')
-    cloned = models.MessageJob(
+    cloned = models.Schedule(
         title=f'{job.title} - 副本',
         group_ids_json=job.group_ids_json,
         template_id=job.template_id,
         msg_type=job.msg_type,
-        content_json=job.content_json,
-        variables_json=job.variables_json,
+        content_json=job.content,
+        variables_json=job.variables,
         schedule_type=job.schedule_type,
         run_at=job.run_at,
         cron_expr=job.cron_expr,
@@ -514,12 +494,12 @@ def clone_schedule(job_id: int, request: Request, db: Session = Depends(get_db))
     )
     db.add(cloned)
     db.commit()
-    return serialize_job(cloned)
+    return serialize_schedule(cloned)
 
 @router.post('/schedules/{job_id}/toggle')
 def toggle_schedule(job_id: int, request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
-    job = db.query(models.MessageJob).filter(models.MessageJob.id == job_id).first()
+    job = db.query(models.Schedule).filter(models.Schedule.id == job_id).first()
     if not job:
         raise HTTPException(404, '任务不存在')
     if user.role != 'admin' and job.created_by_id != user.id:
@@ -527,13 +507,13 @@ def toggle_schedule(job_id: int, request: Request, db: Session = Depends(get_db)
     job.enabled = not job.enabled
     db.commit()
     schedule_service.add_or_update_job(job)
-    return serialize_job(job)
+    return serialize_schedule(job)
 
 @router.post('/schedules/{job_id}/approve')
 def approve_schedule(job_id: int, request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
     require_role(user, 'admin')
-    job = db.query(models.MessageJob).filter(models.MessageJob.id == job_id).first()
+    job = db.query(models.Schedule).filter(models.Schedule.id == job_id).first()
     if not job:
         raise HTTPException(404, '任务不存在')
     job.approved_at = datetime.utcnow()
@@ -541,12 +521,12 @@ def approve_schedule(job_id: int, request: Request, db: Session = Depends(get_db
     job.status = 'approved' if job.schedule_type in {'once', 'cron'} else 'draft'
     db.commit()
     schedule_service.add_or_update_job(job)
-    return serialize_job(job)
+    return serialize_schedule(job)
 
 @router.delete('/schedules/{job_id}')
 def delete_schedule(job_id: int, request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
-    job = db.query(models.MessageJob).filter(models.MessageJob.id == job_id).first()
+    job = db.query(models.Schedule).filter(models.Schedule.id == job_id).first()
     if not job:
         raise HTTPException(404, '任务不存在')
     if user.role != 'admin' and job.created_by_id != user.id:
@@ -559,7 +539,7 @@ def delete_schedule(job_id: int, request: Request, db: Session = Depends(get_db)
 @router.post('/schedules/{job_id}/run-now')
 async def run_schedule_now(job_id: int, request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
-    job = db.query(models.MessageJob).filter(models.MessageJob.id == job_id).first()
+    job = db.query(models.Schedule).filter(models.Schedule.id == job_id).first()
     if not job:
         raise HTTPException(404, '任务不存在')
     if user.role != 'admin' and job.created_by_id != user.id:
@@ -572,31 +552,31 @@ async def run_schedule_now(job_id: int, request: Request, db: Session = Depends(
 @router.get('/logs')
 def list_logs(request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
-    query = db.query(models.SendLog).order_by(models.SendLog.created_at.desc())
+    query = db.query(models.MessageLog).order_by(models.MessageLog.created_at.desc())
     if user.role != 'admin':
-        query = query.filter(models.SendLog.initiated_by_id == user.id)
+        query = query.filter(models.MessageLog.initiated_by_id == user.id)
     logs = query.limit(200).all()
     return [serialize_log(log) for log in logs]
 
 @router.post('/logs/{log_id}/retry')
 async def retry_log(log_id: int, request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
-    log = db.query(models.SendLog).filter(models.SendLog.id == log_id).first()
+    log = db.query(models.MessageLog).filter(models.MessageLog.id == log_id).first()
     if not log:
         raise HTTPException(404, '日志不存在')
     if user.role != 'admin' and log.initiated_by_id != user.id:
         raise HTTPException(403, '不能重试其他人的日志')
     if not log.group:
         raise HTTPException(400, '该日志缺少群信息，无法重试')
-    webhook = decrypt_webhook(log.group.webhook_encrypted)
+    webhook = decrypt_webhook(log.group.webhook_cipher)
     try:
         payload, response = await WeComService.send(webhook, log.msg_type, json_loads(log.request_json, {}), group_key=str(log.group_id))
-        new_log = models.SendLog(job_id=log.job_id, group_id=log.group_id, initiated_by_id=user.id, msg_type=log.msg_type, run_mode='retry', request_json=json_dumps(payload), response_json=json_dumps(response), success=True)
+        new_log = models.MessageLog(job_id=log.job_id, group_id=log.group_id, initiated_by_id=user.id, msg_type=log.msg_type, run_mode='retry', request_json=json_dumps(payload), response_json=json_dumps(response), success=True)
         db.add(new_log)
         db.commit()
         return serialize_log(new_log)
     except Exception as exc:
-        new_log = models.SendLog(job_id=log.job_id, group_id=log.group_id, initiated_by_id=user.id, msg_type=log.msg_type, run_mode='retry', request_json=log.request_json, response_json='{}', success=False, error_message=str(exc))
+        new_log = models.MessageLog(job_id=log.job_id, group_id=log.group_id, initiated_by_id=user.id, msg_type=log.msg_type, run_mode='retry', request_json=log.request_json, response_json='{}', success=False, error_message=str(exc))
         db.add(new_log)
         db.commit()
         return JSONResponse(status_code=400, content=serialize_log(new_log))
@@ -635,12 +615,12 @@ from sqlalchemy import func
 @router.get('/dashboard/summary')
 def get_dashboard_summary(request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
-    total_logs = db.query(models.SendLog).count()
-    success_logs = db.query(models.SendLog).filter(models.SendLog.success == True).count()
+    total_logs = db.query(models.MessageLog).count()
+    success_logs = db.query(models.MessageLog).filter(models.MessageLog.success == True).count()
     return {
         'group_count': db.query(models.Group).count(),
         'template_count': db.query(models.Template).count(),
-        'schedule_count': db.query(models.MessageJob).filter(models.MessageJob.schedule_type != 'none').count(),
+        'schedule_count': db.query(models.Schedule).filter(models.Schedule.schedule_type != 'none').count(),
         'log_count': total_logs,
         'success_rate': round((success_logs / total_logs) * 100, 2) if total_logs else 0,
     }
@@ -653,10 +633,10 @@ from datetime import timedelta
 def get_message_trend(days: int = 7, db: Session = Depends(get_db)):
     start_date = datetime.utcnow() - timedelta(days=days)
     logs = db.query(
-        func.date(models.SendLog.created_at).label('date'),
+        func.date(models.MessageLog.created_at).label('date'),
         func.count().label('count'),
-        func.sum(func.cast(models.SendLog.success, sqlalchemy.Integer)).label('success_count')
-    ).filter(models.SendLog.created_at >= start_date).group_by(func.date(models.SendLog.created_at)).all()
+        func.sum(func.cast(models.MessageLog.success, sqlalchemy.Integer)).label('success_count')
+    ).filter(models.MessageLog.created_at >= start_date).group_by(func.date(models.MessageLog.created_at)).all()
     
     trend = [{"date": str(log.date), "count": log.count, "success": log.success_count} for log in logs]
     return {"trend": trend, "days": days}
@@ -665,13 +645,13 @@ def get_message_trend(days: int = 7, db: Session = Depends(get_db)):
 def get_failure_distribution(days: int = 7, db: Session = Depends(get_db)):
     start_date = datetime.utcnow() - timedelta(days=days)
     logs = db.query(
-        models.SendLog.error_message,
+        models.MessageLog.error_message,
         func.count().label('count')
     ).filter(
-        models.SendLog.created_at >= start_date,
-        models.SendLog.success == False,
-        models.SendLog.error_message != None
-    ).group_by(models.SendLog.error_message).all()
+        models.MessageLog.created_at >= start_date,
+        models.MessageLog.success == False,
+        models.MessageLog.error_message != None
+    ).group_by(models.MessageLog.error_message).all()
     
     distribution = [{"error": log.error_message, "count": log.count} for log in logs]
     return {"distribution": distribution, "days": days}
@@ -745,7 +725,7 @@ async def approve_request(approval_id: int, request: Request, db: Session = Depe
     
     # If target_type is schedule, update the target's approval status
     if appr.target_type == 'schedule':
-        job = db.query(models.MessageJob).filter(models.MessageJob.id == appr.target_id).first()
+        job = db.query(models.Schedule).filter(models.Schedule.id == appr.target_id).first()
         if job:
             job.approved_at = datetime.utcnow()
             job.approved_by_id = user.id
@@ -769,7 +749,7 @@ async def reject_request(approval_id: int, request: Request, db: Session = Depen
     appr.comment = data.get('comment', '')
     
     if appr.target_type == 'schedule':
-        job = db.query(models.MessageJob).filter(models.MessageJob.id == appr.target_id).first()
+        job = db.query(models.Schedule).filter(models.Schedule.id == appr.target_id).first()
         if job:
             job.status = 'rejected'
             
