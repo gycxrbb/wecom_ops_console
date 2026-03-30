@@ -121,10 +121,7 @@ function assetOptions(type, selectedId = '') {
 
 function exampleContentForType(type) {
   if (type === 'text') return JSON.stringify({ content: '大家好，今晚 20:00 请按时提交总结。', mentioned_list: [], mentioned_mobile_list: [] }, null, 2);
-  if (type === 'markdown') return JSON.stringify({ content: '### 今日主题
-- 先执行
-- 再反馈
-- 最后总结' }, null, 2);
+  if (type === 'markdown') return JSON.stringify({ content: '### 今日主题\n- 先执行\n- 再反馈\n- 最后总结' }, null, 2);
   if (type === 'news') return JSON.stringify({ articles: [{ title: '今日课程', description: '点击查看图文说明', url: 'https://example.com', picurl: 'https://picsum.photos/640/360' }] }, null, 2);
   if (type === 'image') return JSON.stringify({ asset_id: '' }, null, 2);
   if (type === 'file') return JSON.stringify({ asset_id: '' }, null, 2);
@@ -578,6 +575,8 @@ async function refreshState(viewName) {
 }
 
 async function init() {
+  // 只在主页面初始化（登录页面没有 __BOOTSTRAP__）
+  if (!window.__BOOTSTRAP__) return;
   await loadAll();
   Object.entries(views).forEach(([name, cfg]) => {
     const el = qs(name);

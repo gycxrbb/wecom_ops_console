@@ -1,0 +1,60 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Unit test / coverage reports
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Environment Variables
+.env
+.env.local
+.env.*
+
+# Database
+*.sqlite3
+*.sqlite
+*.db
+data/app.db
+
+# Uploads & Media
+data/uploads/*
+!data/uploads/.gitkeep
+!data/uploads/.gitkeep
+# (If you want to keep the directory structure but ignore files inside)
+
+# Editors / IDEs
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Project specific
+logs/
+*.log
