@@ -88,21 +88,20 @@ def serialize_template(tpl: models.Template):
         'content_json': json_loads(tpl.content, {}),
         'variables_json': json_loads(tpl.variables, {}),
         'is_system': tpl.is_system,
-        'created_by_id': tpl.created_by_id,
+        'created_by_id': tpl.owner_id,
         'updated_at': tpl.updated_at.isoformat(),
     }
 
 
 def serialize_material(material: models.Material):
     return {
-        'id': asset.id,
-        'name': asset.name,
-        'asset_type': asset.asset_type,
-        'file_name': asset.file_name,
-        'mime_type': asset.mime_type,
-        'size': asset.size,
-        'url': f'/api/assets/{asset.id}/download',
-        'created_at': asset.created_at.isoformat(),
+        'id': material.id,
+        'name': material.name,
+        'material_type': material.material_type,
+        'mime_type': material.mime_type,
+        'file_size': material.file_size,
+        'url': f'/api/v1/assets/{material.id}/download',
+        'created_at': material.created_at.isoformat(),
     }
 
 
@@ -126,7 +125,7 @@ def serialize_schedule(schedule: models.Schedule):
         'skip_dates': json_loads(job.skip_dates_json, []),
         'skip_weekends': job.skip_weekends,
         'last_error': job.last_error,
-        'created_by_id': job.created_by_id,
+        'created_by_id': job.owner_id,
         'last_sent_at': job.last_sent_at.isoformat() if job.last_sent_at else None,
         'created_at': job.created_at.isoformat(),
     }
@@ -183,9 +182,9 @@ def attach_asset_paths(db: Session, msg_type: str, content: dict):
     asset = db.query(models.Material).filter(models.Material.id == int(asset_id)).first()
     if not asset:
         raise HTTPException(400, '引用的资产不存在')
-    content['file_path'] = asset.stored_path
+    content['file_path'] = asset.storage_path
     if msg_type == 'image':
-        content['image_path'] = asset.stored_path
+        content['image_path'] = asset.storage_path
     return content
 
 
@@ -289,7 +288,7 @@ def list_templates(request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
     query = db.query(models.Template)
     if user.role != 'admin':
-        query = query.filter((models.Template.is_system == True) | (models.Template.created_by_id == user.id))
+        query = query.filter((models.Template.is_system == True) | (models.Template.owner_id == user.id))
     templates = query.order_by(models.Template.is_system.desc(), models.Template.updated_at.desc()).all()
     return [serialize_template(t) for t in templates]
 
@@ -298,8 +297,8 @@ async def upsert_template(request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
     data = parse_body(await request.body())
     template_id = data.get('id')
-    tpl = db.query(models.Template).filter(models.Template.id == template_id).first() if template_id else models.Template(created_by_id=user.id)
-    if template_id and user.role != 'admin' and tpl.created_by_id != user.id and not tpl.is_system:
+    tpl = db.query(models.Template).filter(models.Template.id == template_id).first() if template_id else models.Template(owner_id=user.id)
+    if template_id and user.role != 'admin' and tpl.owner_id != user.id and not tpl.is_system:
         raise HTTPException(403, '不能修改其他人的模板')
     if not template_id:
         db.add(tpl)
@@ -327,7 +326,7 @@ def clone_template(template_id: int, request: Request, db: Session = Depends(get
         content_json=tpl.content,
         variables_json=tpl.variables,
         is_system=False,
-        created_by_id=user.id,
+        owner_id=user.id,
     )
     db.add(cloned)
     db.commit()
@@ -341,7 +340,7 @@ def delete_template(template_id: int, request: Request, db: Session = Depends(ge
         raise HTTPException(404, '模板不存在')
     if tpl.is_system and user.role != 'admin':
         raise HTTPException(403, '系统模板只能由管理员删除')
-    if user.role != 'admin' and tpl.created_by_id != user.id:
+    if user.role != 'admin' and tpl.owner_id != user.id:
         raise HTTPException(403, '不能删除其他人的模板')
     db.delete(tpl)
     db.commit()
@@ -362,7 +361,7 @@ async def upload_asset(request: Request, file: UploadFile = File(...), db: Sessi
     with stored_path.open('wb') as fh:
         shutil.copyfileobj(file.file, fh)
     asset_type = 'image' if (file.content_type or '').startswith('image/') else 'file'
-    asset = models.Material(name=Path(file.filename).stem, asset_type=asset_type, file_name=file.filename, stored_path=str(stored_path), mime_type=file.content_type or 'application/octet-stream', size=stored_path.stat().st_size, created_by_id=user.id)
+    asset = models.Material(name=Path(file.filename).name, material_type=asset_type, storage_path=str(stored_path), mime_type=file.content_type or 'application/octet-stream', file_size=stored_path.stat().st_size, owner_id=user.id)
     db.add(asset)
     db.commit()
     return serialize_material(asset)
@@ -374,7 +373,7 @@ def download_asset(asset_id: int, request: Request, db: Session = Depends(get_db
     asset = db.query(models.Material).filter(models.Material.id == asset_id).first()
     if not asset:
         raise HTTPException(404, '资产不存在')
-    return FileResponse(asset.stored_path, media_type=asset.mime_type, filename=asset.file_name)
+    return FileResponse(asset.storage_path, media_type=asset.mime_type, filename=asset.file_name)
 
 @router.delete('/assets/{asset_id}')
 def delete_asset(asset_id: int, request: Request, db: Session = Depends(get_db)):
@@ -384,7 +383,7 @@ def delete_asset(asset_id: int, request: Request, db: Session = Depends(get_db))
     if not asset:
         raise HTTPException(404, '资产不存在')
     try:
-        Path(asset.stored_path).unlink(missing_ok=True)
+        Path(asset.storage_path).unlink(missing_ok=True)
     except Exception:
         pass
     db.delete(asset)
@@ -422,7 +421,7 @@ def list_schedules(request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
     query = db.query(models.Schedule)
     if user.role != 'admin':
-        query = query.filter(models.Schedule.created_by_id == user.id)
+        query = query.filter(models.Schedule.owner_id == user.id)
     jobs = query.order_by(models.Schedule.created_at.desc()).all()
     return [serialize_schedule(job) for job in jobs]
 
@@ -431,8 +430,8 @@ async def create_or_update_schedule(request: Request, db: Session = Depends(get_
     user = get_user_or_401(request, db)
     data = parse_body(await request.body())
     job_id = data.get('id')
-    job = db.query(models.Schedule).filter(models.Schedule.id == job_id).first() if job_id else models.Schedule(created_by_id=user.id)
-    if job_id and user.role != 'admin' and job.created_by_id != user.id:
+    job = db.query(models.Schedule).filter(models.Schedule.id == job_id).first() if job_id else models.Schedule(owner_id=user.id)
+    if job_id and user.role != 'admin' and job.owner_id != user.id:
         raise HTTPException(403, '不能修改其他人的任务')
     if not job_id:
         db.add(job)
@@ -490,7 +489,7 @@ def clone_schedule(job_id: int, request: Request, db: Session = Depends(get_db))
         status='draft',
         skip_dates_json=job.skip_dates_json,
         skip_weekends=job.skip_weekends,
-        created_by_id=user.id,
+        owner_id=user.id,
     )
     db.add(cloned)
     db.commit()
@@ -502,7 +501,7 @@ def toggle_schedule(job_id: int, request: Request, db: Session = Depends(get_db)
     job = db.query(models.Schedule).filter(models.Schedule.id == job_id).first()
     if not job:
         raise HTTPException(404, '任务不存在')
-    if user.role != 'admin' and job.created_by_id != user.id:
+    if user.role != 'admin' and job.owner_id != user.id:
         raise HTTPException(403, '不能操作其他人的任务')
     job.enabled = not job.enabled
     db.commit()
@@ -529,7 +528,7 @@ def delete_schedule(job_id: int, request: Request, db: Session = Depends(get_db)
     job = db.query(models.Schedule).filter(models.Schedule.id == job_id).first()
     if not job:
         raise HTTPException(404, '任务不存在')
-    if user.role != 'admin' and job.created_by_id != user.id:
+    if user.role != 'admin' and job.owner_id != user.id:
         raise HTTPException(403, '不能删除其他人的任务')
     db.delete(job)
     db.commit()
@@ -542,7 +541,7 @@ async def run_schedule_now(job_id: int, request: Request, db: Session = Depends(
     job = db.query(models.Schedule).filter(models.Schedule.id == job_id).first()
     if not job:
         raise HTTPException(404, '任务不存在')
-    if user.role != 'admin' and job.created_by_id != user.id:
+    if user.role != 'admin' and job.owner_id != user.id:
         raise HTTPException(403, '不能执行其他人的任务')
     if job.approval_required and not job.approved_at and user.role != 'admin':
         raise HTTPException(403, '该任务尚未审批')

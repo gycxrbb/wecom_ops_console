@@ -1,42 +1,64 @@
-# Byte-compiled / optimized / DLL files
+# ===========================
+# Python 项目 .gitignore
+# ===========================
+
+# --- Python 临时/编译文件 ---
 __pycache__/
 *.py[cod]
 *$py.class
+*.so    
+*.pyd
 
-# Virtual Environments
+# --- 虚拟环境 ---
 .venv/
 venv/
 ENV/
 env/
+.env/
 
-# Distribution / packaging
+# --- 打包/分发 ---
 dist/
 build/
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
 *.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
 
-# Unit test / coverage reports
+# --- 测试/覆盖率 ---
+.tox/
+.nox/
 .coverage
+.coverage.*
 htmlcov/
 .pytest_cache/
+.hypothesis/
 
-# Environment Variables
+# --- 环境变量/配置 ---
 .env
-.env.local
 .env.*
+!.env.example
+*.local
 
-# Database
+# --- 数据库 ---
 *.sqlite3
 *.sqlite
 *.db
-data/app.db
 
-# Uploads & Media
+# --- 上传/媒体 ---
 data/uploads/*
 !data/uploads/.gitkeep
-!data/uploads/.gitkeep
-# (If you want to keep the directory structure but ignore files inside)
 
-# Editors / IDEs
+# --- 编辑器/IDE ---
 .vscode/*
 !.vscode/settings.json
 !.vscode/tasks.json
@@ -45,8 +67,11 @@ data/uploads/*
 .idea/
 *.swp
 *.swo
+*~
+.project
+.settings/
 
-# OS generated files
+# --- 操作系统 ---
 .DS_Store
 .DS_Store?
 ._*
@@ -54,11 +79,22 @@ data/uploads/*
 .Trashes
 ehthumbs.db
 Thumbs.db
+desktop.ini
 
-# Project specific
+# --- 日志 ---
 logs/
 *.log
+npm-debug.log*
 
+# --- 前端依赖 ---
+frontend/node_modules/
+frontend/dist/
+frontend/.next/
 
-frontend/node_modules/.bin
-frontend/node_modules
+# --- 其他 ---
+.github/
+*.bak
+*.tmp
+*.temp
+
+.venv/
