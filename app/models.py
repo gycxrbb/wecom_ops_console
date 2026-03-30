@@ -95,3 +95,30 @@ class SendLog(Base):
     job = relationship('MessageJob')
     group = relationship('Group')
     initiated_by = relationship('User')
+class ApprovalRequest(Base, TimestampMixin):
+    __tablename__ = 'approval_requests'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    target_type: Mapped[str] = mapped_column(String(30))
+    target_id: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(30), default='pending')
+    applicant_id: Mapped[int] = mapped_column(ForeignKey('users.id'))
+    approver_id: Mapped[int | None] = mapped_column(ForeignKey('users.id'), nullable=True)
+    reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    comment: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    applicant = relationship('User', foreign_keys=[applicant_id])
+    approver = relationship('User', foreign_keys=[approver_id])
+
+
+class AuditLog(Base, TimestampMixin):
+    __tablename__ = 'audit_logs'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey('users.id'))
+    action: Mapped[str] = mapped_column(String(64))
+    target_type: Mapped[str] = mapped_column(String(30))
+    target_id: Mapped[int] = mapped_column(Integer)
+    detail_json: Mapped[str] = mapped_column(Text, default='{}')
+    ip: Mapped[str] = mapped_column(String(64), default='')
+    
+    user = relationship('User')

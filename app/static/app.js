@@ -34,7 +34,11 @@ async function handleResponse(resp) {
   }
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok) {
-    throw new Error(data.detail || data.error_message || JSON.stringify(data));
+    throw new Error(data.detail || data.error_message || data.message || JSON.stringify(data)); 
+  }
+  if (data.code !== undefined) {
+    if (data.code !== 0) throw new Error(data.message || 'Error');
+    return data.data;
   }
   return data;
 }
@@ -59,16 +63,16 @@ function tag(status) {
 }
 
 async function loadAll() {
-  const bootstrap = await api.get('/api/bootstrap');
+  const bootstrap = await api.get('/api/v1/bootstrap');
   state.dashboard = bootstrap.dashboard;
   state.currentUser = bootstrap.current_user;
-  state.groups = await api.get('/api/groups');
-  state.templates = await api.get('/api/templates');
-  state.assets = await api.get('/api/assets');
-  state.schedules = await api.get('/api/schedules');
-  state.logs = await api.get('/api/logs');
+  state.groups = await api.get('/api/v1/groups');
+  state.templates = await api.get('/api/v1/templates');
+  state.assets = await api.get('/api/v1/assets');
+  state.schedules = await api.get('/api/v1/schedules');
+  state.logs = await api.get('/api/v1/logs');
   if (state.currentUser.role === 'admin') {
-    state.users = await api.get('/api/users');
+    state.users = await api.get('/api/v1/users');
   }
 }
 
@@ -401,7 +405,7 @@ async function previewSendPayload() {
       content_json: safeJson(qs('send-content-json').value),
       variables_json: safeJson(qs('send-variables-json').value),
     };
-    const res = await api.post('/api/preview', payload);
+    const res = await api.post('/api/v1/preview', payload);
     qs('preview-result').textContent = JSON.stringify(res, null, 2);
   } catch (e) { toast(e.message, true); }
 }
@@ -415,7 +419,7 @@ async function sendNow(testOnly) {
       variables_json: safeJson(qs('send-variables-json').value),
       test_group_only: testOnly,
     };
-    const res = await api.post('/api/send', payload);
+    const res = await api.post('/api/v1/send', payload);
     toast('发送完成：' + JSON.stringify(res.results));
     await refreshState();
   } catch (e) { toast(e.message, true); }
@@ -439,7 +443,7 @@ async function saveScheduleFromSend() {
       skip_dates: (qs('schedule-skip-dates').value || '').split(',').map(v => v.trim()).filter(Boolean),
       skip_weekends: qs('schedule-skip-weekends').value === 'true',
     };
-    await api.post('/api/schedules', payload);
+    await api.post('/api/v1/schedules', payload);
     toast('任务已保存');
     await refreshState('schedules');
   } catch (e) { toast(e.message, true); }
@@ -469,7 +473,7 @@ async function saveGroup() {
       is_enabled: qs('group-enabled').value === 'true',
       is_test_group: qs('group-test').value === 'true',
     };
-    await api.post('/api/groups', payload);
+    await api.post('/api/v1/groups', payload);
     toast('群聊已保存');
     await refreshState('groups');
   } catch (e) { toast(e.message, true); }
@@ -477,7 +481,7 @@ async function saveGroup() {
 
 async function removeGroup(id) {
   if (!confirm('确认删除该群吗？')) return;
-  try { await api.del('/api/groups/' + id); await refreshState('groups'); } catch (e) { toast(e.message, true); }
+  try { await api.del('/api/v1/groups/' + id); await refreshState('groups'); } catch (e) { toast(e.message, true); }
 }
 window.removeGroup = removeGroup;
 
@@ -503,15 +507,15 @@ async function saveTemplate() {
       content_json: safeJson(qs('template-content-json').value),
       variables_json: safeJson(qs('template-variables-json').value),
     };
-    await api.post('/api/templates', payload);
+    await api.post('/api/v1/templates', payload);
     toast('模板已保存');
     await refreshState('templates');
   } catch (e) { toast(e.message, true); }
 }
 
-async function cloneTemplate(id) { try { await api.post('/api/templates/' + id + '/clone', {}); await refreshState('templates'); } catch (e) { toast(e.message, true); } }
+async function cloneTemplate(id) { try { await api.post('/api/v1/templates/' + id + '/clone', {}); await refreshState('templates'); } catch (e) { toast(e.message, true); } }
 window.cloneTemplate = cloneTemplate;
-async function removeTemplate(id) { if (!confirm('确认删除模板？')) return; try { await api.del('/api/templates/' + id); await refreshState('templates'); } catch (e) { toast(e.message, true); } }
+async function removeTemplate(id) { if (!confirm('确认删除模板？')) return; try { await api.del('/api/v1/templates/' + id); await refreshState('templates'); } catch (e) { toast(e.message, true); } }
 window.removeTemplate = removeTemplate;
 
 async function uploadAsset() {
@@ -519,24 +523,24 @@ async function uploadAsset() {
   if (!fileInput.files[0]) return toast('请选择文件', true);
   const formData = new FormData();
   formData.append('file', fileInput.files[0]);
-  try { await api.post('/api/assets', formData); toast('上传成功'); await refreshState('assets'); } catch (e) { toast(e.message, true); }
+  try { await api.post('/api/v1/assets', formData); toast('上传成功'); await refreshState('assets'); } catch (e) { toast(e.message, true); }
 }
 
-async function removeAsset(id) { if (!confirm('确认删除素材？')) return; try { await api.del('/api/assets/' + id); await refreshState('assets'); } catch (e) { toast(e.message, true); } }
+async function removeAsset(id) { if (!confirm('确认删除素材？')) return; try { await api.del('/api/v1/assets/' + id); await refreshState('assets'); } catch (e) { toast(e.message, true); } }
 window.removeAsset = removeAsset;
 
-async function approveSchedule(id) { try { await api.post('/api/schedules/' + id + '/approve', {}); await refreshState('schedules'); } catch (e) { toast(e.message, true); } }
+async function approveSchedule(id) { try { await api.post('/api/v1/schedules/' + id + '/approve', {}); await refreshState('schedules'); } catch (e) { toast(e.message, true); } }
 window.approveSchedule = approveSchedule;
-async function runScheduleNow(id) { try { const res = await api.post('/api/schedules/' + id + '/run-now', {}); toast('执行完成：' + JSON.stringify(res.results)); await refreshState('schedules'); } catch (e) { toast(e.message, true); } }
+async function runScheduleNow(id) { try { const res = await api.post('/api/v1/schedules/' + id + '/run-now', {}); toast('执行完成：' + JSON.stringify(res.results)); await refreshState('schedules'); } catch (e) { toast(e.message, true); } }
 window.runScheduleNow = runScheduleNow;
-async function cloneSchedule(id) { try { await api.post('/api/schedules/' + id + '/clone', {}); await refreshState('schedules'); } catch (e) { toast(e.message, true); } }
+async function cloneSchedule(id) { try { await api.post('/api/v1/schedules/' + id + '/clone', {}); await refreshState('schedules'); } catch (e) { toast(e.message, true); } }
 window.cloneSchedule = cloneSchedule;
-async function toggleSchedule(id) { try { await api.post('/api/schedules/' + id + '/toggle', {}); await refreshState('schedules'); } catch (e) { toast(e.message, true); } }
+async function toggleSchedule(id) { try { await api.post('/api/v1/schedules/' + id + '/toggle', {}); await refreshState('schedules'); } catch (e) { toast(e.message, true); } }
 window.toggleSchedule = toggleSchedule;
-async function removeSchedule(id) { if (!confirm('确认删除任务？')) return; try { await api.del('/api/schedules/' + id); await refreshState('schedules'); } catch (e) { toast(e.message, true); } }
+async function removeSchedule(id) { if (!confirm('确认删除任务？')) return; try { await api.del('/api/v1/schedules/' + id); await refreshState('schedules'); } catch (e) { toast(e.message, true); } }
 window.removeSchedule = removeSchedule;
 
-async function retryLog(id) { try { await api.post('/api/logs/' + id + '/retry', {}); toast('已重试'); await refreshState('logs'); } catch (e) { toast(e.message, true); } }
+async function retryLog(id) { try { await api.post('/api/v1/logs/' + id + '/retry', {}); toast('已重试'); await refreshState('logs'); } catch (e) { toast(e.message, true); } }
 window.retryLog = retryLog;
 
 function editUser(u) {
@@ -559,7 +563,7 @@ async function saveUser() {
       is_active: qs('user-active').value === 'true',
       password: qs('user-password').value,
     };
-    await api.post('/api/users', payload);
+    await api.post('/api/v1/users', payload);
     toast('用户已保存');
     await refreshState('users');
   } catch (e) { toast(e.message, true); }

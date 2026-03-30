@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     app_name: str = 'WeCom Ops Console'
     app_env: str = 'development'
     app_secret_key: str = 'change-me'
+    jwt_secret_key: str = 'your-256-bit-secret-key-change-me'
+    jwt_algorithm: str = 'HS256'
+    jwt_access_token_expire_minutes: int = 1440
     admin_username: str = 'admin'
     admin_password: str = 'Admin123456'
     coach_username: str = 'coach'
