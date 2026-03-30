@@ -49,14 +49,15 @@
 <script setup lang="ts">
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
-import request from '@/utils/request'
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 
 const handleLogout = async () => {
-  await request.post('/auth/logout')
+  localStorage.removeItem('access_token')
+  localStorage.removeItem('refresh_token')
+  userStore.user = null
   window.location.href = '/login'
 }
 </script>

@@ -7,9 +7,34 @@ const service = axios.create({
   withCredentials: true
 })
 
+service.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('access_token')
+    if (token) {
+      config.headers['Authorization'] = 'Bearer ' + token
+    }
+    return config
+  },
+  (error) => {
+    return Promise.reject(error)
+  }
+)
+
 service.interceptors.response.use(
   (response) => {
-    return response.data
+    const res = response.data
+    // Backend V2 format compatibility
+    if (res.code !== undefined) {
+      if (res.code !== 0 && res.code !== 200) {
+        ElMessage.error(res.message || 'Error')
+        if (res.code === 40100 || res.code === 401) {
+          window.location.href = '/login'
+        }
+        return Promise.reject(new Error(res.message || 'Error'))
+      }
+      return res.data
+    }
+    return res
   },
   (error) => {
     if (error.response?.status === 401) {

@@ -19,6 +19,10 @@
           </el-button>
         </el-form-item>
       </el-form>
+      <div class="tips" style="margin-top:20px; text-align:center; color:#999; font-size:12px;">
+        <div>admin / Admin123456</div>
+        <div>coach / Coach123456</div>
+      </div>
     </el-card>
   </div>
 </template>
@@ -28,8 +32,10 @@ import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
+import { useUserStore } from '@/store/user'
 
 const router = useRouter()
+const userStore = useUserStore()
 const formRef = ref()
 const loading = ref(false)
 
@@ -49,14 +55,14 @@ const handleLogin = async () => {
     if (valid) {
       loading.value = true
       try {
-        const formData = new FormData()
-        formData.append('username', form.username)
-        formData.append('password', form.password)
-        await request.post('/auth/login', formData)
+        const res: any = await request.post('/v1/auth/login', { username: form.username, password: form.password })
+        localStorage.setItem('access_token', res.access_token)
+        localStorage.setItem('refresh_token', res.refresh_token)
         ElMessage.success('Login success')
+        await userStore.fetchUser()
         router.push('/')
       } catch (error) {
-        // error handling is in interceptor
+        console.error(error)
       } finally {
         loading.value = false
       }

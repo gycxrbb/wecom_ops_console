@@ -54,7 +54,7 @@ def json_loads(text: str | None, default: Any):
 
 
 def authenticate(db: Session, username: str, password: str):
-    user = db.query(models.User).filter(models.User.username == username, models.User.is_active == True).first()
+    user = db.query(models.User).filter(models.User.username == username, models.User.status == 1).first()
     if not user:
         return None
     if not verify_password(password, user.password_hash):
