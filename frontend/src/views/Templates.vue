@@ -134,17 +134,19 @@ const editTemplate = (row: any) => {
   form.description = row.description || ''
   form.msg_type = row.msg_type
   form.category = row.category || 'general'
-  // 解析 content
+  // 解析 content — 后端 serialize_template 返回 content_json
+  const rawContent = row.content_json ?? row.content
   try {
-    form.contentJson = typeof row.content === 'string' ? JSON.parse(row.content) : (row.content || {})
+    form.contentJson = typeof rawContent === 'string' ? JSON.parse(rawContent) : (rawContent || {})
   } catch {
     form.contentJson = { ...(defaultContentByType[row.msg_type] || {}) }
   }
-  // 解析 variables
+  // 解析 variables — 后端返回 variables_json
+  const rawVars = row.variables_json ?? row.variable_schema
   try {
-    form.variablesJson = typeof row.variable_schema === 'string'
-      ? JSON.parse(row.variable_schema)
-      : (row.variable_schema || {})
+    form.variablesJson = typeof rawVars === 'string'
+      ? JSON.parse(rawVars)
+      : (rawVars || {})
   } catch {
     form.variablesJson = {}
   }

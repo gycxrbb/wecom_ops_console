@@ -9,7 +9,7 @@
         >
           <template #title>
             <div class="article-title-bar">
-              <span>图文卡片 {{ idx + 1 }}：{{ article.title || '(未填写标题)' }}</span>
+              <span class="article-label">图文卡片 {{ idx + 1 }}：{{ article.title || '(未填写标题)' }}</span>
               <div class="article-actions" @click.stop>
                 <el-button
                   size="small"
@@ -65,20 +65,32 @@
               />
             </el-form-item>
             <el-form-item label="封面图">
-              <div class="cover-row">
+              <div class="cover-input-area">
                 <el-input
                   :model-value="article.picurl"
                   @update:model-value="updateArticle(idx, 'picurl', $event)"
-                  placeholder="图片URL 或从素材库选择"
+                  placeholder="输入图片URL，或从本地上传/素材库选择"
                   style="flex: 1"
-                />
-                <el-button type="primary" @click="openAssetPicker(idx)">选择素材</el-button>
+                >
+                  <template #append>
+                    <div class="cover-btns">
+                      <el-upload
+                        :http-request="(opts: any) => handleLocalUpload(idx, opts)"
+                        :show-file-list="false"
+                        accept="image/*"
+                      >
+                        <el-button size="small" :icon="Upload" />
+                      </el-upload>
+                      <el-button size="small" :icon="Picture" @click="openAssetPicker(idx)" />
+                    </div>
+                  </template>
+                </el-input>
               </div>
               <el-image
                 v-if="article.picurl"
                 :src="article.picurl"
                 fit="cover"
-                style="width: 200px; height: 120px; margin-top: 8px; border-radius: 4px"
+                style="width: 200px; height: 120px; margin-top: 8px; border-radius: 4px; border: 1px solid #e4e7ed"
               />
             </el-form-item>
           </el-form>
@@ -87,13 +99,12 @@
     </div>
 
     <el-button
-      type="primary"
-      plain
       style="width: 100%; margin-top: 12px"
       :disabled="articles.length >= 8"
       @click="addArticle"
     >
-      + 添加图文卡片 ({{ articles.length }}/8)
+      <el-icon><Plus /></el-icon>
+      添加图文卡片 ({{ articles.length }}/8)
     </el-button>
 
     <AssetPicker
@@ -106,8 +117,10 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { Top, Bottom, Delete } from '@element-plus/icons-vue'
+import { Top, Bottom, Delete, Plus, Picture, Upload } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import AssetPicker from './AssetPicker.vue'
+import request from '@/utils/request'
 
 const props = defineProps<{ modelValue: Record<string, any> }>()
 const emit = defineEmits<{ (e: 'update:modelValue', val: Record<string, any>): void }>()
@@ -164,6 +177,24 @@ const openAssetPicker = (idx: number) => {
 const handleAssetSelect = (asset: any) => {
   updateArticle(currentEditIdx.value, 'picurl', asset.url || '')
 }
+
+// 本地文件上传 → 上传到素材库 → 获取URL
+const handleLocalUpload = async (idx: number, options: any) => {
+  const formData = new FormData()
+  formData.append('file', options.file)
+  try {
+    const res = await request.post('/v1/assets', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+    const url = res.url || res.data?.url
+    if (url) {
+      updateArticle(idx, 'picurl', url)
+      ElMessage.success('图片上传成功')
+    }
+  } catch (e) {
+    ElMessage.error('图片上传失败')
+  }
+}
 </script>
 
 <style scoped>
@@ -177,13 +208,23 @@ const handleAssetSelect = (asset: any) => {
   width: 100%;
   padding-right: 8px;
 }
+.article-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .article-actions {
   display: flex;
   gap: 4px;
+  flex-shrink: 0;
 }
-.cover-row {
-  display: flex;
-  gap: 8px;
+.cover-input-area {
   width: 100%;
+}
+.cover-btns {
+  display: flex;
+  gap: 0;
 }
 </style>

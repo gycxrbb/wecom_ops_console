@@ -35,7 +35,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
-import { useUserStore } from '@/store/user'
+import { useUserStore } from '@/stores/user'
 
 const isDark = ref(localStorage.getItem('theme') === 'dark' || !localStorage.getItem('theme'))
 
@@ -111,11 +111,17 @@ const handleLogin = async () => {
   justify-content: center;
   align-items: center;
 }
+:global(html.dark) .logo-wrapper {
+  background: radial-gradient(circle, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0) 70%);
+}
 .login-logo {
   width: 100%;
   height: 100%;
   object-fit: cover;
   transform: scale(1.8);
+}
+:global(html.dark) .login-logo {
+  filter: drop-shadow(0px 0px 8px rgba(255, 255, 255, 0.6)) drop-shadow(0px 0px 2px rgba(255, 255, 255, 1));
 }
 .login-btn {
   width: 100%;

@@ -98,7 +98,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useUserStore } from '@/store/user'
+import { useUserStore } from '@/stores/user'
 import { Platform, DataBoard, Promotion, ChatDotRound, Document, Picture, Timer, Tickets, Stamp, User, CaretBottom } from '@element-plus/icons-vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 
@@ -194,11 +194,17 @@ const getRouteName = () => {
   align-items: center;
   background-color: transparent;
 }
+:global(html.dark) .logo-wrapper {
+  background: radial-gradient(circle, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0) 70%);
+}
 .logo-img {
   width: 100%;
   height: 100%;
   object-fit: cover;
   transform: scale(1.8);
+}
+:global(html.dark) .logo-img {
+  filter: drop-shadow(0px 0px 8px rgba(255, 255, 255, 0.6)) drop-shadow(0px 0px 2px rgba(255, 255, 255, 1));
 }
 .logo-text {
   font-size: 18px;

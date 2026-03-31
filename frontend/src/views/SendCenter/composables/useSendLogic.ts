@@ -2,10 +2,20 @@ import { ref, reactive, onMounted } from 'vue'
 import request from '@/utils/request'
 import { ElMessage } from 'element-plus'
 
+// 每种消息类型的默认 content_json 结构
+const defaultContentByType: Record<string, any> = {
+  text: { content: '', mentioned_list: [], mentioned_mobile_list: [] },
+  markdown: { content: '' },
+  news: { articles: [] },
+  image: {},
+  file: {},
+  template_card: { card_type: 'text_notice', main_title: { title: '' } },
+}
+
 export function useSendLogic() {
   const groups = ref<any[]>([])
   const templates = ref<any[]>([])
-  const selectedTemplate = ref(null)
+  const selectedTemplate = ref<any>(null)
   const previewResult = ref('暂无预览...')
   const isPreviewing = ref(false)
   const isSending = ref(false)
@@ -14,8 +24,8 @@ export function useSendLogic() {
   const form = reactive({
     groups: [] as number[],
     msg_type: 'text',
-    content: '',
-    variables: '{}',
+    contentJson: { ...defaultContentByType.text },
+    variables: {} as Record<string, any>,
     template_id: null as number | null
   })
 
@@ -39,38 +49,48 @@ export function useSendLogic() {
     }
   }
 
+  const handleMsgTypeChange = (type: string) => {
+    form.contentJson = { ...(defaultContentByType[type] || {}) }
+  }
+
   const handleTemplateChange = (val: any) => {
     const t = templates.value.find(x => x.id === val)
     if (t) {
-      form.content = t.content
       form.msg_type = t.msg_type
-      form.variables = t.variables_schema ? JSON.stringify(t.variables_schema, null, 2) : '{}'
       form.template_id = t.id
+      // 解析模板 content JSON — 后端返回 content_json
+      const rawContent = t.content_json ?? t.content
+      try {
+        form.contentJson = typeof rawContent === 'string'
+          ? JSON.parse(rawContent)
+          : (rawContent || {})
+      } catch {
+        form.contentJson = { ...(defaultContentByType[t.msg_type] || {}) }
+      }
+      // 解析变量 — 后端返回 variables_json
+      const rawVars = t.variables_json ?? t.variable_schema
+      try {
+        form.variables = typeof rawVars === 'string'
+          ? JSON.parse(rawVars)
+          : (rawVars || {})
+      } catch {
+        form.variables = {}
+      }
     } else {
       form.template_id = null
+      form.variables = {}
+      handleMsgTypeChange(form.msg_type)
     }
   }
 
   const handlePreview = async () => {
-    if (!form.content) {
-      return ElMessage.warning('内容不能为空')
-    }
-    
     isPreviewing.value = true
     try {
-      let parsedVars = {}
-      try {
-        parsedVars = JSON.parse(form.variables || '{}')
-      } catch (err) {
-        ElMessage.warning('变量 JSON 格式错误')
-        isPreviewing.value = false
-        return
-      }
-
       const res = await request.post('/v1/preview', {
-        template_id: form.template_id,
-        content: form.content,
-        variables: parsedVars
+        msg_type: form.msg_type,
+        content_json: form.contentJson,
+        variables_json: form.variables,
+        group_ids: form.groups.length > 0 ? [form.groups[0]] : undefined
       })
       previewResult.value = JSON.stringify(res, null, 2)
     } catch (e: any) {
@@ -84,26 +104,13 @@ export function useSendLogic() {
     if (form.groups.length === 0) {
       return ElMessage.warning('请至少选择一个群组')
     }
-    if (!form.content) {
-      return ElMessage.warning('内容不能为空')
-    }
-
     isSending.value = true
     try {
-      let parsedVars = {}
-      try {
-        parsedVars = JSON.parse(form.variables || '{}')
-      } catch (err) {
-        ElMessage.warning('变量 JSON 格式错误')
-        isSending.value = false
-        return
-      }
-
       await request.post('/v1/send', {
         group_ids: form.groups,
         msg_type: form.msg_type,
-        content: form.content,
-        variables: parsedVars
+        content_json: form.contentJson,
+        variables_json: form.variables
       })
       ElMessage.success('已触发发送任务')
     } catch (e: any) {
@@ -120,7 +127,6 @@ export function useSendLogic() {
     if (!scheduleForm.title) {
       return ElMessage.warning('请填写任务标题')
     }
-    
     isScheduling.value = true
     try {
       await request.post('/v1/schedules', {
@@ -130,8 +136,8 @@ export function useSendLogic() {
         run_at: scheduleForm.run_at || null,
         cron_expr: scheduleForm.cron_expr || null,
         msg_type: form.msg_type,
-        content: form.content,
-        variables: form.variables
+        content_json: form.contentJson,
+        variables_json: form.variables
       })
       ElMessage.success('定时任务创建成功')
     } catch (e: any) {
@@ -155,6 +161,7 @@ export function useSendLogic() {
     isPreviewing,
     isSending,
     isScheduling,
+    handleMsgTypeChange,
     handleTemplateChange,
     handlePreview,
     handleSend,

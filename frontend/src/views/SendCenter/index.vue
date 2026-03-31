@@ -8,7 +8,7 @@
     <el-row :gutter="24">
       <!-- Left column: Message Compose -->
       <el-col :xs="24" :lg="14">
-        <MessageForm 
+        <MessageForm
           :form="form"
           :groups="groups"
           :templates="templates"
@@ -16,6 +16,9 @@
           :isPreviewing="isPreviewing"
           :isSending="isSending"
           @templateChange="handleTemplateChange"
+          @msgTypeChange="handleMsgTypeChange"
+          @contentUpdate="handleContentUpdate"
+          @variablesUpdate="handleVariablesUpdate"
           @preview="handlePreview"
           @send="handleSend"
         />
@@ -23,12 +26,12 @@
 
       <!-- Right column: Preview & Timeline -->
       <el-col :xs="24" :lg="10">
-        <PreviewCard 
+        <PreviewCard
           :previewResult="previewResult"
           :isPreviewing="isPreviewing"
         />
 
-        <ScheduleCard 
+        <ScheduleCard
           :scheduleForm="scheduleForm"
           :isScheduling="isScheduling"
           @schedule="handleSchedule"
@@ -55,9 +58,18 @@ const {
   isPreviewing,
   isSending,
   isScheduling,
+  handleMsgTypeChange,
   handleTemplateChange,
   handlePreview,
   handleSend,
   handleSchedule
 } = useSendLogic()
+
+const handleContentUpdate = (val: Record<string, any>) => {
+  form.contentJson = val
+}
+
+const handleVariablesUpdate = (val: Record<string, any>) => {
+  form.variables = val
+}
 </script>

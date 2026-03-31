@@ -70,7 +70,7 @@
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
-import { useUserStore } from '@/store/user'
+import { useUserStore } from '@/stores/user'
 
 const userStore = useUserStore()
 const approvals = ref<any[]>([])
