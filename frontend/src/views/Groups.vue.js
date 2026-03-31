@@ -1,4 +1,3 @@
-/// <reference types="../../node_modules/.vue-global-types/vue_3.5_0_0_0.d.ts" />
 import { ref, onMounted, reactive } from 'vue';
 import request from '@/utils/request';
 import { ElMessage, ElMessageBox } from 'element-plus';
@@ -53,7 +52,7 @@ const saveGroup = async () => {
             await request.post('/v1/groups', payload);
         }
         dialogVisible.value = false;
-        ElMessage.success('Saved successfully');
+        ElMessage.success('保存成功');
         fetchGroups();
     }
     catch (e) {
@@ -150,8 +149,8 @@ __VLS_23.slots.default;
 {
     const { default: __VLS_thisSlot } = __VLS_23.slots;
     const [{ row }] = __VLS_getSlotParams(__VLS_thisSlot);
-    if (row.tags) {
-        for (const [tag] of __VLS_getVForSourceType((row.tags.split(',')))) {
+    if (Array.isArray(row.tags) && row.tags.length) {
+        for (const [tag] of __VLS_getVForSourceType((row.tags))) {
             const __VLS_24 = {}.ElTag;
             /** @type {[typeof __VLS_components.ElTag, typeof __VLS_components.elTag, typeof __VLS_components.ElTag, typeof __VLS_components.elTag, ]} */ ;
             // @ts-ignore

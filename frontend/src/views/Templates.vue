@@ -25,12 +25,12 @@
         <el-form-item label="描述"><el-input v-model="form.description" /></el-form-item>
         <el-form-item label="消息类型">
           <el-select v-model="form.msg_type">
-            <el-option label="Text" value="text"></el-option>
+            <el-option label="文本" value="text"></el-option>
             <el-option label="Markdown" value="markdown"></el-option>
-            <el-option label="Image" value="image"></el-option>
-            <el-option label="News" value="news"></el-option>
-            <el-option label="File" value="file"></el-option>
-            <el-option label="Template Card" value="template_card"></el-option>
+            <el-option label="图片" value="image"></el-option>
+            <el-option label="图文 (News)" value="news"></el-option>
+            <el-option label="文件" value="file"></el-option>
+            <el-option label="模板卡片" value="template_card"></el-option>
           </el-select>
         </el-form-item>
         <el-form-item label="内容(JSON)">
@@ -86,16 +86,16 @@ const editTemplate = (row: any) => {
 
 const cloneTemplate = async (row: any) => {
   try {
-    await request.post(/v1/templates/\/clone)
-    ElMessage.success('Cloned')
+    await request.post(`/v1/templates/${row.id}/clone`)
+    ElMessage.success('克隆成功')
     fetchTemplates()
   } catch (e) { console.error(e) }
 }
 
 const deleteTemplate = (row: any) => {
-  ElMessageBox.confirm('Confirm delete?', 'Warning', { type: 'warning' }).then(async () => {
-    await request.delete(/v1/templates/\)
-    ElMessage.success('Deleted')
+  ElMessageBox.confirm('确认删除该模板？', '警告', { type: 'warning' }).then(async () => {
+    await request.delete(`/v1/templates/${row.id}`)
+    ElMessage.success('删除成功')
     fetchTemplates()
   })
 }
@@ -104,7 +104,7 @@ const saveTemplate = async () => {
   try {
     await request.post('/v1/templates', form)
     dialogVisible.value = false
-    ElMessage.success('Saved')
+    ElMessage.success('保存成功')
     fetchTemplates()
   } catch (e) { console.error(e) }
 }
@@ -117,7 +117,7 @@ onMounted(() => {
 <style scoped>
 .view-container {
   padding: 20px;
-  background: #fff;
+  background: var(--card-bg);
   border-radius: 4px;
 }
 .header-actions {

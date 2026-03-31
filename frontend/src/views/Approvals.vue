@@ -136,7 +136,7 @@ const handleAction = (row: any, action: string) => {
 const submitAction = async () => {
   submitting.value = true
   try {
-    await request.post(/v1/approvals/\/\, {
+    await request.post(`/v1/approvals/${currentApproval.value?.id}/${actionType.value}`, {
       comment: comment.value
     })
     ElMessage.success('操作成功')

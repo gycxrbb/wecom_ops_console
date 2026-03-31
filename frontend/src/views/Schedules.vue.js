@@ -52,7 +52,7 @@ const formatDate = (dateStr) => {
 };
 const toggleEnable = async (row) => {
     try {
-        await request.post(/v1/schedules / , /toggle, { enabled: row.enabled });
+        await request.post(`/v1/schedules/${row.id}/toggle`, { enabled: row.enabled });
         ElMessage.success('操作成功');
     }
     catch (error) {
@@ -65,7 +65,7 @@ const handleCreate = () => {
 };
 const handleRunNow = async (row) => {
     try {
-        await request.post(/v1/schedules / , /run-now);
+        await request.post(`/v1/schedules/${row.id}/run-now`);
         ElMessage.success('已触发运行');
     }
     catch (error) {
@@ -74,7 +74,7 @@ const handleRunNow = async (row) => {
 };
 const handleClone = async (row) => {
     try {
-        await request.post(/v1/schedules / , /clone);
+        await request.post(`/v1/schedules/${row.id}/clone`);
         ElMessage.success('克隆成功');
         fetchSchedules();
     }
@@ -84,7 +84,7 @@ const handleClone = async (row) => {
 };
 const handleDelete = async (row) => {
     try {
-        await request.delete(/v1/schedules / );
+        await request.delete(`/v1/schedules/${row.id}`);
         ElMessage.success('删除成功');
         fetchSchedules();
     }

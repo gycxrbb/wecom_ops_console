@@ -14,9 +14,9 @@
       <el-table-column type="expand">
         <template #default="props">
           <div style="padding: 20px;">
-            <p><strong>Request:</strong></p>
+            <p><strong>请求内容:</strong></p>
             <pre>{{ props.row.request_payload }}</pre>
-            <p><strong>Response / Error:</strong></p>
+            <p><strong>响应内容/错误信息:</strong></p>
             <pre>{{ props.row.error_message || props.row.response_payload }}</pre>
           </div>
         </template>
@@ -52,7 +52,7 @@ const fetchLogs = async () => {
 
 const retryLog = async (row: any) => {
   try {
-    await request.post(/v1/logs/\/retry)
+    await request.post(`/v1/logs/${row.id}/retry`)
     ElMessage.success('重试成功')
     fetchLogs()
   } catch (e) { console.error(e) }
@@ -66,11 +66,11 @@ onMounted(() => {
 <style scoped>
 .view-container {
   padding: 20px;
-  background: #fff;
+  background: var(--card-bg);
   border-radius: 4px;
 }
 pre {
-  background: #f5f7fa;
+  background: var(--bg-color);
   padding: 10px;
   border-radius: 4px;
 }

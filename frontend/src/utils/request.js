@@ -19,11 +19,11 @@ service.interceptors.response.use((response) => {
     // Backend V2 format compatibility
     if (res.code !== undefined) {
         if (res.code !== 0 && res.code !== 200) {
-            ElMessage.error(res.message || 'Error');
+            ElMessage.error(res.message || '系统错误');
             if (res.code === 40100 || res.code === 401) {
                 window.location.href = '/login';
             }
-            return Promise.reject(new Error(res.message || 'Error'));
+            return Promise.reject(new Error(res.message || '系统错误'));
         }
         return res.data;
     }
@@ -34,7 +34,7 @@ service.interceptors.response.use((response) => {
     }
     else {
         ElMessage({
-            message: error.response?.data?.detail || error.message || 'Error',
+            message: error.response?.data?.detail || error.message || '请求失败',
             type: 'error',
             duration: 5 * 1000
         });

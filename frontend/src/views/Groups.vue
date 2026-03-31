@@ -10,7 +10,7 @@
       <el-table-column prop="alias" label="别名" />
       <el-table-column prop="tags" label="标签">
         <template #default="{ row }">
-          <el-tag v-for="tag in row.tags.split(',')" :key="tag" v-if="row.tags" size="small" style="margin-right: 4px">
+          <el-tag v-for="tag in row.tags" :key="tag" v-if="Array.isArray(row.tags) && row.tags.length" size="small" style="margin-right: 4px">
             {{ tag }}
           </el-tag>
         </template>
@@ -105,7 +105,7 @@ const saveGroup = async () => {
        await request.post('/v1/groups', payload)
     }
     dialogVisible.value = false
-    ElMessage.success('Saved successfully')
+    ElMessage.success('保存成功')
     fetchGroups()
   } catch (e) {
     console.error(e)
@@ -124,7 +124,7 @@ onMounted(() => {
 <style scoped>
 .groups-container {
   padding: 20px;
-  background: #fff;
+  background: var(--card-bg);
   border-radius: 4px;
 }
 .header-actions {

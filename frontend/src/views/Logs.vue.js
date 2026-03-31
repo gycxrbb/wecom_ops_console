@@ -18,7 +18,7 @@ const fetchLogs = async () => {
 };
 const retryLog = async (row) => {
     try {
-        await request.post(/v1/logs / , /retry);
+        await request.post(`/v1/logs/${row.id}/retry`);
         ElMessage.success('重试成功');
         fetchLogs();
     }

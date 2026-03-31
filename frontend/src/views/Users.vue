@@ -57,8 +57,8 @@
         </el-form-item>
         <el-form-item label="角色" prop="role">
           <el-select v-model="form.role" style="width: 100%">
-            <el-option label="Admin" value="admin" />
-            <el-option label="Coach" value="coach" />
+            <el-option label="管理员 (Admin)" value="admin" />
+            <el-option label="运营人员 (Coach)" value="coach" />
           </el-select>
         </el-form-item>
         <el-form-item label="状态" prop="is_active">

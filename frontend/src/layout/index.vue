@@ -2,16 +2,18 @@
   <el-container class="layout-container">
     <el-aside width="240px" class="custom-aside">
       <div class="logo">
-        <el-icon class="logo-icon"><Platform /></el-icon>
-        <span class="logo-text">WeCom Ops</span>
+        <div class="logo-wrapper">
+          <img :src="isDark ? '/images/light-logo.png' : '/images/dark-logo.jpg'" alt="logo" class="logo-img" />
+        </div>
+        <span class="logo-text">企微运营平台</span>
       </div>
-      <el-menu 
-        :default-active="route.path" 
-        router 
+      <el-menu
+        :default-active="route.path"
+        router
         class="custom-menu"
-        text-color="#F8FAFC" 
+        :text-color="isDark ? '#E5EAF3' : '#334155'"
         active-text-color="#22C55E">
-        <div class="menu-group">MAIN</div>
+        <div class="menu-group">核心业务</div>
         <el-menu-item index="/">
           <el-icon><DataBoard /></el-icon>
           <span>看板</span>
@@ -21,7 +23,7 @@
           <span>发送中心</span>
         </el-menu-item>
         
-        <div class="menu-group" style="margin-top: 20px;">MANAGEMENT</div>
+        <div class="menu-group" style="margin-top: 20px;">数据管理</div>
         <el-menu-item index="/groups">
           <el-icon><ChatDotRound /></el-icon>
           <span>群管理</span>
@@ -39,7 +41,7 @@
           <span>定时任务</span>
         </el-menu-item>
         
-        <div class="menu-group" style="margin-top: 20px;">SYSTEM</div>
+        <div class="menu-group" style="margin-top: 20px;">系统设置</div>
         <el-menu-item index="/logs">
           <el-icon><Tickets /></el-icon>
           <span>发送记录</span>
@@ -75,9 +77,12 @@
     <el-container class="main-container">
       <el-header class="custom-header">
         <el-breadcrumb separator="/">
-          <el-breadcrumb-item :to="{ path: '/' }">WeCom Ops</el-breadcrumb-item>
+          <el-breadcrumb-item :to="{ path: '/' }">企微运营平台</el-breadcrumb-item>
           <el-breadcrumb-item>{{ getRouteName() }}</el-breadcrumb-item>
         </el-breadcrumb>
+        <div class="header-right">
+          <ThemeToggle v-model="isDark" @change="handleThemeChange" />
+        </div>
       </el-header>
       <el-main class="custom-main">
         <router-view v-slot="{ Component }">
@@ -91,9 +96,31 @@
 </template>
 
 <script setup lang="ts">
+import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { Platform, DataBoard, Promotion, ChatDotRound, Document, Picture, Timer, Tickets, Stamp, User, CaretBottom } from '@element-plus/icons-vue'
+import ThemeToggle from '@/components/ThemeToggle.vue'
+
+const isDark = ref(localStorage.getItem('theme') === 'dark' || !localStorage.getItem('theme'))
+
+onMounted(() => {
+  if (isDark.value) {
+    document.documentElement.classList.add('dark')
+  } else {
+    document.documentElement.classList.remove('dark')
+  }
+})
+
+const handleThemeChange = (val: boolean) => {
+  if (val) {
+    document.documentElement.classList.add('dark')
+    localStorage.setItem('theme', 'dark')
+  } else {
+    document.documentElement.classList.remove('dark')
+    localStorage.setItem('theme', 'light')
+  }
+}
 
 const route = useRoute()
 const router = useRouter()
@@ -135,24 +162,43 @@ const getRouteName = () => {
   background-color: var(--bg-color);
 }
 .custom-aside {
-  background-color: #0F172A; /* Slate 900 */
+  background-color: var(--card-bg);
   display: flex;
   flex-direction: column;
-  box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+  box-shadow: 2px 0 8px rgba(0,0,0,0.05);
   z-index: 10;
+  border-right: 1px solid var(--border-color);
 }
 .logo {
-  height: 70px;
+  min-height: 60px;
   display: flex;
   align-items: center;
-  padding: 0 24px;
-  color: #F8FAFC;
-  gap: 12px;
-  border-bottom: 1px solid rgba(255,255,255,0.05);
+  padding: 16px 20px;
+  color: var(--text-primary);
+  gap: 16px;
+  border-bottom: 1px solid var(--border-color);
+  box-sizing: border-box;
+  overflow: hidden;
 }
 .logo-icon {
   font-size: 24px;
-  color: #22C55E;
+  color: var(--primary-color);
+}
+.logo-wrapper {
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background-color: transparent;
+}
+.logo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scale(1.8);
 }
 .logo-text {
   font-size: 18px;
@@ -169,7 +215,7 @@ const getRouteName = () => {
   padding: 0 24px 8px;
   font-size: 11px;
   font-weight: 600;
-  color: #64748B;
+  color: var(--text-muted);
   letter-spacing: 0.1em;
 }
 .el-menu-item {
@@ -184,7 +230,7 @@ const getRouteName = () => {
 
 .user-footer {
   padding: 16px;
-  border-top: 1px solid rgba(255,255,255,0.05);
+  border-top: 1px solid var(--border-color);
 }
 .user-dropdown {
   display: flex;
@@ -193,11 +239,11 @@ const getRouteName = () => {
   padding: 8px;
   border-radius: 8px;
   cursor: pointer;
-  color: white;
+  color: var(--text-primary);
   transition: background-color 0.2s;
 }
 .user-dropdown:hover {
-  background-color: rgba(255,255,255,0.05);
+  background-color: rgba(128,128,128,0.1);
 }
 .user-info {
   display: flex;
@@ -211,7 +257,7 @@ const getRouteName = () => {
 }
 .user-role {
   font-size: 12px;
-  color: #94A3B8;
+  color: var(--text-muted);
   margin-top: 2px;
   text-transform: capitalize;
 }
@@ -221,9 +267,10 @@ const getRouteName = () => {
   flex-direction: column;
 }
 .custom-header {
-  background-color: rgba(255, 255, 255, 0.8);
+  background-color: var(--card-bg);
   backdrop-filter: blur(8px);
   display: flex;
+  justify-content: space-between;
   align-items: center;
   padding: 0 24px;
   border-bottom: 1px solid var(--border-color);
@@ -231,6 +278,10 @@ const getRouteName = () => {
   position: sticky;
   top: 0;
   z-index: 5;
+}
+.header-right {
+  display: flex;
+  align-items: center;
 }
 .custom-main {
   padding: 24px 32px;

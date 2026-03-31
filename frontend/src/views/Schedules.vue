@@ -131,7 +131,7 @@ const formatDate = (dateStr: string) => {
 
 const toggleEnable = async (row: any) => {
   try {
-    await request.post(/v1/schedules/\/toggle, { enabled: row.enabled })
+    await request.post(`/v1/schedules/${row.id}/toggle`, { enabled: row.enabled })
     ElMessage.success('操作成功')
   } catch(error) {
     row.enabled = !row.enabled
@@ -145,7 +145,7 @@ const handleCreate = () => {
 
 const handleRunNow = async (row: any) => {
   try {
-    await request.post(/v1/schedules/\/run-now)
+    await request.post(`/v1/schedules/${row.id}/run-now`)
     ElMessage.success('已触发运行')
   } catch(error) {
     console.error(error)
@@ -154,7 +154,7 @@ const handleRunNow = async (row: any) => {
 
 const handleClone = async (row: any) => {
   try {
-    await request.post(/v1/schedules/\/clone)
+    await request.post(`/v1/schedules/${row.id}/clone`)
     ElMessage.success('克隆成功')
     fetchSchedules()
   } catch(error) {
@@ -164,7 +164,7 @@ const handleClone = async (row: any) => {
 
 const handleDelete = async (row: any) => {
   try {
-    await request.delete(/v1/schedules/\)
+    await request.delete(`/v1/schedules/${row.id}`)
     ElMessage.success('删除成功')
     fetchSchedules()
   } catch (error) {

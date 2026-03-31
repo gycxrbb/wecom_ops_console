@@ -19,12 +19,12 @@
             </el-form-item>
             <el-form-item label="消息类型">
               <el-select v-model="form.msg_type" style="width: 100%">
-                <el-option label="Text" value="text"></el-option>
+                <el-option label="文本" value="text"></el-option>
                 <el-option label="Markdown" value="markdown"></el-option>
-                <el-option label="Image" value="image"></el-option>
-                <el-option label="News" value="news"></el-option>
-                <el-option label="File" value="file"></el-option>
-                <el-option label="Template Card" value="template_card"></el-option>
+                <el-option label="图片" value="image"></el-option>
+                <el-option label="图文 (News)" value="news"></el-option>
+                <el-option label="文件" value="file"></el-option>
+                <el-option label="模板卡片" value="template_card"></el-option>
               </el-select>
             </el-form-item>
             <el-form-item label="变量(JSON)" v-if="selectedTemplate">
@@ -183,7 +183,7 @@ onMounted(() => {
   padding: 20px;
 }
 .preview-box {
-  background: #f5f7fa;
+  background: var(--bg-color);
   padding: 10px;
   border-radius: 4px;
   min-height: 100px;

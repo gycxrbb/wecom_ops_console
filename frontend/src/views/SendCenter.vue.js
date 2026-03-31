@@ -1,4 +1,3 @@
-/// <reference types="../../node_modules/.vue-global-types/vue_3.5_0_0_0.d.ts" />
 import { ref, onMounted, reactive } from 'vue';
 import request from '@/utils/request';
 import { ElMessage } from 'element-plus';
@@ -265,11 +264,11 @@ const __VLS_52 = {}.ElOption;
 /** @type {[typeof __VLS_components.ElOption, typeof __VLS_components.elOption, typeof __VLS_components.ElOption, typeof __VLS_components.elOption, ]} */ ;
 // @ts-ignore
 const __VLS_53 = __VLS_asFunctionalComponent(__VLS_52, new __VLS_52({
-    label: "Text",
+    label: "文本",
     value: "text",
 }));
 const __VLS_54 = __VLS_53({
-    label: "Text",
+    label: "文本",
     value: "text",
 }, ...__VLS_functionalComponentArgsRest(__VLS_53));
 const __VLS_56 = {}.ElOption;
@@ -287,44 +286,44 @@ const __VLS_60 = {}.ElOption;
 /** @type {[typeof __VLS_components.ElOption, typeof __VLS_components.elOption, typeof __VLS_components.ElOption, typeof __VLS_components.elOption, ]} */ ;
 // @ts-ignore
 const __VLS_61 = __VLS_asFunctionalComponent(__VLS_60, new __VLS_60({
-    label: "Image",
+    label: "图片",
     value: "image",
 }));
 const __VLS_62 = __VLS_61({
-    label: "Image",
+    label: "图片",
     value: "image",
 }, ...__VLS_functionalComponentArgsRest(__VLS_61));
 const __VLS_64 = {}.ElOption;
 /** @type {[typeof __VLS_components.ElOption, typeof __VLS_components.elOption, typeof __VLS_components.ElOption, typeof __VLS_components.elOption, ]} */ ;
 // @ts-ignore
 const __VLS_65 = __VLS_asFunctionalComponent(__VLS_64, new __VLS_64({
-    label: "News",
+    label: "图文 (News)",
     value: "news",
 }));
 const __VLS_66 = __VLS_65({
-    label: "News",
+    label: "图文 (News)",
     value: "news",
 }, ...__VLS_functionalComponentArgsRest(__VLS_65));
 const __VLS_68 = {}.ElOption;
 /** @type {[typeof __VLS_components.ElOption, typeof __VLS_components.elOption, typeof __VLS_components.ElOption, typeof __VLS_components.elOption, ]} */ ;
 // @ts-ignore
 const __VLS_69 = __VLS_asFunctionalComponent(__VLS_68, new __VLS_68({
-    label: "File",
+    label: "文件",
     value: "file",
 }));
 const __VLS_70 = __VLS_69({
-    label: "File",
+    label: "文件",
     value: "file",
 }, ...__VLS_functionalComponentArgsRest(__VLS_69));
 const __VLS_72 = {}.ElOption;
 /** @type {[typeof __VLS_components.ElOption, typeof __VLS_components.elOption, typeof __VLS_components.ElOption, typeof __VLS_components.elOption, ]} */ ;
 // @ts-ignore
 const __VLS_73 = __VLS_asFunctionalComponent(__VLS_72, new __VLS_72({
-    label: "Template Card",
+    label: "模板卡片",
     value: "template_card",
 }));
 const __VLS_74 = __VLS_73({
-    label: "Template Card",
+    label: "模板卡片",
     value: "template_card",
 }, ...__VLS_functionalComponentArgsRest(__VLS_73));
 var __VLS_51;

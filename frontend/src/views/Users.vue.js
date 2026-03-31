@@ -1,4 +1,3 @@
-/// <reference types="../../node_modules/.vue-global-types/vue_3.5_0_0_0.d.ts" />
 import { ref, onMounted } from 'vue';
 import { Plus } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
@@ -467,22 +466,22 @@ const __VLS_110 = {}.ElOption;
 /** @type {[typeof __VLS_components.ElOption, typeof __VLS_components.elOption, ]} */ ;
 // @ts-ignore
 const __VLS_111 = __VLS_asFunctionalComponent(__VLS_110, new __VLS_110({
-    label: "Admin",
+    label: "管理员 (Admin)",
     value: "admin",
 }));
 const __VLS_112 = __VLS_111({
-    label: "Admin",
+    label: "管理员 (Admin)",
     value: "admin",
 }, ...__VLS_functionalComponentArgsRest(__VLS_111));
 const __VLS_114 = {}.ElOption;
 /** @type {[typeof __VLS_components.ElOption, typeof __VLS_components.elOption, ]} */ ;
 // @ts-ignore
 const __VLS_115 = __VLS_asFunctionalComponent(__VLS_114, new __VLS_114({
-    label: "Coach",
+    label: "运营人员 (Coach)",
     value: "coach",
 }));
 const __VLS_116 = __VLS_115({
-    label: "Coach",
+    label: "运营人员 (Coach)",
     value: "coach",
 }, ...__VLS_functionalComponentArgsRest(__VLS_115));
 var __VLS_109;

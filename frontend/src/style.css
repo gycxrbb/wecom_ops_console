@@ -8,6 +8,19 @@
   --border-color: #e2e8f0;
 }
 
+html.dark {
+  --bg-color: #141414;
+  --card-bg: #1d1e1f;
+  --text-primary: #E5EAF3;
+  --text-secondary: #A3A6AD;
+  --text-muted: #6b7280;
+  --border-color: #414243;
+}
+
+html {
+  background-color: var(--bg-color);
+}
+
 body {
   margin: 0;
   padding: 0;

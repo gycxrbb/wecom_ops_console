@@ -1,9 +1,17 @@
-/// <reference types="../../node_modules/.vue-global-types/vue_3.5_0_0_0.d.ts" />
-import { ref, reactive } from 'vue';
+import { ref, reactive, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import request from '@/utils/request';
 import { useUserStore } from '@/store/user';
+const isDark = ref(localStorage.getItem('theme') === 'dark' || !localStorage.getItem('theme'));
+onMounted(() => {
+    if (isDark.value) {
+        document.documentElement.classList.add('dark');
+    }
+    else {
+        document.documentElement.classList.remove('dark');
+    }
+});
 const router = useRouter();
 const userStore = useUserStore();
 const formRef = ref();
@@ -13,8 +21,8 @@ const form = reactive({
     password: ''
 });
 const rules = {
-    username: [{ required: true, message: 'Please input username', trigger: 'blur' }],
-    password: [{ required: true, message: 'Please input password', trigger: 'blur' }]
+    username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
+    password: [{ required: true, message: '请输入密码', trigger: 'blur' }]
 };
 const handleLogin = async () => {
     if (!formRef.value)
@@ -26,7 +34,7 @@ const handleLogin = async () => {
                 const res = await request.post('/v1/auth/login', { username: form.username, password: form.password });
                 localStorage.setItem('access_token', res.access_token);
                 localStorage.setItem('refresh_token', res.refresh_token);
-                ElMessage.success('Login success');
+                ElMessage.success('登录成功');
                 await userStore.fetchUser();
                 router.push('/');
             }
@@ -63,6 +71,14 @@ __VLS_3.slots.default;
     __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
         ...{ class: "card-header" },
     });
+    __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
+        ...{ class: "logo-wrapper" },
+    });
+    __VLS_asFunctionalElement(__VLS_intrinsicElements.img)({
+        src: (__VLS_ctx.isDark ? '/images/light-logo.png' : '/images/dark-logo.jpg'),
+        alt: "logo",
+        ...{ class: "login-logo" },
+    });
     __VLS_asFunctionalElement(__VLS_intrinsicElements.h2, __VLS_intrinsicElements.h2)({});
 }
 const __VLS_4 = {}.ElForm;
@@ -96,11 +112,11 @@ const __VLS_14 = {}.ElInput;
 // @ts-ignore
 const __VLS_15 = __VLS_asFunctionalComponent(__VLS_14, new __VLS_14({
     modelValue: (__VLS_ctx.form.username),
-    placeholder: "Username",
+    placeholder: "用户名",
 }));
 const __VLS_16 = __VLS_15({
     modelValue: (__VLS_ctx.form.username),
-    placeholder: "Username",
+    placeholder: "用户名",
 }, ...__VLS_functionalComponentArgsRest(__VLS_15));
 var __VLS_13;
 const __VLS_18 = {}.ElFormItem;
@@ -120,13 +136,13 @@ const __VLS_23 = __VLS_asFunctionalComponent(__VLS_22, new __VLS_22({
     ...{ 'onKeyup': {} },
     modelValue: (__VLS_ctx.form.password),
     type: "password",
-    placeholder: "Password",
+    placeholder: "密码（回车快捷登录）",
 }));
 const __VLS_24 = __VLS_23({
     ...{ 'onKeyup': {} },
     modelValue: (__VLS_ctx.form.password),
     type: "password",
-    placeholder: "Password",
+    placeholder: "密码（回车快捷登录）",
 }, ...__VLS_functionalComponentArgsRest(__VLS_23));
 let __VLS_26;
 let __VLS_27;
@@ -177,6 +193,8 @@ var __VLS_3;
 /** @type {__VLS_StyleScopedClasses['login-container']} */ ;
 /** @type {__VLS_StyleScopedClasses['login-card']} */ ;
 /** @type {__VLS_StyleScopedClasses['card-header']} */ ;
+/** @type {__VLS_StyleScopedClasses['logo-wrapper']} */ ;
+/** @type {__VLS_StyleScopedClasses['login-logo']} */ ;
 /** @type {__VLS_StyleScopedClasses['login-btn']} */ ;
 /** @type {__VLS_StyleScopedClasses['tips']} */ ;
 // @ts-ignore
@@ -185,6 +203,7 @@ var __VLS_dollars;
 const __VLS_self = (await import('vue')).defineComponent({
     setup() {
         return {
+            isDark: isDark,
             formRef: formRef,
             loading: loading,
             form: form,

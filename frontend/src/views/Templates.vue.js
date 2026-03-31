@@ -32,8 +32,8 @@ const editTemplate = (row) => {
 };
 const cloneTemplate = async (row) => {
     try {
-        await request.post(/v1/templates / , /clone);
-        ElMessage.success('Cloned');
+        await request.post(`/v1/templates/${row.id}/clone`);
+        ElMessage.success('克隆成功');
         fetchTemplates();
     }
     catch (e) {
@@ -41,9 +41,9 @@ const cloneTemplate = async (row) => {
     }
 };
 const deleteTemplate = (row) => {
-    ElMessageBox.confirm('Confirm delete?', 'Warning', { type: 'warning' }).then(async () => {
-        await request.delete(/v1/templates / );
-        ElMessage.success('Deleted');
+    ElMessageBox.confirm('确认删除该模板？', '警告', { type: 'warning' }).then(async () => {
+        await request.delete(`/v1/templates/${row.id}`);
+        ElMessage.success('删除成功');
         fetchTemplates();
     });
 };
@@ -51,7 +51,7 @@ const saveTemplate = async () => {
     try {
         await request.post('/v1/templates', form);
         dialogVisible.value = false;
-        ElMessage.success('Saved');
+        ElMessage.success('保存成功');
         fetchTemplates();
     }
     catch (e) {
@@ -338,11 +338,11 @@ const __VLS_92 = {}.ElOption;
 /** @type {[typeof __VLS_components.ElOption, typeof __VLS_components.elOption, typeof __VLS_components.ElOption, typeof __VLS_components.elOption, ]} */ ;
 // @ts-ignore
 const __VLS_93 = __VLS_asFunctionalComponent(__VLS_92, new __VLS_92({
-    label: "Text",
+    label: "文本",
     value: "text",
 }));
 const __VLS_94 = __VLS_93({
-    label: "Text",
+    label: "文本",
     value: "text",
 }, ...__VLS_functionalComponentArgsRest(__VLS_93));
 const __VLS_96 = {}.ElOption;
@@ -360,44 +360,44 @@ const __VLS_100 = {}.ElOption;
 /** @type {[typeof __VLS_components.ElOption, typeof __VLS_components.elOption, typeof __VLS_components.ElOption, typeof __VLS_components.elOption, ]} */ ;
 // @ts-ignore
 const __VLS_101 = __VLS_asFunctionalComponent(__VLS_100, new __VLS_100({
-    label: "Image",
+    label: "图片",
     value: "image",
 }));
 const __VLS_102 = __VLS_101({
-    label: "Image",
+    label: "图片",
     value: "image",
 }, ...__VLS_functionalComponentArgsRest(__VLS_101));
 const __VLS_104 = {}.ElOption;
 /** @type {[typeof __VLS_components.ElOption, typeof __VLS_components.elOption, typeof __VLS_components.ElOption, typeof __VLS_components.elOption, ]} */ ;
 // @ts-ignore
 const __VLS_105 = __VLS_asFunctionalComponent(__VLS_104, new __VLS_104({
-    label: "News",
+    label: "图文 (News)",
     value: "news",
 }));
 const __VLS_106 = __VLS_105({
-    label: "News",
+    label: "图文 (News)",
     value: "news",
 }, ...__VLS_functionalComponentArgsRest(__VLS_105));
 const __VLS_108 = {}.ElOption;
 /** @type {[typeof __VLS_components.ElOption, typeof __VLS_components.elOption, typeof __VLS_components.ElOption, typeof __VLS_components.elOption, ]} */ ;
 // @ts-ignore
 const __VLS_109 = __VLS_asFunctionalComponent(__VLS_108, new __VLS_108({
-    label: "File",
+    label: "文件",
     value: "file",
 }));
 const __VLS_110 = __VLS_109({
-    label: "File",
+    label: "文件",
     value: "file",
 }, ...__VLS_functionalComponentArgsRest(__VLS_109));
 const __VLS_112 = {}.ElOption;
 /** @type {[typeof __VLS_components.ElOption, typeof __VLS_components.elOption, typeof __VLS_components.ElOption, typeof __VLS_components.elOption, ]} */ ;
 // @ts-ignore
 const __VLS_113 = __VLS_asFunctionalComponent(__VLS_112, new __VLS_112({
-    label: "Template Card",
+    label: "模板卡片",
     value: "template_card",
 }));
 const __VLS_114 = __VLS_113({
-    label: "Template Card",
+    label: "模板卡片",
     value: "template_card",
 }, ...__VLS_functionalComponentArgsRest(__VLS_113));
 var __VLS_91;

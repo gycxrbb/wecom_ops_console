@@ -62,20 +62,20 @@ const handleAction = (row, action) => {
 const submitAction = async () => {
     submitting.value = true;
     try {
-        await request.post(/v1/approvals / , /\, {, comment, comment.value);
+        await request.post(`/v1/approvals/${currentApproval.value?.id}/${actionType.value}`, {
+            comment: comment.value
+        });
+        ElMessage.success('操作成功');
+        dialogVisible.value = false;
+        fetchApprovals();
     }
-    finally { }
-    ElMessage.success('操作成功');
-    dialogVisible.value = false;
-    fetchApprovals();
+    catch (error) {
+        console.error(error);
+    }
+    finally {
+        submitting.value = false;
+    }
 };
-try { }
-catch (error) {
-    console.error(error);
-}
-finally {
-    submitting.value = false;
-}
 onMounted(() => {
     fetchApprovals();
 });
