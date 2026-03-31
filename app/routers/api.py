@@ -69,9 +69,9 @@ def serialize_group(group: models.Group):
         'id': group.id,
         'name': group.name,
         'alias': group.alias,
-        'description': group.description,
-        'tags': json_loads(group.tags_json, []),
-        'is_enabled': group.is_enabled,
+        'description': '',
+        'tags': json_loads(group.tags, []) if group.tags else [],
+        'is_enabled': bool(group.enabled),
         'is_test_group': group.group_type == 'test',
         'webhook_configured': bool(group.webhook_cipher),
         'created_at': group.created_at.isoformat(),
@@ -84,9 +84,9 @@ def serialize_template(tpl: models.Template):
         'name': tpl.name,
         'category': tpl.category,
         'msg_type': tpl.msg_type,
-        'description': tpl.description,
+        'description': '',
         'content_json': json_loads(tpl.content, {}),
-        'variables_json': json_loads(tpl.variables, {}),
+        'variables_json': json_loads(tpl.default_variables, {}),
         'is_system': tpl.is_system,
         'created_by_id': tpl.owner_id,
         'updated_at': tpl.updated_at.isoformat(),
@@ -222,8 +222,7 @@ async def perform_job_send(db: Session, schedule: models.Schedule, run_mode: str
         return {'skipped': True, 'reason': 'pending approval'}
         
     group_ids = json_loads(schedule.group_ids_json, [])
-    groups = db.query(models.Group).filter(models.Group.id.in_(group_ids), models.Group.is_enabled == True).all()
-    
+    groups = db.query(models.Group).filter(models.Group.id.in_(group_ids), models.Group.enabled == 1).all()
     results = await do_send_to_groups(db, groups, schedule.msg_type, json_loads(schedule.content, {}), json_loads(schedule.variables, {}), user, schedule=schedule, run_mode=run_mode)
     
     return results
@@ -249,7 +248,7 @@ def bootstrap(request: Request, db: Session = Depends(get_db)):
 @router.get('/groups')
 def list_groups(request: Request, db: Session = Depends(get_db)):
     get_user_or_401(request, db)
-    groups = db.query(models.Group).order_by(models.Groupgroup_type == 'test'.desc(), models.Group.id.desc()).all()
+    groups = db.query(models.Group).order_by(models.Group.group_type.desc(), models.Group.id.desc()).all()
     return [serialize_group(g) for g in groups]
 
 @router.post('/groups')
@@ -263,9 +262,8 @@ async def upsert_group(request: Request, db: Session = Depends(get_db)):
         db.add(group)
     group.name = data['name']
     group.alias = data.get('alias', '')
-    group.description = data.get('description', '')
-    group.tags_json = json_dumps(data.get('tags', []))
-    group.is_enabled = bool(data.get('is_enabled', True))
+    group.tags = json_dumps(data.get('tags', []))
+    group.enabled = 1 if data.get('is_enabled', True) else 0
     group.group_type = 'test' if data.get('is_test_group') else 'formal'
     if data.get('webhook'):
         group.webhook_cipher = encrypt_webhook(data['webhook'])
@@ -305,9 +303,8 @@ async def upsert_template(request: Request, db: Session = Depends(get_db)):
     tpl.name = data['name']
     tpl.category = data.get('category', 'general')
     tpl.msg_type = data['msg_type']
-    tpl.description = data.get('description', '')
     tpl.content = json_dumps(data.get('content_json', {}))
-    tpl.variables = json_dumps(data.get('variables_json', {}))
+    tpl.default_variables = json_dumps(data.get('variables_json', {}))
     tpl.is_system = bool(data.get('is_system', False)) if user.role == 'admin' else False
     db.commit()
     return serialize_template(tpl)
@@ -322,10 +319,9 @@ def clone_template(template_id: int, request: Request, db: Session = Depends(get
         name=f'{tpl.name} - 副本',
         category=tpl.category,
         msg_type=tpl.msg_type,
-        description=tpl.description,
-        content_json=tpl.content,
-        variables_json=tpl.variables,
-        is_system=False,
+        content=tpl.content,
+        default_variables=tpl.default_variables,
+        is_system=0,
         owner_id=user.id,
     )
     db.add(cloned)
@@ -408,9 +404,9 @@ async def send_message(request: Request, db: Session = Depends(get_db)):
     data = parse_body(await request.body())
     group_ids = data.get('group_ids', [])
     if data.get('test_group_only'):
-        groups = db.query(models.Group).filter(models.Groupgroup_type == 'test' == True, models.Group.is_enabled == True).all()
+        groups = db.query(models.Group).filter(models.Group.group_type == 'test', models.Group.enabled == 1).all()
     else:
-        groups = db.query(models.Group).filter(models.Group.id.in_(group_ids), models.Group.is_enabled == True).all()
+        groups = db.query(models.Group).filter(models.Group.id.in_(group_ids), models.Group.enabled == 1).all()
     if not groups:
         raise HTTPException(400, '请选择至少一个已启用的群')
     results = await do_send_to_groups(db, groups, data['msg_type'], data.get('content_json', {}), data.get('variables_json', {}), user, run_mode='test' if data.get('test_group_only') else 'immediate')

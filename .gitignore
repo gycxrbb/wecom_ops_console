@@ -98,3 +98,5 @@ frontend/.next/
 *.temp
 
 .venv/
+
+node_modules/

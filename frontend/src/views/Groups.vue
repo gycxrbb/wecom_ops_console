@@ -87,9 +87,9 @@ const editGroup = (row: any) => {
 }
 
 const deleteGroup = (row: any) => {
-  ElMessageBox.confirm('Confirm delete?', 'Warning', { type: 'warning' }).then(async () => {
-    await request.delete(/v1/groups/\)
-    ElMessage.success('Deleted')
+  ElMessageBox.confirm('确认删除?', '警告', { type: 'warning' }).then(async () => {
+    await request.delete(`/v1/groups/${row.id}`)
+    ElMessage.success('删除成功')
     fetchGroups()
   })
 }

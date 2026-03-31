@@ -13,6 +13,15 @@
 
 本系统将群消息发送从"开发维护"升级为"教练/运营自助操作"，支持训练营、答疑群、复训群、VIP 群等多类运营场景。
 
+## 技术栈
+
+| 层级 | 技术 |
+|------|------|
+| 前端 | Vue 3 + TypeScript + Element Plus + Pinia + Vue Router + Vite |
+| 后端 | Python FastAPI + SQLAlchemy + APScheduler |
+| 数据库 | SQLite（默认）/ MySQL / PostgreSQL |
+| 部署 | Docker Compose |
+
 ## 功能概览
 
 | 模块 | 能力 |
@@ -28,17 +37,15 @@
 
 ### 支持的消息类型
 
-`text` `markdown` `news` `image` `file` `template_card(JSON)` `raw_json`
-
 | 类型 | 适用场景 |
 |------|---------|
-| text | 文本提醒，支持 @人 / @手机号 |
-| markdown | 课程内容、重点强调、换行层级 |
-| news | 图文卡片、活动页跳转 |
-| image | 从资产库选图，自动转 base64 + md5 |
-| file | 从资产库选文件，自动上传 media |
-| template_card | 复杂结构化卡片 |
-| raw_json | 高级模式，直接发送原始 payload |
+| `text` | 文本提醒，支持 @人 / @手机号 |
+| `markdown` | 课程内容、重点强调、换行层级 |
+| `news` | 图文卡片、活动页跳转 |
+| `image` | 从资产库选图，自动转 base64 + md5 |
+| `file` | 从资产库选文件，自动上传 media |
+| `template_card` | 复杂结构化卡片 |
+| `raw_json` | 高级模式，直接发送原始 payload |
 
 ### 用户角色
 
@@ -83,9 +90,10 @@
 ### 环境要求
 
 - Python 3.10+
-- pip
+- Node.js 18+
+- pip, npm
 
-### 本地启动（Windows）
+### 1. 启动后端 FastAPI 服务
 
 ```powershell
 cd wecom_ops_console
@@ -96,7 +104,17 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-打开 http://127.0.0.1:8000
+### 2. 启动前端 Vue3 服务
+
+打开新的终端窗口：
+
+```powershell
+cd wecom_ops_console/frontend
+npm install
+npm run dev
+```
+
+前端开发服务器启动后，打开 **http://localhost:5173**（Vite 开发服务器会自动代理 `/api` 和 `/auth` 请求到后端 `localhost:8000`）。
 
 ### 默认账号
 
@@ -113,13 +131,6 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 docker compose up -d --build
 ```
 
-### 生产部署
-
-```bash
-pip install -r requirements.txt
-uvicorn app.main:app --host 0.0.0.0 --port 8000
-```
-
 ## 推荐上线流程
 
 1. **本地验证** — 建一个测试群机器人，配置到"测试群"，在发送中心用"测试群发送"验证所有模板
@@ -130,30 +141,51 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 ```
 wecom_ops_console/
-├─ app/
-│  ├─ main.py                # FastAPI 入口，lifespan 管理数据库初始化和调度器
-│  ├─ config.py              # 配置管理（pydantic-settings，从 .env 读取）
-│  ├─ database.py            # SQLAlchemy 引擎和会话
-│  ├─ models.py              # ORM 模型：User, Group, Template, Asset, MessageJob, SendLog
-│  ├─ security.py            # 密码哈希、Webhook 加密、用户认证
+├─ app/                          # 后端 FastAPI 应用
+│  ├─ main.py                    # 应用入口，lifespan 管理数据库初始化和调度器
+│  ├─ config.py                  # 配置管理（pydantic-settings，从 .env 读取）
+│  ├─ database.py                # SQLAlchemy 引擎和会话
+│  ├─ models.py                  # ORM 模型：User, Group, Template, Asset, MessageJob, SendLog
+│  ├─ security.py                # 密码哈希、Webhook 加密、用户认证
 │  ├─ routers/
-│  │  ├─ auth.py             # 登录/登出
-│  │  ├─ pages.py            # Jinja2 页面渲染
-│  │  └─ api.py              # REST API 端点
+│  │  ├─ auth.py                 # 登录/登出
+│  │  ├─ pages.py                # Jinja2 页面渲染
+│  │  └─ api.py                  # REST API 端点
 │  ├─ services/
-│  │  ├─ wecom.py            # 企业微信 API 封装，消息构建和发送，频控（20条/分钟）
+│  │  ├─ wecom.py                # 企业微信 API 封装，消息构建和发送，频控（20条/分钟）
 │  │  ├─ scheduler_service.py    # APScheduler 封装，定时任务管理
 │  │  ├─ template_engine.py      # Jinja2 模板渲染，变量替换
 │  │  └─ seed.py                 # 初始数据（admin/coach 用户）
-│  ├─ templates/             # HTML 模板
-│  └─ static/                # CSS/JS 前端资源
+│  ├─ templates/                 # HTML 模板
+│  └─ static/                    # 静态资源
+├─ frontend/                     # 前端 Vue3 应用
+│  ├─ src/
+│  │  ├─ main.ts                 # Vue 入口
+│  │  ├─ App.vue                 # 根组件
+│  │  ├─ router/index.ts         # 路由配置
+│  │  ├─ store/user.ts           # Pinia 用户状态
+│  │  ├─ utils/request.ts        # Axios 请求封装
+│  │  ├─ layout/index.vue        # 布局组件
+│  │  └─ views/                  # 页面组件
+│  │     ├─ Login.vue
+│  │     ├─ Dashboard.vue        # 看板
+│  │     ├─ Groups.vue           # 群管理
+│  │     ├─ Templates.vue        # 模板管理
+│  │     ├─ Assets.vue           # 资产库
+│  │     ├─ SendCenter.vue       # 发送中心
+│  │     ├─ Schedules.vue        # 定时任务
+│  │     ├─ Approvals.vue        # 审批中心
+│  │     ├─ Logs.vue             # 发送记录
+│  │     └─ Users.vue            # 用户管理
+│  ├─ vite.config.ts             # Vite 配置（含 API 代理）
+│  └─ package.json
 ├─ data/
-│  ├─ app.db                 # SQLite 数据库
-│  └─ uploads/               # 上传文件存储
+│  ├─ app.db                     # SQLite 数据库
+│  └─ uploads/                   # 上传文件存储
 ├─ docs/
-│  ├─ PRD.md                 # 产品需求文档
-│  ├─ SYSTEM_DESIGN.md       # 系统设计文档
-│  └─ API_SPEC.md            # 前后端统一接口文档
+│  ├─ PRD.md                     # 产品需求文档
+│  ├─ SYSTEM_DESIGN.md           # 系统设计文档
+│  └─ API_SPEC.md                # 前后端统一接口文档
 ├─ Dockerfile
 ├─ docker-compose.yml
 ├─ requirements.txt
@@ -161,6 +193,12 @@ wecom_ops_console/
 ```
 
 ## 关键设计
+
+### 前后端交互
+
+- 前端通过 Vite 开发代理将 `/api` 和 `/auth` 转发到后端 `localhost:8000`
+- 生产环境通过 Nginx 反向代理统一入口
+- 统一响应结构：`{ code, message, data, request_id }`
 
 ### 认证与权限
 
@@ -203,11 +241,11 @@ render_message_content → attach_asset_paths → WeComService.send
 
 ## 演进规划
 
-| 阶段 | 内容 |
-|------|------|
-| V1（当前） | FastAPI + Jinja2 + SQLite + APScheduler，单机轻量部署 |
-| V2 | Vue3 + Element Plus + TypeScript 前端重构，MySQL + Redis，Celery 调度 |
-| V3 | Next.js 预览/SSR 扩展，A/B 测试，多租户，消息效果追踪 |
+| 阶段 | 内容 | 状态 |
+|------|------|------|
+| V1 | FastAPI + Jinja2 + SQLite + APScheduler，单机轻量部署 | 已完成 |
+| V2 | Vue3 + Element Plus + TypeScript 前端，前后端分离 | **当前** |
+| V3 | MySQL + Redis + Celery 调度，Next.js 预览/SSR 扩展，A/B 测试，多租户 | 规划中 |
 
 详细规划参见 `docs/` 目录下的产品需求文档、系统设计文档和接口规范。
 
