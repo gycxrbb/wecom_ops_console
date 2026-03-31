@@ -7,6 +7,26 @@
 
 ---
 
+## 0. 说明
+
+本文档同时描述两层内容：
+
+1. 当前仓库已经落地的实现形态
+2. 面向生产化演进的目标架构
+
+截至 2026-03-31，当前仓库的真实技术形态是：
+
+- Vue 3 + TypeScript + Element Plus + Pinia + Vue Router
+- FastAPI + SQLAlchemy
+- SQLite 默认落地
+- APScheduler 雏形
+- 本地文件上传
+- JWT 为主、session 兼容
+
+MySQL、Redis、Celery、Next.js 仍属于规划态，而不是当前实现真值。
+
+---
+
 ## 1. 设计目标
 
 本系统面向企业微信群消息运营场景，目标是建设一套支持群管理、模板管理、素材管理、审批、调度、发送、日志与权限管理的可视化平台。系统需兼顾以下要求：
@@ -45,6 +65,27 @@
 
 ## 3. 总体架构
 
+### 3.0 当前实现态（as-is）
+
+```mermaid
+flowchart LR
+    A[Vue3 管理后台] --> B[Vite 代理 / 浏览器]
+    B --> C[FastAPI 单体应用]
+    C --> D[(SQLite)]
+    C --> E[data/uploads]
+    C --> F[WeCom Bot Webhook]
+```
+
+当前特点：
+
+1. 前端通过 Vite 代理访问后端 `/api`
+2. 后端当前仍是单体式 API + 业务逻辑 + 调度骨架
+3. 默认数据存储是 SQLite，而不是 MySQL
+4. 上传素材默认落在本地目录
+5. Redis、队列、独立 Worker 还未成为当前主链路
+
+### 3.1 目标演进态（to-be）
+
 ```mermaid
 flowchart LR
     A[Vue3 管理后台] --> B[API Gateway / Nginx]
@@ -61,12 +102,12 @@ flowchart LR
 
 ### 架构说明
 
-1. **Vue3 管理后台**：提供内部管理页面。
-2. **FastAPI 核心业务服务**：提供认证、群管理、模板、素材、任务、审批、发送、日志等 API。
-3. **Next.js 服务**：提供可选的 SSR 预览能力，用于图文消息落地页、模板展示页、活动页面等，也可未来承接轻量 BFF 能力。
-4. **Redis**：承担缓存、频控、队列、锁与调度协调。
-5. **MySQL**：存放结构化业务数据。
-6. **Worker/Beat**：消费任务、执行调度、调用发送服务。
+1. **Vue3 管理后台**：当前已落地，为内部运营页面主入口。
+2. **FastAPI 核心业务服务**：当前已落地，承载认证、群管理、模板、素材、任务、审批、发送、日志等 API。
+3. **Next.js 服务**：当前未落地，属于后续预览/SSR 扩展层。
+4. **Redis**：当前未接入，属于未来缓存、频控、队列、锁与调度协调层。
+5. **MySQL**：当前未作为默认落地数据库，当前默认是 SQLite。
+6. **Worker/Beat**：当前未形成完整独立服务链路，调度仍以 APScheduler 雏形为主。
 
 ---
 
@@ -183,6 +224,13 @@ flowchart LR
 - 所有任务执行前再次检查任务状态、审批状态、群状态。
 - 支持补偿扫描：服务恢复后补发可容忍时间窗内的漏执行任务。
 
+### 当前实现补充
+
+- 当前已有 `app/services/scheduler_service.py`
+- 但该文件仍引用旧模型名 `MessageJob`
+- 当前任务模型、路由字段、调度服务字段未完全统一
+- 因此调度能力当前应被视为“目标骨架已出现，但未完成工程收口”
+
 ---
 
 ## 4.7 审批流模块
@@ -273,6 +321,16 @@ sequenceDiagram
 ## 6. 数据库设计
 
 > 命名采用蛇形命名；所有表默认带 `id`, `created_at`, `updated_at`, `deleted_at`。
+
+### 6.0 当前实现说明
+
+以下表结构更接近“设计口径”。当前仓库中已经存在对应 ORM，但部分表和字段仍处于迁移中，尤其是：
+
+- `schedules`
+- `messages`
+- `message_logs`
+
+在开发、联调和排障时，应优先以 `app/models.py` 为当前代码真值，并结合 `docs/CURRENT_STATUS.md` 中的漂移说明一起看。
 
 ## 6.1 users
 
@@ -456,6 +514,16 @@ sequenceDiagram
 }
 ```
 
+### 当前实现补充
+
+当前代码已经引入统一响应思路，但还没有彻底收口：
+
+- 一部分接口返回 `{ code, message, data }`
+- 一部分接口直接返回数组或对象
+- `request_id` 当前未形成稳定实现
+
+因此当前接口规范处于“正在向统一协议迁移”的状态。
+
 错误响应示例：
 
 ```json
@@ -475,6 +543,13 @@ sequenceDiagram
 - JWT Access Token + Refresh Token
 - 密码使用 bcrypt/argon2 哈希
 - 登录错误次数限制（可选）
+
+### 当前实现补充
+
+- 当前密码哈希已落地
+- 当前 JWT 登录已落地
+- 代码中保留了 session fallback
+- refresh token 已生成，但刷新接口和完整续期流程尚未收口
 
 ## 9.2 数据安全
 - Webhook AES 加密存储
@@ -496,6 +571,10 @@ sequenceDiagram
 3. 失败后按指数退避重试。
 4. 关键数据先落库再发送，保证可追踪。
 5. 服务重启后支持对短时间窗口内的漏任务进行补偿扫描。
+
+### 当前实现补充
+
+上述内容主要是目标态设计，不是当前单机实现的正式能力。
 
 ---
 
@@ -535,8 +614,16 @@ sequenceDiagram
 ### 最小部署
 - Vue 静态资源
 - FastAPI 单实例
-- MySQL
-- Redis
+- SQLite 或 MySQL
+- 本地上传目录
+
+### 当前仓库默认部署口径
+
+- 前端：Vite 开发服务
+- 后端：`uvicorn app.main:app`
+- 数据库：SQLite
+- 调度：APScheduler 雏形
+- 文件：本地目录
 
 ### 生产部署
 - Nginx
@@ -664,4 +751,3 @@ backend/
 - 用于承接面向外部的预览页、活动页、落地页和 SSR 扩展场景
 - 便于后续拆分内部后台与外部触达页面职责
 - 不与 Vue 管理后台冲突，是补充而非替代
-

@@ -105,44 +105,56 @@ def serialize_material(material: models.Material):
     }
 
 
+def get_schedule_status(schedule: models.Schedule) -> str:
+    if schedule.schedule_type == 'none':
+        return 'draft'
+    if schedule.require_approval and schedule.approval_status != 'approved':
+        return 'pending_approval' if schedule.approval_status != 'rejected' else 'rejected'
+    if not schedule.enabled:
+        return 'draft'
+    return 'approved' if schedule.approval_status == 'approved' else 'scheduled'
+
+
 def serialize_schedule(schedule: models.Schedule):
     return {
-        'id': job.id,
-        'title': job.title,
-        'group_ids': json_loads(job.group_ids_json, []),
-        'template_id': job.template_id,
-        'msg_type': job.msg_type,
-        'content_json': json_loads(job.content, {}),
-        'variables_json': json_loads(job.variables, {}),
-        'schedule_type': job.schedule_type,
-        'run_at': job.run_at.isoformat() if job.run_at else None,
-        'cron_expr': job.cron_expr,
-        'timezone': job.timezone,
-        'enabled': job.enabled,
-        'approval_required': job.approval_required,
-        'approved_at': job.approved_at.isoformat() if job.approved_at else None,
-        'status': job.status,
-        'skip_dates': json_loads(job.skip_dates_json, []),
-        'skip_weekends': job.skip_weekends,
-        'last_error': job.last_error,
-        'created_by_id': job.owner_id,
-        'last_sent_at': job.last_sent_at.isoformat() if job.last_sent_at else None,
-        'created_at': job.created_at.isoformat(),
+        'id': schedule.id,
+        'title': schedule.name,
+        'group_ids': [schedule.group_id] if schedule.group_id else [],
+        'template_id': schedule.template_id,
+        'msg_type': schedule.msg_type,
+        'content_json': json_loads(schedule.content_snapshot, {}),
+        'variables_json': json_loads(schedule.variables, {}),
+        'schedule_type': schedule.schedule_type,
+        'run_at': schedule.run_at.isoformat() if schedule.run_at else None,
+        'cron_expr': schedule.cron_expr,
+        'timezone': schedule.timezone,
+        'enabled': bool(schedule.enabled),
+        'approval_required': bool(schedule.require_approval),
+        'approved_at': None,
+        'status': get_schedule_status(schedule),
+        'skip_dates': json_loads(schedule.skip_dates, []),
+        'skip_weekends': bool(schedule.skip_weekends),
+        'last_error': '',
+        'created_by_id': schedule.owner_id,
+        'last_sent_at': None,
+        'created_at': schedule.created_at.isoformat(),
     }
 
 
 def serialize_log(log: models.MessageLog):
+    message = log.message
+    group = message.group if message and message.group else None
     return {
         'id': log.id,
-        'job_id': log.job_id,
-        'group_id': log.group_id,
-        'group_name': log.group.name if log.group else '',
-        'msg_type': log.msg_type,
-        'run_mode': log.run_mode,
-        'success': log.success,
+        'job_id': message.source_id if message and message.source_type == 'schedule' else None,
+        'group_id': message.group_id if message else None,
+        'group_name': group.name if group else '',
+        'msg_type': message.msg_type if message else '',
+        'run_mode': 'retry' if log.attempt_no > 1 else (message.source_type if message else 'manual'),
+        'success': bool(log.success),
         'error_message': log.error_message,
-        'request_json': json_loads(log.request_json, {}),
-        'response_json': json_loads(log.response_json, {}),
+        'request_json': json_loads(log.request_payload, {}),
+        'response_json': json_loads(log.response_payload, {}),
         'created_at': log.created_at.isoformat(),
     }
 
@@ -220,10 +232,19 @@ async def perform_job_send(db: Session, schedule: models.Schedule, run_mode: str
     user = schedule.owner or db.query(models.User).filter(models.User.role == 'admin').first()
     if schedule.require_approval and schedule.approval_status != 'approved':
         return {'skipped': True, 'reason': 'pending approval'}
-        
-    group_ids = json_loads(schedule.group_ids_json, [])
+
+    group_ids = [schedule.group_id] if schedule.group_id else []
     groups = db.query(models.Group).filter(models.Group.id.in_(group_ids), models.Group.enabled == 1).all()
-    results = await do_send_to_groups(db, groups, schedule.msg_type, json_loads(schedule.content, {}), json_loads(schedule.variables, {}), user, schedule=schedule, run_mode=run_mode)
+    results = await do_send_to_groups(
+        db,
+        groups,
+        schedule.msg_type,
+        json_loads(schedule.content_snapshot, {}),
+        json_loads(schedule.variables, {}),
+        user,
+        schedule=schedule,
+        run_mode=run_mode,
+    )
     
     return results
 def get_user_or_401(request: Request, db: Session):
@@ -234,6 +255,7 @@ def bootstrap(request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
     total_logs = db.query(models.MessageLog).count()
     success_logs = db.query(models.MessageLog).filter(models.MessageLog.success == True).count()
+    pending_approval_count = db.query(models.Schedule).filter(models.Schedule.require_approval == 1, models.Schedule.approval_status != 'approved').count()
     return {
         'current_user': {'id': user.id, 'username': user.username, 'display_name': user.display_name, 'role': user.role},
         'dashboard': {
@@ -242,6 +264,7 @@ def bootstrap(request: Request, db: Session = Depends(get_db)):
             'schedule_count': db.query(models.Schedule).filter(models.Schedule.schedule_type != 'none').count(),
             'log_count': total_logs,
             'success_rate': round((success_logs / total_logs) * 100, 2) if total_logs else 0,
+            'pending_approval_count': pending_approval_count,
         }
     }
 
@@ -369,7 +392,7 @@ def download_asset(asset_id: int, request: Request, db: Session = Depends(get_db
     asset = db.query(models.Material).filter(models.Material.id == asset_id).first()
     if not asset:
         raise HTTPException(404, '资产不存在')
-    return FileResponse(asset.storage_path, media_type=asset.mime_type, filename=asset.file_name)
+    return FileResponse(asset.storage_path, media_type=asset.mime_type, filename=asset.name)
 
 @router.delete('/assets/{asset_id}')
 def delete_asset(asset_id: int, request: Request, db: Session = Depends(get_db)):
@@ -431,34 +454,35 @@ async def create_or_update_schedule(request: Request, db: Session = Depends(get_
         raise HTTPException(403, '不能修改其他人的任务')
     if not job_id:
         db.add(job)
-    job.title = data['title']
-    job.group_ids_json = json_dumps(data.get('group_ids', []))
+    group_ids = data.get('group_ids', [])
+    if not group_ids:
+        raise HTTPException(400, '请选择至少一个群')
+    job.name = data['title']
+    job.group_id = int(group_ids[0])
     job.template_id = data.get('template_id')
     job.msg_type = data['msg_type']
-    job.content = json_dumps(data.get('content_json', {}))
+    job.content_snapshot = json_dumps(data.get('content_json', {}))
     job.variables = json_dumps(data.get('variables_json', {}))
     job.schedule_type = data.get('schedule_type', 'none')
     run_at = data.get('run_at')
     job.run_at = datetime.fromisoformat(run_at) if run_at else None
     job.cron_expr = data.get('cron_expr', '')
     job.timezone = data.get('timezone', 'Asia/Shanghai')
-    job.enabled = bool(data.get('enabled', True))
-    job.approval_required = bool(data.get('approval_required', False))
-    job.skip_dates_json = json_dumps(data.get('skip_dates', []))
-    job.skip_weekends = bool(data.get('skip_weekends', False))
-    requested_status = data.get('status') or ('pending_approval' if job.approval_required and user.role != 'admin' else 'scheduled')
+    job.enabled = 1 if data.get('enabled', True) else 0
+    job.require_approval = 1 if data.get('approval_required', False) else 0
+    job.skip_dates = json_dumps(data.get('skip_dates', []))
+    job.skip_weekends = 1 if data.get('skip_weekends', False) else 0
     if job.schedule_type == 'none':
-        requested_status = 'draft'
-    if user.role == 'admin' and requested_status == 'pending_approval':
-        requested_status = 'approved'
-        job.approved_at = datetime.utcnow()
-        job.approved_by_id = user.id
-    job.status = requested_status
+        job.enabled = 0
+    if job.require_approval:
+        job.approval_status = 'approved' if user.role == 'admin' else 'pending'
+    else:
+        job.approval_status = 'not_required'
     db.commit()
-    if requested_status == 'pending_approval':
+    if job.require_approval and job.approval_status == 'pending':
         req = db.query(models.ApprovalRequest).filter(models.ApprovalRequest.target_type == 'schedule', models.ApprovalRequest.target_id == job.id, models.ApprovalRequest.status == 'pending').first()
         if not req:
-            db.add(models.ApprovalRequest(target_type='schedule', target_id=job.id, status='pending', applicant_id=user.id, reason=f'创建/更新定时任务 {job.title} 需要审批'))
+            db.add(models.ApprovalRequest(target_type='schedule', target_id=job.id, status='pending', applicant_id=user.id, reason=f'创建/更新定时任务 {job.name} 需要审批'))
             db.commit()
     schedule_service.add_or_update_job(job)
     return serialize_schedule(job)
@@ -470,20 +494,20 @@ def clone_schedule(job_id: int, request: Request, db: Session = Depends(get_db))
     if not job:
         raise HTTPException(404, '任务不存在')
     cloned = models.Schedule(
-        title=f'{job.title} - 副本',
-        group_ids_json=job.group_ids_json,
+        name=f'{job.name} - 副本',
+        group_id=job.group_id,
         template_id=job.template_id,
         msg_type=job.msg_type,
-        content_json=job.content,
-        variables_json=job.variables,
+        content_snapshot=job.content_snapshot,
+        variables=job.variables,
         schedule_type=job.schedule_type,
         run_at=job.run_at,
         cron_expr=job.cron_expr,
         timezone=job.timezone,
-        enabled=False,
-        approval_required=job.approval_required,
-        status='draft',
-        skip_dates_json=job.skip_dates_json,
+        enabled=0,
+        require_approval=job.require_approval,
+        approval_status='pending' if job.require_approval else 'not_required',
+        skip_dates=job.skip_dates,
         skip_weekends=job.skip_weekends,
         owner_id=user.id,
     )
@@ -511,9 +535,7 @@ def approve_schedule(job_id: int, request: Request, db: Session = Depends(get_db
     job = db.query(models.Schedule).filter(models.Schedule.id == job_id).first()
     if not job:
         raise HTTPException(404, '任务不存在')
-    job.approved_at = datetime.utcnow()
-    job.approved_by_id = user.id
-    job.status = 'approved' if job.schedule_type in {'once', 'cron'} else 'draft'
+    job.approval_status = 'approved'
     db.commit()
     schedule_service.add_or_update_job(job)
     return serialize_schedule(job)
@@ -539,7 +561,7 @@ async def run_schedule_now(job_id: int, request: Request, db: Session = Depends(
         raise HTTPException(404, '任务不存在')
     if user.role != 'admin' and job.owner_id != user.id:
         raise HTTPException(403, '不能执行其他人的任务')
-    if job.approval_required and not job.approved_at and user.role != 'admin':
+    if job.require_approval and job.approval_status != 'approved' and user.role != 'admin':
         raise HTTPException(403, '该任务尚未审批')
     results = await perform_job_send(db, job, run_mode='manual-run')
     return {'results': results}
@@ -549,7 +571,7 @@ def list_logs(request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
     query = db.query(models.MessageLog).order_by(models.MessageLog.created_at.desc())
     if user.role != 'admin':
-        query = query.filter(models.MessageLog.initiated_by_id == user.id)
+        query = query.join(models.Message).filter(models.Message.created_by == user.id)
     logs = query.limit(200).all()
     return [serialize_log(log) for log in logs]
 
@@ -559,19 +581,43 @@ async def retry_log(log_id: int, request: Request, db: Session = Depends(get_db)
     log = db.query(models.MessageLog).filter(models.MessageLog.id == log_id).first()
     if not log:
         raise HTTPException(404, '日志不存在')
-    if user.role != 'admin' and log.initiated_by_id != user.id:
+    if not log.message:
+        raise HTTPException(400, '该日志缺少消息记录，无法重试')
+    if user.role != 'admin' and log.message.created_by != user.id:
         raise HTTPException(403, '不能重试其他人的日志')
-    if not log.group:
+    if not log.message.group:
         raise HTTPException(400, '该日志缺少群信息，无法重试')
-    webhook = decrypt_webhook(log.group.webhook_cipher)
+    webhook = decrypt_webhook(log.message.group.webhook_cipher)
     try:
-        payload, response = await WeComService.send(webhook, log.msg_type, json_loads(log.request_json, {}), group_key=str(log.group_id))
-        new_log = models.MessageLog(job_id=log.job_id, group_id=log.group_id, initiated_by_id=user.id, msg_type=log.msg_type, run_mode='retry', request_json=json_dumps(payload), response_json=json_dumps(response), success=True)
+        payload, response = await WeComService.send(
+            webhook,
+            log.message.msg_type,
+            json_loads(log.message.rendered_content, {}),
+            group_key=str(log.message.group_id),
+        )
+        new_log = models.MessageLog(
+            message_id=log.message_id,
+            request_payload=json_dumps(payload),
+            response_payload=json_dumps(response),
+            http_status=200,
+            success=1,
+            latency_ms=0,
+            attempt_no=log.attempt_no + 1,
+        )
         db.add(new_log)
         db.commit()
         return serialize_log(new_log)
     except Exception as exc:
-        new_log = models.MessageLog(job_id=log.job_id, group_id=log.group_id, initiated_by_id=user.id, msg_type=log.msg_type, run_mode='retry', request_json=log.request_json, response_json='{}', success=False, error_message=str(exc))
+        new_log = models.MessageLog(
+            message_id=log.message_id,
+            request_payload=log.request_payload,
+            response_payload='{}',
+            http_status=500,
+            success=0,
+            latency_ms=0,
+            error_message=str(exc),
+            attempt_no=log.attempt_no + 1,
+        )
         db.add(new_log)
         db.commit()
         return JSONResponse(status_code=400, content=serialize_log(new_log))
@@ -612,12 +658,14 @@ def get_dashboard_summary(request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
     total_logs = db.query(models.MessageLog).count()
     success_logs = db.query(models.MessageLog).filter(models.MessageLog.success == True).count()
+    pending_approval_count = db.query(models.Schedule).filter(models.Schedule.require_approval == 1, models.Schedule.approval_status != 'approved').count()
     return {
         'group_count': db.query(models.Group).count(),
         'template_count': db.query(models.Template).count(),
         'schedule_count': db.query(models.Schedule).filter(models.Schedule.schedule_type != 'none').count(),
         'log_count': total_logs,
         'success_rate': round((success_logs / total_logs) * 100, 2) if total_logs else 0,
+        'pending_approval_count': pending_approval_count,
     }
 
 import sqlalchemy
@@ -722,9 +770,8 @@ async def approve_request(approval_id: int, request: Request, db: Session = Depe
     if appr.target_type == 'schedule':
         job = db.query(models.Schedule).filter(models.Schedule.id == appr.target_id).first()
         if job:
-            job.approved_at = datetime.utcnow()
-            job.approved_by_id = user.id
-            job.status = 'approved' if job.schedule_type == 'cron' else job.status
+            job.approval_status = 'approved'
+            schedule_service.add_or_update_job(job)
     
     db.commit()
     return {"id": appr.id, "status": appr.status}
@@ -746,7 +793,8 @@ async def reject_request(approval_id: int, request: Request, db: Session = Depen
     if appr.target_type == 'schedule':
         job = db.query(models.Schedule).filter(models.Schedule.id == appr.target_id).first()
         if job:
-            job.status = 'rejected'
+            job.approval_status = 'rejected'
+            schedule_service.add_or_update_job(job)
             
     db.commit()
     return {"id": appr.id, "status": appr.status}

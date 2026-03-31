@@ -68,6 +68,7 @@
           </span>
           <template #dropdown>
             <el-dropdown-menu>
+              <el-dropdown-item command="profile">个人中心</el-dropdown-item>
               <el-dropdown-item command="logout">退出登录</el-dropdown-item>
             </el-dropdown-menu>
           </template>
@@ -136,6 +137,8 @@ const handleLogout = async () => {
 const handleCommand = (command: string) => {
   if (command === 'logout') {
     handleLogout()
+  } else if (command === 'profile') {
+    router.push('/profile')
   }
 }
 
@@ -150,7 +153,8 @@ const getRouteName = () => {
     '/schedules': '定时任务',
     '/logs': '发送记录',
     '/approvals': '审批中心',
-    '/users': '用户管理'
+    '/users': '用户管理',
+    '/profile': '个人中心'
   }
   return map[route.path] || '页面'
 }

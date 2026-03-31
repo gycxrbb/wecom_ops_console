@@ -173,7 +173,7 @@ def seed_all(db: Session):
                 category=item.get('category', 'general'),
                 msg_type=item['msg_type'],
                 content=json_dumps(item['content_json']),
-                variable_schema=json_dumps(item.get('variables_json', {})),
+                default_variables=json_dumps(item.get('variables_json', {})),
                 is_system=1,
                 owner_id=admin.id if admin else None,
             ))

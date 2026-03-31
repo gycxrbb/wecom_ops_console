@@ -30,7 +30,7 @@ def send_message_task(self, message_id: int):
             return 'Group disabled or not found'
 
         webhook_url = decrypt_webhook(group.webhook_cipher)
-        payload = json_loads(message.rendered_content)
+        rendered_content = json_loads(message.rendered_content, {})
 
         start_time = time.time()
         success = False
@@ -43,14 +43,16 @@ def send_message_task(self, message_id: int):
             # Wait, payload here is raw payload or content?
             # WeComService.send expects msg_type and content dictionary!
             msg_type = message.msg_type
-            payload_data, resp_data = asyncio.run(WeComService.send(webhook_url, msg_type, payload, group_key=str(group.id)))
+            payload_data, resp_data = asyncio.run(WeComService.send(webhook_url, msg_type, rendered_content, group_key=str(group.id)))
             success = True
             message.status = 'sent'
+            message.request_payload = json_dumps(payload_data)
         except Exception as e:
             success = False
             error_msg = str(e)
             message.status = 'failed'
             http_status = 500
+            payload_data = rendered_content
 
         latency_ms = int((time.time() - start_time) * 1000)
         message.sent_at = datetime.utcnow()
@@ -58,7 +60,7 @@ def send_message_task(self, message_id: int):
         
         log = models.MessageLog(
             message_id=message.id,
-            request_payload=json_dumps(payload),
+            request_payload=json_dumps(payload_data),
             response_payload=json_dumps(resp_data),
             http_status=http_status,
             success=1 if success else 0,

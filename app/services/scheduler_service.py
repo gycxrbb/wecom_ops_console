@@ -25,19 +25,21 @@ class ScheduleService:
         self.scheduler.remove_all_jobs()
         db = SessionLocal()
         try:
-            jobs = db.query(models.MessageJob).filter(models.MessageJob.enabled == True, models.MessageJob.status.in_(['scheduled', 'approved'])).all()
+            jobs = db.query(models.Schedule).filter(models.Schedule.enabled == 1, models.Schedule.schedule_type.in_(['once', 'cron'])).all()
             for job in jobs:
                 self.add_or_update_job(job)
         finally:
             db.close()
 
-    def add_or_update_job(self, job: models.MessageJob):
+    def add_or_update_job(self, job: models.Schedule):
         aps_id = f'job-{job.id}'
         try:
             self.scheduler.remove_job(aps_id)
         except Exception:
             pass
-        if not job.enabled or job.status not in {'scheduled', 'approved'}:
+        if not job.enabled:
+            return
+        if job.require_approval and job.approval_status != 'approved':
             return
         if job.schedule_type == 'once' and job.run_at:
             trigger = DateTrigger(run_date=job.run_at)
@@ -54,11 +56,11 @@ async def execute_job(job_id: int):
     from ..routers.api import perform_job_send
     db: Session = SessionLocal()
     try:
-        job = db.query(models.MessageJob).filter(models.MessageJob.id == job_id).first()
+        job = db.query(models.Schedule).filter(models.Schedule.id == job_id).first()
         if not job or not job.enabled:
             return
         now = datetime.now(ZoneInfo(job.timezone or 'Asia/Shanghai'))
-        skip_dates = set(json_loads(job.skip_dates_json, []))
+        skip_dates = set(json_loads(job.skip_dates, []))
         if job.skip_weekends and now.weekday() >= 5:
             return
         if now.strftime('%Y-%m-%d') in skip_dates:
@@ -66,7 +68,6 @@ async def execute_job(job_id: int):
         await perform_job_send(db, job, run_mode='scheduled')
         if job.schedule_type == 'once':
             job.enabled = False
-            job.status = 'completed'
             db.commit()
     finally:
         db.close()

@@ -131,7 +131,7 @@ export function useSendLogic() {
     try {
       await request.post('/v1/schedules', {
         title: scheduleForm.title,
-        group_ids: form.groups.join(','),
+        group_ids: [...form.groups],
         schedule_type: scheduleForm.schedule_type,
         run_at: scheduleForm.run_at || null,
         cron_expr: scheduleForm.cron_expr || null,

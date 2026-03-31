@@ -59,6 +59,10 @@ class Material(Base, TimestampMixin):
     enabled: Mapped[int] = mapped_column(Integer, default=1)
     owner = relationship('User')
 
+    @property
+    def file_name(self) -> str:
+        return self.name
+
 class Schedule(Base, TimestampMixin):
     __tablename__ = 'schedules'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -82,6 +86,56 @@ class Schedule(Base, TimestampMixin):
     group = relationship('Group')
     template = relationship('Template')
     owner = relationship('User')
+
+    @property
+    def title(self) -> str:
+        return self.name
+
+    @title.setter
+    def title(self, value: str) -> None:
+        self.name = value
+
+    @property
+    def content(self) -> str:
+        return self.content_snapshot
+
+    @content.setter
+    def content(self, value: str) -> None:
+        self.content_snapshot = value
+
+    @property
+    def group_ids_json(self) -> str:
+        return f'[{self.group_id}]' if self.group_id is not None else '[]'
+
+    @group_ids_json.setter
+    def group_ids_json(self, value: str) -> None:
+        try:
+            import json
+            parsed = json.loads(value) if isinstance(value, str) else value
+        except Exception:
+            parsed = value
+        if isinstance(parsed, list):
+            self.group_id = int(parsed[0]) if parsed else 0
+        elif parsed in (None, ''):
+            self.group_id = 0
+        else:
+            self.group_id = int(parsed)
+
+    @property
+    def skip_dates_json(self) -> str:
+        return self.skip_dates
+
+    @skip_dates_json.setter
+    def skip_dates_json(self, value: str) -> None:
+        self.skip_dates = value
+
+    @property
+    def approval_required(self) -> bool:
+        return bool(self.require_approval)
+
+    @approval_required.setter
+    def approval_required(self, value: bool) -> None:
+        self.require_approval = 1 if value else 0
 
 class Message(Base, TimestampMixin):
     __tablename__ = 'messages'
@@ -115,6 +169,22 @@ class MessageLog(Base, TimestampMixin):
     error_message: Mapped[str | None] = mapped_column(String(255), nullable=True)
     attempt_no: Mapped[int] = mapped_column(Integer, default=1)
     message = relationship('Message')
+
+    @property
+    def request_json(self) -> str:
+        return self.request_payload
+
+    @request_json.setter
+    def request_json(self, value: str) -> None:
+        self.request_payload = value
+
+    @property
+    def response_json(self) -> str:
+        return self.response_payload
+
+    @response_json.setter
+    def response_json(self, value: str) -> None:
+        self.response_payload = value
 
 class ApprovalRequest(Base, TimestampMixin):
     __tablename__ = 'approval_requests'

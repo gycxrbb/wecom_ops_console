@@ -24,7 +24,8 @@ const router = createRouter({
         { path: 'schedules', name: 'Schedules', component: () => import('@/views/Schedules.vue'), meta: { requiresAuth: true, title: '定时任务' } },
         { path: 'logs', name: 'Logs', component: () => import('@/views/Logs.vue'), meta: { requiresAuth: true, title: '发送记录' } },
         { path: 'approvals', name: 'Approvals', component: () => import('@/views/Approvals.vue'), meta: { requiresAuth: true, title: '审批中心' } },
-        { path: 'users', name: 'Users', component: () => import('@/views/Users.vue'), meta: { requiresAuth: true, title: '用户管理' } }
+        { path: 'users', name: 'Users', component: () => import('@/views/Users.vue'), meta: { requiresAuth: true, title: '用户管理' } },
+        { path: 'profile', name: 'Profile', component: () => import('@/views/Profile.vue'), meta: { requiresAuth: true, title: '个人中心' } }
       ]
     }
   ]

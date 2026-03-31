@@ -63,7 +63,7 @@
             </div>
             <div class="status-item">
               <span class="status-label">发送成功率</span>
-              <span class="status-val success">{{ dashboardStats.success_rate || '100%' }}</span>
+              <span class="status-val success">{{ formatSuccessRate(dashboardStats.success_rate) }}</span>
             </div>
             <div class="status-item">
               <span class="status-label">系统环境</span>
@@ -99,10 +99,21 @@ import { RefreshRight, ChatDotRound, Document, Timer, Tickets } from '@element-p
 const router = useRouter()
 const dashboardStats = ref<any>(null)
 
+const formatSuccessRate = (value: unknown) => {
+  const num = typeof value === 'number' ? value : Number(value)
+  if (Number.isFinite(num)) {
+    return `${num}%`
+  }
+  return '0%'
+}
+
 const fetchDashboard = async () => {
   try {
-    const res = await request.get('/v1/bootstrap')
-    dashboardStats.value = res.dashboard
+    const res = await request.get('/v1/dashboard/summary')
+    dashboardStats.value = {
+      ...res,
+      pending_approval_count: res.pending_approval_count ?? 0
+    }
   } catch (error) {
     console.error(error)
   }

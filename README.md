@@ -13,6 +13,16 @@
 
 本系统将群消息发送从"开发维护"升级为"教练/运营自助操作"，支持训练营、答疑群、复训群、VIP 群等多类运营场景。
 
+## 当前状态
+
+截至 2026-03-31，项目已经具备前后端分离的产品骨架，主要页面和 API 已经存在，但仍处于 V2 联调和工程收口阶段。
+
+- 已有：登录、群管理、模板管理、素材库、发送中心、审批、日志、基础看板
+- 半完成：定时任务链路、审批联动、统一响应协议、日志字段统一
+- 规划中：MySQL / Redis / Celery / Next.js 扩展能力
+
+如果要快速了解“代码现在真实做到哪一步”，建议先看 [docs/CURRENT_STATUS.md](./docs/CURRENT_STATUS.md)。
+
 ## 技术栈
 
 | 层级 | 技术 |
@@ -249,6 +259,13 @@ render_message_content → attach_asset_paths → WeComService.send
 | V3 | MySQL + Redis + Celery 调度，Next.js 预览/SSR 扩展，A/B 测试，多租户 | 规划中 |
 
 详细规划参见 `docs/` 目录下的产品需求文档、系统设计文档和接口规范。
+
+## 文档说明
+
+- [docs/CURRENT_STATUS.md](./docs/CURRENT_STATUS.md)：当前仓库真实状态、主要漂移和下一步建议
+- [docs/PRD.md](./docs/PRD.md)：业务目标、范围和验收口径
+- [docs/SYSTEM_DESIGN.md](./docs/SYSTEM_DESIGN.md)：当前实现态 + 目标演进态架构说明
+- [docs/API_SPEC.md](./docs/API_SPEC.md)：当前接口口径与规划接口说明
 
 ## License
 
