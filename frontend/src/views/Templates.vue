@@ -2,12 +2,16 @@
   <div class="view-container">
     <div class="header-actions">
       <h2>模板中心</h2>
-      <el-button type="primary" @click="dialogVisible = true">新增模板</el-button>
+      <el-button type="primary" @click="openCreate">新增模板</el-button>
     </div>
 
     <el-table :data="templates" style="width: 100%" v-loading="loading">
       <el-table-column prop="name" label="模板名称" />
-      <el-table-column prop="msg_type" label="消息类型" />
+      <el-table-column prop="msg_type" label="消息类型">
+        <template #default="{ row }">
+          <el-tag>{{ msgTypeLabel(row.msg_type) }}</el-tag>
+        </template>
+      </el-table-column>
       <el-table-column prop="category" label="分类" />
       <el-table-column label="操作" width="200">
         <template #default="{ row }">
@@ -18,13 +22,25 @@
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="dialogVisible" :title="form.id ? '编辑模板' : '新增模板'" width="60%">
-      <el-form label-width="100px" :model="form">
-        <el-form-item label="模板名称"><el-input v-model="form.name" /></el-form-item>
-        <el-form-item label="分类"><el-input v-model="form.category" /></el-form-item>
-        <el-form-item label="描述"><el-input v-model="form.description" /></el-form-item>
+    <el-dialog v-model="dialogVisible" :title="form.id ? '编辑模板' : '新增模板'" width="70%" top="5vh">
+      <el-form label-width="100px">
+        <el-form-item label="模板名称">
+          <el-input v-model="form.name" placeholder="输入模板名称" />
+        </el-form-item>
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="分类">
+              <el-input v-model="form.category" placeholder="模板分类" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="描述">
+              <el-input v-model="form.description" placeholder="模板描述" />
+            </el-form-item>
+          </el-col>
+        </el-row>
         <el-form-item label="消息类型">
-          <el-select v-model="form.msg_type">
+          <el-select v-model="form.msg_type" @change="handleMsgTypeChange" style="width: 200px">
             <el-option label="文本" value="text"></el-option>
             <el-option label="Markdown" value="markdown"></el-option>
             <el-option label="图片" value="image"></el-option>
@@ -33,11 +49,15 @@
             <el-option label="模板卡片" value="template_card"></el-option>
           </el-select>
         </el-form-item>
-        <el-form-item label="内容(JSON)">
-          <el-input type="textarea" :rows="6" v-model="form.content" />
-        </el-form-item>
-        <el-form-item label="变量示例">
-          <el-input type="textarea" :rows="3" v-model="form.variables_schema" />
+
+        <el-form-item label="模板内容">
+          <MessageEditor
+            v-model="form.contentJson"
+            :msg-type="form.msg_type"
+            v-model:variables="form.variablesJson"
+            :show-variables="true"
+            style="width: 100%"
+          />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -52,20 +72,38 @@
 import { ref, onMounted, reactive } from 'vue'
 import request from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import MessageEditor from '@/components/message-editor/index.vue'
 
-const templates = ref([])
+const templates = ref<any[]>([])
 const loading = ref(false)
 const dialogVisible = ref(false)
 
+const defaultContentByType: Record<string, any> = {
+  text: { content: '', mentioned_list: [], mentioned_mobile_list: [] },
+  markdown: { content: '' },
+  news: { articles: [] },
+  image: {},
+  file: {},
+  template_card: { card_type: 'text_notice', main_title: { title: '' } },
+}
+
 const form = reactive({
-  id: null,
+  id: null as number | null,
   name: '',
   description: '',
   msg_type: 'text',
-  category: 'default',
-  content: '',
-  variables_schema: '{}'
+  category: 'general',
+  contentJson: { ...defaultContentByType.text },
+  variablesJson: {} as Record<string, any>,
 })
+
+const msgTypeLabel = (type: string) => {
+  const map: Record<string, string> = {
+    text: '文本', markdown: 'Markdown', image: '图片',
+    news: '图文', file: '文件', template_card: '模板卡片'
+  }
+  return map[type] || type
+}
 
 const fetchTemplates = async () => {
   loading.value = true
@@ -79,9 +117,42 @@ const fetchTemplates = async () => {
   }
 }
 
-const editTemplate = (row: any) => {
-  Object.assign(form, row)
+const openCreate = () => {
+  form.id = null
+  form.name = ''
+  form.description = ''
+  form.msg_type = 'text'
+  form.category = 'general'
+  form.contentJson = { ...defaultContentByType.text }
+  form.variablesJson = {}
   dialogVisible.value = true
+}
+
+const editTemplate = (row: any) => {
+  form.id = row.id
+  form.name = row.name
+  form.description = row.description || ''
+  form.msg_type = row.msg_type
+  form.category = row.category || 'general'
+  // 解析 content
+  try {
+    form.contentJson = typeof row.content === 'string' ? JSON.parse(row.content) : (row.content || {})
+  } catch {
+    form.contentJson = { ...(defaultContentByType[row.msg_type] || {}) }
+  }
+  // 解析 variables
+  try {
+    form.variablesJson = typeof row.variable_schema === 'string'
+      ? JSON.parse(row.variable_schema)
+      : (row.variable_schema || {})
+  } catch {
+    form.variablesJson = {}
+  }
+  dialogVisible.value = true
+}
+
+const handleMsgTypeChange = (type: string) => {
+  form.contentJson = { ...(defaultContentByType[type] || {}) }
 }
 
 const cloneTemplate = async (row: any) => {
@@ -101,8 +172,19 @@ const deleteTemplate = (row: any) => {
 }
 
 const saveTemplate = async () => {
+  if (!form.name.trim()) {
+    return ElMessage.warning('请输入模板名称')
+  }
   try {
-    await request.post('/v1/templates', form)
+    await request.post('/v1/templates', {
+      id: form.id,
+      name: form.name,
+      description: form.description,
+      category: form.category,
+      msg_type: form.msg_type,
+      content_json: form.contentJson,
+      variables_json: form.variablesJson,
+    })
     dialogVisible.value = false
     ElMessage.success('保存成功')
     fetchTemplates()
@@ -117,7 +199,7 @@ onMounted(() => {
 <style scoped>
 .view-container {
   padding: 20px;
-  background: var(--card-bg);
+  background: var(--card-bg, #fff);
   border-radius: 4px;
 }
 .header-actions {

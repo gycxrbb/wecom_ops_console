@@ -17,7 +17,7 @@ const router = createRouter({
       redirect: '/dashboard',
       children: [
         { path: 'dashboard', name: 'Dashboard', component: () => import('@/views/Dashboard.vue'), meta: { requiresAuth: true, title: '看板' } },
-        { path: 'send', name: 'SendCenter', component: () => import('@/views/SendCenter.vue'), meta: { requiresAuth: true, title: '发送中心' } },
+        { path: 'send', name: 'SendCenter', component: () => import('@/views/SendCenter/index.vue'), meta: { requiresAuth: true, title: '发送中心' } },
         { path: 'groups', name: 'Groups', component: () => import('@/views/Groups.vue'), meta: { requiresAuth: true, title: '群管理' } },
         { path: 'templates', name: 'Templates', component: () => import('@/views/Templates.vue'), meta: { requiresAuth: true, title: '模板中心' } },
         { path: 'assets', name: 'Assets', component: () => import('@/views/Assets.vue'), meta: { requiresAuth: true, title: '素材库' } },

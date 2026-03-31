@@ -18,7 +18,7 @@
               </el-select>
             </el-form-item>
             <el-form-item label="消息类型">
-              <el-select v-model="form.msg_type" style="width: 100%">
+              <el-select v-model="form.msg_type" @change="handleMsgTypeChange" style="width: 100%">
                 <el-option label="文本" value="text"></el-option>
                 <el-option label="Markdown" value="markdown"></el-option>
                 <el-option label="图片" value="image"></el-option>
@@ -27,12 +27,18 @@
                 <el-option label="模板卡片" value="template_card"></el-option>
               </el-select>
             </el-form-item>
-            <el-form-item label="变量(JSON)" v-if="selectedTemplate">
-              <el-input type="textarea" :rows="4" v-model="form.variables" />
+
+            <!-- 可视化编辑器 -->
+            <el-form-item label="消息内容">
+              <MessageEditor
+                v-model="form.contentJson"
+                :msg-type="form.msg_type"
+                v-model:variables="form.variables"
+                :show-variables="!!selectedTemplate"
+                style="width: 100%"
+              />
             </el-form-item>
-            <el-form-item label="内容">
-              <el-input type="textarea" :rows="6" v-model="form.content" />
-            </el-form-item>
+
             <el-form-item>
               <el-button type="info" @click="handlePreview">预览</el-button>
               <el-button type="primary" @click="handleSend">立即发送</el-button>
@@ -40,7 +46,7 @@
           </el-form>
         </el-card>
       </el-col>
-      
+
       <!-- Right side: Preview & Schedule -->
       <el-col :span="12">
         <el-card style="margin-bottom: 20px">
@@ -80,18 +86,29 @@
 import { ref, onMounted, reactive } from 'vue'
 import request from '@/utils/request'
 import { ElMessage } from 'element-plus'
+import MessageEditor from '@/components/message-editor/index.vue'
 
 const groups = ref<any[]>([])
 const templates = ref<any[]>([])
-const selectedTemplate = ref(null)
+const selectedTemplate = ref<any>(null)
 const previewResult = ref('暂无预览')
 
+// 默认内容按类型初始化
+const defaultContentByType: Record<string, any> = {
+  text: { content: '', mentioned_list: [], mentioned_mobile_list: [] },
+  markdown: { content: '' },
+  news: { articles: [] },
+  image: {},
+  file: {},
+  template_card: { card_type: 'text_notice', main_title: { title: '' } },
+}
+
 const form = reactive({
-  groups: [],
+  groups: [] as number[],
   msg_type: 'text',
-  content: '',
-  variables: '{}',
-  template_id: null
+  contentJson: { ...defaultContentByType.text },
+  variables: {} as Record<string, any>,
+  template_id: null as number | null
 })
 
 const scheduleForm = reactive({
@@ -110,24 +127,43 @@ const fetchBaseData = async () => {
   } catch (e) { console.error(e) }
 }
 
+const handleMsgTypeChange = (type: string) => {
+  form.contentJson = { ...(defaultContentByType[type] || {}) }
+}
+
 const handleTemplateChange = (val: any) => {
-  const t = templates.value.find(x => x.id === val)
+  const t = templates.value.find((x: any) => x.id === val)
   if (t) {
-    form.content = t.content
     form.msg_type = t.msg_type
-    form.variables = t.variables_schema || '{}'
     form.template_id = t.id
+    // 解析模板 content JSON
+    try {
+      const content = typeof t.content === 'string' ? JSON.parse(t.content) : (t.content || {})
+      form.contentJson = { ...content }
+    } catch {
+      form.contentJson = { ...(defaultContentByType[t.msg_type] || {}) }
+    }
+    // 解析变量
+    try {
+      const vars = typeof t.variable_schema === 'string' ? JSON.parse(t.variable_schema) : (t.variable_schema || {})
+      form.variables = { ...vars }
+    } catch {
+      form.variables = {}
+    }
   } else {
     form.template_id = null
+    form.variables = {}
+    handleMsgTypeChange(form.msg_type)
   }
 }
 
 const handlePreview = async () => {
   try {
     const res = await request.post('/v1/preview', {
-      template_id: form.template_id,
-      content: form.content,
-      variables: JSON.parse(form.variables || '{}')
+      msg_type: form.msg_type,
+      content_json: form.contentJson,
+      variables_json: form.variables,
+      group_ids: form.groups.length > 0 ? [form.groups[0]] : undefined
     })
     previewResult.value = JSON.stringify(res, null, 2)
   } catch (e: any) {
@@ -143,8 +179,8 @@ const handleSend = async () => {
     await request.post('/v1/send', {
       group_ids: form.groups,
       msg_type: form.msg_type,
-      content: form.content,
-      variables: JSON.parse(form.variables || '{}')
+      content_json: form.contentJson,
+      variables_json: form.variables
     })
     ElMessage.success('已触发发送任务')
   } catch (e) {
@@ -164,8 +200,8 @@ const handleSchedule = async () => {
       run_at: scheduleForm.run_at || null,
       cron_expr: scheduleForm.cron_expr || null,
       msg_type: form.msg_type,
-      content: form.content,
-      variables: form.variables
+      content_json: form.contentJson,
+      variables_json: form.variables
     })
     ElMessage.success('定时任务创建成功')
   } catch (e) {
@@ -183,11 +219,12 @@ onMounted(() => {
   padding: 20px;
 }
 .preview-box {
-  background: var(--bg-color);
+  background: var(--bg-color, #f5f7fa);
   padding: 10px;
   border-radius: 4px;
   min-height: 100px;
   white-space: pre-wrap;
   word-break: break-all;
+  font-size: 13px;
 }
 </style>

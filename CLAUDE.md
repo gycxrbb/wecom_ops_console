@@ -128,19 +128,26 @@ routers/
 - 使用统一的业务异常类（如 `BizError`）+ 全局异常处理器
 - 禁止每个路由函数各自构造不同格式的错误响应
 
-### 前端 JS 拆分
+### 前端 Vue 拆分
+
+前端项目位于 `frontend` 目录，基于 Vue 3 + Vite 构建，使用 TypeScript。
 
 ```
-static/
-├── app.js          # 入口 + 页面切换
-├── api.js          # 统一 HTTP 请求封装
-└── pages/
-    ├── groups.js
-    ├── templates.js
-    ├── send.js
-    ├── schedules.js
-    ├── logs.js
-    └── dashboard.js
+frontend/src/
+├── components/     # 全局公共组件
+├── composables/    # 全局公共逻辑
+├── layout/         # 页面布局组件
+├── router/         # 路由配置
+├── stores/         # Pinia 状态管理
+├── utils/          # 工具函数（如 axios 封装）
+└── views/          # 页面视图组件
+    ├── Dashboard.vue
+    ├── SendCenter/ # 复杂页面按模块拆分（如：逻辑/样式/子组件分离）
+    │   ├── index.vue
+    │   ├── composables/
+    │   ├── components/
+    │   └── styles/
+    └── ...
 ```
 
 ### 禁止事项

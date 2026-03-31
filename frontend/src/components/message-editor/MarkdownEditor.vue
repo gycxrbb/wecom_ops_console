@@ -1,0 +1,206 @@
+<template>
+  <div class="markdown-editor">
+    <div class="toolbar">
+      <el-button-group>
+        <el-button size="small" @click="insert('bold')" title="加粗">
+          <strong>B</strong>
+        </el-button>
+        <el-button size="small" @click="insert('h1')" title="一级标题">H1</el-button>
+        <el-button size="small" @click="insert('h2')" title="二级标题">H2</el-button>
+        <el-button size="small" @click="insert('h3')" title="三级标题">H3</el-button>
+      </el-button-group>
+      <el-button-group style="margin-left: 8px">
+        <el-button size="small" @click="insert('link')" title="链接">
+          <el-icon><Link /></el-icon>
+        </el-button>
+        <el-button size="small" @click="insert('image')" title="图片">
+          <el-icon><Picture /></el-icon>
+        </el-button>
+      </el-button-group>
+      <el-button-group style="margin-left: 8px">
+        <el-button size="small" @click="insert('quote')" title="引用">
+          <el-icon><ChatLineSquare /></el-icon>
+        </el-button>
+        <el-button size="small" @click="insert('code')" title="代码">
+          <el-icon><Document /></el-icon>
+        </el-button>
+        <el-button size="small" @click="insert('list')" title="列表">
+          <el-icon><List /></el-icon>
+        </el-button>
+      </el-button-group>
+    </div>
+    <el-input
+      ref="textareaRef"
+      type="textarea"
+      :rows="12"
+      :model-value="modelValue.content || ''"
+      @update:model-value="updateContent"
+      placeholder="输入 Markdown 内容...&#10;&#10;支持格式:&#10;# 标题&#10;**加粗**&#10;[链接文字](url)&#10;> 引用"
+    />
+  </div>
+
+  <!-- 链接插入弹窗 -->
+  <el-dialog v-model="linkDialogVisible" title="插入链接" width="400px" append-to-body>
+    <el-form label-width="80px">
+      <el-form-item label="链接文字">
+        <el-input v-model="linkText" placeholder="显示的文字" />
+      </el-form-item>
+      <el-form-item label="链接地址">
+        <el-input v-model="linkUrl" placeholder="https://" />
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="linkDialogVisible = false">取消</el-button>
+      <el-button type="primary" @click="confirmInsertLink">插入</el-button>
+    </template>
+  </el-dialog>
+
+  <!-- 图片插入弹窗 -->
+  <el-dialog v-model="imageDialogVisible" title="插入图片" width="400px" append-to-body>
+    <el-form label-width="80px">
+      <el-form-item label="图片地址">
+        <el-input v-model="imageUrl" placeholder="https://" />
+      </el-form-item>
+      <el-form-item>
+        <el-button type="primary" link @click="showAssetPicker = true">从素材库选择</el-button>
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="imageDialogVisible = false">取消</el-button>
+      <el-button type="primary" @click="confirmInsertImage">插入</el-button>
+    </template>
+  </el-dialog>
+
+  <AssetPicker
+    v-model:visible="showAssetPicker"
+    accept-type="image"
+    @select="handleAssetSelect"
+  />
+</template>
+
+<script setup lang="ts">
+import { ref, nextTick } from 'vue'
+import { Link, Picture, ChatLineSquare, Document, List } from '@element-plus/icons-vue'
+import AssetPicker from './AssetPicker.vue'
+
+const props = defineProps<{ modelValue: Record<string, any> }>()
+const emit = defineEmits<{ (e: 'update:modelValue', val: Record<string, any>): void }>()
+
+const textareaRef = ref<any>(null)
+const linkDialogVisible = ref(false)
+const imageDialogVisible = ref(false)
+const showAssetPicker = ref(false)
+const linkText = ref('')
+const linkUrl = ref('')
+const imageUrl = ref('')
+
+// 记住插入位置
+let insertType = ''
+
+const updateContent = (val: string) => {
+  emit('update:modelValue', { ...props.modelValue, content: val })
+}
+
+const insert = (type: string) => {
+  insertType = type
+  const textarea = textareaRef.value?.$el?.querySelector('textarea') as HTMLTextAreaElement | undefined
+  const selected = textarea ? textarea.value.substring(textarea.selectionStart, textarea.selectionEnd) : ''
+
+  if (type === 'link') {
+    linkText.value = selected
+    linkUrl.value = ''
+    linkDialogVisible.value = true
+    return
+  }
+
+  if (type === 'image') {
+    imageUrl.value = ''
+    imageDialogVisible.value = true
+    return
+  }
+
+  let insertion = ''
+  switch (type) {
+    case 'bold':
+      insertion = selected ? `**${selected}**` : '**加粗文字**'
+      break
+    case 'h1':
+      insertion = `\n# ${selected || '标题'}\n`
+      break
+    case 'h2':
+      insertion = `\n## ${selected || '标题'}\n`
+      break
+    case 'h3':
+      insertion = `\n### ${selected || '标题'}\n`
+      break
+    case 'quote':
+      insertion = `\n> ${selected || '引用内容'}\n`
+      break
+    case 'code':
+      insertion = selected.includes('\n') ? `\n\`\`\`\n${selected}\n\`\`\`\n` : `\`${selected || '代码'}\``
+      break
+    case 'list':
+      insertion = `\n- ${selected || '列表项'}\n- 列表项\n`
+      break
+  }
+  replaceSelection(textarea, insertion)
+}
+
+const confirmInsertLink = () => {
+  if (!linkUrl.value) return
+  const text = `[${linkText.value || '链接'}](${linkUrl.value})`
+  const textarea = textareaRef.value?.$el?.querySelector('textarea') as HTMLTextAreaElement | undefined
+  replaceSelection(textarea, text)
+  linkDialogVisible.value = false
+}
+
+const confirmInsertImage = () => {
+  if (!imageUrl.value) return
+  const text = `![图片](${imageUrl.value})`
+  const textarea = textareaRef.value?.$el?.querySelector('textarea') as HTMLTextAreaElement | undefined
+  replaceSelection(textarea, text)
+  imageDialogVisible.value = false
+}
+
+const handleAssetSelect = (asset: any) => {
+  imageUrl.value = asset.url || ''
+  confirmInsertImage()
+}
+
+const replaceSelection = (textarea: HTMLTextAreaElement | undefined, text: string) => {
+  if (!textarea) {
+    // fallback: append
+    updateContent((props.modelValue.content || '') + text)
+    return
+  }
+  const start = textarea.selectionStart
+  const end = textarea.selectionEnd
+  const original = props.modelValue.content || ''
+  const newVal = original.substring(0, start) + text + original.substring(end)
+  updateContent(newVal)
+  nextTick(() => {
+    textarea.focus()
+    const pos = start + text.length
+    textarea.setSelectionRange(pos, pos)
+  })
+}
+</script>
+
+<style scoped>
+.markdown-editor {
+  border: 1px solid var(--el-border-color);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.toolbar {
+  display: flex;
+  align-items: center;
+  padding: 6px 8px;
+  background: #f5f7fa;
+  border-bottom: 1px solid var(--el-border-color);
+}
+.toolbar :deep(.el-button) {
+  padding: 4px 8px;
+  font-size: 13px;
+}
+</style>
