@@ -163,16 +163,17 @@ wecom_ops_console/
 │  │  ├─ main.ts                 # Vue 入口
 │  │  ├─ App.vue                 # 根组件
 │  │  ├─ router/index.ts         # 路由配置
-│  │  ├─ store/user.ts           # Pinia 用户状态
+│  │  ├─ stores/user.ts          # Pinia 用户状态
 │  │  ├─ utils/request.ts        # Axios 请求封装
 │  │  ├─ layout/index.vue        # 布局组件
+│  │  ├─ components/             # 全局可复用组件
 │  │  └─ views/                  # 页面组件
 │  │     ├─ Login.vue
 │  │     ├─ Dashboard.vue        # 看板
 │  │     ├─ Groups.vue           # 群管理
 │  │     ├─ Templates.vue        # 模板管理
 │  │     ├─ Assets.vue           # 资产库
-│  │     ├─ SendCenter.vue       # 发送中心
+│  │     ├─ SendCenter/          # 发送中心 (复杂模块独立拆分)
 │  │     ├─ Schedules.vue        # 定时任务
 │  │     ├─ Approvals.vue        # 审批中心
 │  │     ├─ Logs.vue             # 发送记录

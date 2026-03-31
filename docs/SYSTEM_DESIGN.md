@@ -566,16 +566,12 @@ sequenceDiagram
 - 用户管理（管理员）
 
 ## 13.2 状态管理建议
-- authStore
-- groupStore
-- templateStore
-- materialStore
-- messageStore
-- scheduleStore
-- approvalStore
-- dashboardStore
+- userStore (鉴权与用户基础信息)
+- 后续可按需扩展其他业务 store
 
 ## 13.3 通用组件建议
+- ThemeToggle
+- MessageEditor (Text, Markdown, Image, News 等分拆)
 - GroupSelector
 - TemplateSelector
 - JsonEditor
