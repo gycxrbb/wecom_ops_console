@@ -69,22 +69,12 @@
                 <el-input
                   :model-value="article.picurl"
                   @update:model-value="updateArticle(idx, 'picurl', $event)"
-                  placeholder="输入图片URL，或从本地上传/素材库选择"
+                  placeholder="请输入公网可访问的 https:// 图片地址"
                   style="flex: 1"
-                >
-                  <template #append>
-                    <div class="cover-btns">
-                      <el-upload
-                        :http-request="(opts: any) => handleLocalUpload(idx, opts)"
-                        :show-file-list="false"
-                        accept="image/*"
-                      >
-                        <el-button size="small" :icon="Upload" />
-                      </el-upload>
-                      <el-button size="small" :icon="Picture" @click="openAssetPicker(idx)" />
-                    </div>
-                  </template>
-                </el-input>
+                />
+              </div>
+              <div class="cover-hint">
+                企业微信图文封面必须是公网可访问的 `http(s)` 图片地址，本地上传或素材库相对地址不能直接用于 `picurl`。
               </div>
               <el-image
                 v-if="article.picurl"
@@ -106,28 +96,17 @@
       <el-icon><Plus /></el-icon>
       添加图文卡片 ({{ articles.length }}/8)
     </el-button>
-
-    <AssetPicker
-      v-model:visible="assetPickerVisible"
-      accept-type="image"
-      @select="handleAssetSelect"
-    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { Top, Bottom, Delete, Plus, Picture, Upload } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
-import AssetPicker from './AssetPicker.vue'
-import request from '@/utils/request'
+import { Top, Bottom, Delete, Plus } from '@element-plus/icons-vue'
 
 const props = defineProps<{ modelValue: Record<string, any> }>()
 const emit = defineEmits<{ (e: 'update:modelValue', val: Record<string, any>): void }>()
 
 const activeNames = ref<number[]>([])
-const assetPickerVisible = ref(false)
-const currentEditIdx = ref(0)
 
 const articles = computed(() => props.modelValue.articles || [])
 
@@ -168,33 +147,6 @@ const updateArticle = (idx: number, field: string, value: string) => {
   )
   emitUpdate(newArticles)
 }
-
-const openAssetPicker = (idx: number) => {
-  currentEditIdx.value = idx
-  assetPickerVisible.value = true
-}
-
-const handleAssetSelect = (asset: any) => {
-  updateArticle(currentEditIdx.value, 'picurl', asset.url || '')
-}
-
-// 本地文件上传 → 上传到素材库 → 获取URL
-const handleLocalUpload = async (idx: number, options: any) => {
-  const formData = new FormData()
-  formData.append('file', options.file)
-  try {
-    const res = await request.post('/v1/assets', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    })
-    const url = res.url || res.data?.url
-    if (url) {
-      updateArticle(idx, 'picurl', url)
-      ElMessage.success('图片上传成功')
-    }
-  } catch (e) {
-    ElMessage.error('图片上传失败')
-  }
-}
 </script>
 
 <style scoped>
@@ -223,8 +175,10 @@ const handleLocalUpload = async (idx: number, options: any) => {
 .cover-input-area {
   width: 100%;
 }
-.cover-btns {
-  display: flex;
-  gap: 0;
+.cover-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.5;
 }
 </style>

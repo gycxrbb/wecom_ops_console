@@ -132,17 +132,18 @@ const btnStyles = [
   { label: '灰色', value: 4 },
 ]
 
-const cardType = computed(() => props.modelValue.card_type || 'text_notice')
-const mainTitle = computed(() => props.modelValue.main_title?.title || '')
-const emphasisTitle = computed(() => props.modelValue.emphasis_content?.title || '')
-const emphasisDesc = computed(() => props.modelValue.emphasis_content?.desc || '')
-const subTitleText = computed(() => props.modelValue.sub_title_text || '')
-const horizontalList = computed(() => props.modelValue.horizontal_content_list || [])
-const cardUrl = computed(() => props.modelValue.card_action?.url || '')
-const buttonList = computed(() => props.modelValue.button_list || [])
+const cardContent = computed(() => props.modelValue.template_card || props.modelValue || {})
+const cardType = computed(() => cardContent.value.card_type || 'text_notice')
+const mainTitle = computed(() => cardContent.value.main_title?.title || '')
+const emphasisTitle = computed(() => cardContent.value.emphasis_content?.title || '')
+const emphasisDesc = computed(() => cardContent.value.emphasis_content?.desc || '')
+const subTitleText = computed(() => cardContent.value.sub_title_text || '')
+const horizontalList = computed(() => cardContent.value.horizontal_content_list || [])
+const cardUrl = computed(() => cardContent.value.card_action?.url || '')
+const buttonList = computed(() => cardContent.value.button_list || [])
 
 const emitUpdate = (partial: Record<string, any>) => {
-  emit('update:modelValue', { ...props.modelValue, ...partial })
+  emit('update:modelValue', { template_card: { ...cardContent.value, ...partial } })
 }
 
 const updateField = (field: string, value: any) => {
@@ -150,7 +151,7 @@ const updateField = (field: string, value: any) => {
 }
 
 const updateNested = (parent: string, child: string, value: any) => {
-  emitUpdate({ [parent]: { ...(props.modelValue[parent] || {}), [child]: value } })
+  emitUpdate({ [parent]: { ...(cardContent.value[parent] || {}), [child]: value } })
 }
 
 const changeCardType = (val: string) => {

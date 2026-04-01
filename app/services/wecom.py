@@ -1,6 +1,7 @@
 from __future__ import annotations
 import asyncio
 import base64
+import copy
 import hashlib
 import json
 from collections import defaultdict, deque
@@ -15,6 +16,16 @@ _timestamps: dict[str, deque] = defaultdict(deque)
 _locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
 class WeComService:
+    @staticmethod
+    def payload_for_storage(payload: dict | None) -> dict:
+        if not payload:
+            return {}
+        compact = copy.deepcopy(payload)
+        image = compact.get('image')
+        if isinstance(image, dict) and isinstance(image.get('base64'), str):
+            image['base64'] = f"<omitted:{len(image['base64'])} chars>"
+        return compact
+
     @staticmethod
     async def _check_rate_limit(group_key: str):
         lock = _locks[group_key]
@@ -60,9 +71,8 @@ class WeComService:
         if msg_type == 'file':
             return {'msgtype': 'file', 'file': {'media_id': content.get('media_id', '')}}
         if msg_type == 'template_card':
-            payload = dict(content)
-            payload['msgtype'] = 'template_card'
-            return payload
+            card = content.get('template_card') if isinstance(content, dict) and content.get('template_card') else content
+            return {'msgtype': 'template_card', 'template_card': card}
         raise ValueError(f'不支持的消息类型: {msg_type}')
 
     @staticmethod

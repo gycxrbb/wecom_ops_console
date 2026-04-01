@@ -7,9 +7,9 @@ const defaultContentByType: Record<string, any> = {
   text: { content: '', mentioned_list: [], mentioned_mobile_list: [] },
   markdown: { content: '' },
   news: { articles: [] },
-  image: {},
-  file: {},
-  template_card: { card_type: 'text_notice', main_title: { title: '' } },
+  image: { asset_id: undefined, asset_name: '', asset_url: '', image_path: '' },
+  file: { asset_id: undefined, asset_name: '', media_id: '' },
+  template_card: { template_card: { card_type: 'text_notice', main_title: { title: '' } } },
 }
 
 export function useSendLogic() {
@@ -19,6 +19,7 @@ export function useSendLogic() {
   const previewResult = ref('暂无预览...')
   const isPreviewing = ref(false)
   const isSending = ref(false)
+  const isTestSending = ref(false)
   const isScheduling = ref(false)
 
   const form = reactive({
@@ -50,6 +51,7 @@ export function useSendLogic() {
   }
 
   const handleMsgTypeChange = (type: string) => {
+    form.msg_type = type
     form.contentJson = { ...(defaultContentByType[type] || {}) }
   }
 
@@ -100,24 +102,42 @@ export function useSendLogic() {
     }
   }
 
-  const handleSend = async () => {
+  const handleSend = async (testGroupOnly = false) => {
     if (form.groups.length === 0) {
       return ElMessage.warning('请至少选择一个群组')
     }
-    isSending.value = true
+    if (testGroupOnly) {
+      isTestSending.value = true
+    } else {
+      isSending.value = true
+    }
     try {
-      await request.post('/v1/send', {
+      const res = await request.post('/v1/send', {
         group_ids: form.groups,
         msg_type: form.msg_type,
         content_json: form.contentJson,
-        variables_json: form.variables
+        variables_json: form.variables,
+        test_group_only: testGroupOnly
       })
-      ElMessage.success('已触发发送任务')
+      const failed = Array.isArray(res?.results) ? res.results.filter((item: any) => item?.success === false) : []
+      if (failed.length > 0) {
+        ElMessage.error(`发送失败：${failed[0]?.response || failed[0]?.error_message || '未知错误'}`)
+      } else {
+        ElMessage.success(testGroupOnly ? '测试群发送成功' : '已触发发送任务')
+      }
     } catch (e: any) {
       ElMessage.error('发送失败: ' + String(e))
     } finally {
-      isSending.value = false
+      if (testGroupOnly) {
+        isTestSending.value = false
+      } else {
+        isSending.value = false
+      }
     }
+  }
+
+  const handleTestSend = async () => {
+    await handleSend(true)
   }
 
   const handleSchedule = async () => {
@@ -160,11 +180,13 @@ export function useSendLogic() {
     scheduleForm,
     isPreviewing,
     isSending,
+    isTestSending,
     isScheduling,
     handleMsgTypeChange,
     handleTemplateChange,
     handlePreview,
     handleSend,
+    handleTestSend,
     handleSchedule
   }
 }

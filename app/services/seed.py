@@ -2,7 +2,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 from .. import models
 from ..config import settings
-from ..security import hash_password, json_dumps, encrypt_webhook
+from ..security import hash_password, json_dumps, decrypt_webhook
 
 SYSTEM_TEMPLATES = [
     {
@@ -150,6 +150,19 @@ SYSTEM_TEMPLATES = [
 ]
 
 
+def _is_placeholder_webhook(webhook: str | None) -> bool:
+    if not webhook:
+        return False
+    lowered = webhook.lower()
+    return 'replace-test-key' in lowered or 'replace-prod-key' in lowered
+
+
+def _should_be_test_group(group: models.Group) -> bool:
+    alias = (group.alias or '').upper()
+    name = (group.name or '').strip()
+    return alias == 'TEST_GROUP' or name == '测试群'
+
+
 def seed_all(db: Session):
     if db.query(models.User).count() == 0:
         db.add_all([
@@ -160,9 +173,24 @@ def seed_all(db: Session):
 
     if db.query(models.Group).count() == 0:
         db.add_all([
-            models.Group(name='测试群', alias='TEST_GROUP', group_type='test', tags='["测试"]', webhook_cipher=encrypt_webhook('https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=replace-test-key')),
-            models.Group(name='正式训练营1群', alias='CAMP_1', group_type='formal', tags='["正式"]', webhook_cipher=encrypt_webhook('https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=replace-prod-key')),
+            models.Group(name='测试群', alias='TEST_GROUP', group_type='test', tags='["测试"]', webhook_cipher=''),
+            models.Group(name='正式训练营1群', alias='CAMP_1', group_type='formal', tags='["正式"]', webhook_cipher=''),
         ])
+        db.commit()
+
+    groups = db.query(models.Group).all()
+    updated_groups = False
+    has_test_group = any(group.group_type == 'test' for group in groups)
+    for group in groups:
+        webhook = decrypt_webhook(group.webhook_cipher) if group.webhook_cipher else ''
+        if _is_placeholder_webhook(webhook):
+            group.webhook_cipher = ''
+            updated_groups = True
+        if not has_test_group and _should_be_test_group(group):
+            group.group_type = 'test'
+            has_test_group = True
+            updated_groups = True
+    if updated_groups:
         db.commit()
 
     if db.query(models.Template).count() == 0:

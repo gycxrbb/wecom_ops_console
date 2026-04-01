@@ -1,101 +1,80 @@
 <template>
   <div class="file-editor">
-    <div v-if="selectedAsset" class="selected-preview">
-      <el-icon :size="32" class="file-icon"><Document /></el-icon>
-      <div class="preview-info">
-        <div class="preview-name">{{ selectedAsset.name }}</div>
-        <div class="preview-meta">
-          {{ formatSize(selectedAsset.file_size) }} · {{ selectedAsset.material_type }}
+    <el-form label-width="100px" size="small">
+      <el-form-item label="文件素材">
+        <div class="asset-row">
+          <el-input :model-value="selectedLabel" readonly placeholder="请选择素材库中的文件" />
+          <el-button type="primary" @click="assetPickerVisible = true">选择文件</el-button>
+          <el-button v-if="modelValue.asset_id" @click="clearAsset">清空</el-button>
         </div>
-      </div>
-      <el-button type="danger" :icon="Delete" circle size="small" @click="clearSelection" />
-    </div>
+      </el-form-item>
+    </el-form>
 
-    <div v-else class="empty-state">
-      <el-button type="primary" @click="openPicker">从素材库选择文件</el-button>
+    <div class="field-hint">
+      发送文件消息时，系统会根据所选素材自动上传到企业微信并完成发送，不需要手动填写 `media_id`。
     </div>
 
     <AssetPicker
-      v-model:visible="pickerVisible"
+      v-model:visible="assetPickerVisible"
       accept-type="file"
-      @select="handleSelect"
+      @select="handleAssetSelect"
     />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
-import { Document, Delete } from '@element-plus/icons-vue'
+import { computed, ref } from 'vue'
 import AssetPicker from './AssetPicker.vue'
 
 const props = defineProps<{ modelValue: Record<string, any> }>()
 const emit = defineEmits<{ (e: 'update:modelValue', val: Record<string, any>): void }>()
 
-const pickerVisible = ref(false)
-const selectedAsset = ref<any>(null)
+const assetPickerVisible = ref(false)
 
-const formatSize = (bytes: number) => {
-  if (!bytes) return '-'
-  if (bytes < 1024) return bytes + ' B'
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
-  return (bytes / 1024 / 1024).toFixed(1) + ' MB'
+const selectedLabel = computed(() => {
+  if (props.modelValue.asset_name) {
+    return props.modelValue.asset_name
+  }
+  if (props.modelValue.asset_id) {
+    return `已选择素材 #${props.modelValue.asset_id}`
+  }
+  return ''
+})
+
+const handleAssetSelect = (asset: any) => {
+  emit('update:modelValue', {
+    ...props.modelValue,
+    asset_id: asset.id,
+    asset_name: asset.name,
+    media_id: ''
+  })
 }
 
-const openPicker = () => {
-  pickerVisible.value = true
+const clearAsset = () => {
+  emit('update:modelValue', {
+    ...props.modelValue,
+    asset_id: undefined,
+    asset_name: ''
+  })
 }
-
-const handleSelect = (asset: any) => {
-  selectedAsset.value = asset
-  emit('update:modelValue', { ...props.modelValue, asset_id: asset.id })
-}
-
-const clearSelection = () => {
-  selectedAsset.value = null
-  emit('update:modelValue', { ...props.modelValue, asset_id: undefined })
-}
-
-watch(() => props.modelValue, () => {
-  // 初始化留空，需外部提供完整数据
-}, { immediate: true })
 </script>
 
 <style scoped>
 .file-editor {
   padding: 0;
 }
-.selected-preview {
+.asset-row {
+  width: 100%;
   display: flex;
-  align-items: center;
-  gap: 12px;
+  gap: 8px;
+}
+.field-hint {
+  margin-top: 12px;
   padding: 12px;
-  border: 1px solid var(--el-border-color);
-  border-radius: 8px;
   background: #f9fafb;
-}
-.file-icon {
-  color: #909399;
-  flex-shrink: 0;
-}
-.preview-info {
-  flex: 1;
-  min-width: 0;
-}
-.preview-name {
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.preview-meta {
+  border-radius: 6px;
   font-size: 12px;
-  color: #909399;
-  margin-top: 4px;
-}
-.empty-state {
-  padding: 24px;
-  text-align: center;
-  border: 2px dashed var(--el-border-color);
-  border-radius: 8px;
+  color: #606266;
+  line-height: 1.5;
 }
 </style>

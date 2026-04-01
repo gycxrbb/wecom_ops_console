@@ -7,11 +7,13 @@ from .database import Base, engine, SessionLocal
 from .routers.auth import router as auth_router
 from .routers.pages import router as pages_router
 from .routers.api import router as api_router
+from .schema_migrations import ensure_schedule_schema
 from .services.seed import seed_all
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    ensure_schedule_schema(engine)
     db = SessionLocal()
     try:
         seed_all(db)

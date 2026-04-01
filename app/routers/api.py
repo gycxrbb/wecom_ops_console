@@ -4,6 +4,7 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
@@ -65,6 +66,7 @@ def api_get_me(request: Request, db: Session = Depends(get_db)):
 
 
 def serialize_group(group: models.Group):
+    webhook = decrypt_webhook(group.webhook_cipher) if group.webhook_cipher else ''
     return {
         'id': group.id,
         'name': group.name,
@@ -73,7 +75,7 @@ def serialize_group(group: models.Group):
         'tags': json_loads(group.tags, []) if group.tags else [],
         'is_enabled': bool(group.enabled),
         'is_test_group': group.group_type == 'test',
-        'webhook_configured': bool(group.webhook_cipher),
+        'webhook_configured': has_real_webhook(webhook),
         'created_at': group.created_at.isoformat(),
     }
 
@@ -106,37 +108,64 @@ def serialize_material(material: models.Material):
 
 
 def get_schedule_status(schedule: models.Schedule) -> str:
-    if schedule.schedule_type == 'none':
+    return schedule.status or 'draft'
+
+
+def sync_schedule_legacy_fields(schedule: models.Schedule) -> None:
+    group_ids = json_loads(schedule.group_ids_json, [])
+    schedule.name = schedule.title or schedule.name
+    schedule.group_id = int(group_ids[0]) if group_ids else 0
+    schedule.content_snapshot = schedule.content or schedule.content_snapshot
+    schedule.skip_dates = schedule.skip_dates_json or schedule.skip_dates
+    schedule.require_approval = 1 if schedule.approval_required else 0
+    if schedule.status == 'approved':
+        schedule.approval_status = 'approved'
+    elif schedule.status == 'rejected':
+        schedule.approval_status = 'rejected'
+    elif schedule.status == 'pending_approval':
+        schedule.approval_status = 'pending'
+    elif schedule.approval_required:
+        schedule.approval_status = 'pending'
+    else:
+        schedule.approval_status = 'not_required'
+
+
+def resolve_schedule_status(schedule_type: str, enabled: bool, approval_required: bool, approval_state: str) -> str:
+    if schedule_type == 'none':
         return 'draft'
-    if schedule.require_approval and schedule.approval_status != 'approved':
-        return 'pending_approval' if schedule.approval_status != 'rejected' else 'rejected'
-    if not schedule.enabled:
+    if not enabled:
         return 'draft'
-    return 'approved' if schedule.approval_status == 'approved' else 'scheduled'
+    if approval_required:
+        if approval_state == 'approved':
+            return 'approved'
+        if approval_state == 'rejected':
+            return 'rejected'
+        return 'pending_approval'
+    return 'scheduled'
 
 
 def serialize_schedule(schedule: models.Schedule):
     return {
         'id': schedule.id,
-        'title': schedule.name,
-        'group_ids': [schedule.group_id] if schedule.group_id else [],
+        'title': schedule.title,
+        'group_ids': json_loads(schedule.group_ids_json, []),
         'template_id': schedule.template_id,
         'msg_type': schedule.msg_type,
-        'content_json': json_loads(schedule.content_snapshot, {}),
+        'content_json': json_loads(schedule.content, {}),
         'variables_json': json_loads(schedule.variables, {}),
         'schedule_type': schedule.schedule_type,
         'run_at': schedule.run_at.isoformat() if schedule.run_at else None,
         'cron_expr': schedule.cron_expr,
         'timezone': schedule.timezone,
         'enabled': bool(schedule.enabled),
-        'approval_required': bool(schedule.require_approval),
-        'approved_at': None,
+        'approval_required': bool(schedule.approval_required),
+        'approved_at': schedule.approved_at.isoformat() if schedule.approved_at else None,
         'status': get_schedule_status(schedule),
-        'skip_dates': json_loads(schedule.skip_dates, []),
+        'skip_dates': json_loads(schedule.skip_dates_json, []),
         'skip_weekends': bool(schedule.skip_weekends),
-        'last_error': '',
+        'last_error': schedule.last_error or '',
         'created_by_id': schedule.owner_id,
-        'last_sent_at': None,
+        'last_sent_at': schedule.last_sent_at.isoformat() if schedule.last_sent_at else None,
         'created_at': schedule.created_at.isoformat(),
     }
 
@@ -165,6 +194,20 @@ def parse_body(request_data: dict | str | bytes) -> dict:
     if isinstance(request_data, bytes):
         request_data = request_data.decode('utf-8')
     return json.loads(request_data)
+
+
+def has_real_webhook(webhook: str | None) -> bool:
+    if not webhook:
+        return False
+    lowered = webhook.lower()
+    return 'replace-test-key' not in lowered and 'replace-prod-key' not in lowered
+
+
+def resolve_group_webhook(group: models.Group) -> str:
+    webhook = decrypt_webhook(group.webhook_cipher) if group.webhook_cipher else ''
+    if not has_real_webhook(webhook):
+        raise HTTPException(400, f'群“{group.name}”的 webhook 尚未配置为真实企业微信群机器人地址')
+    return webhook
 
 
 def build_context(user: models.User, group: models.Group | None = None, extra: dict | None = None, now: datetime | None = None):
@@ -200,6 +243,36 @@ def attach_asset_paths(db: Session, msg_type: str, content: dict):
     return content
 
 
+def is_public_http_url(value: str | None) -> bool:
+    if not value or not isinstance(value, str):
+        return False
+    parsed = urlparse(value)
+    return parsed.scheme in {'http', 'https'} and bool(parsed.netloc)
+
+
+def validate_outbound_content(msg_type: str, content: dict) -> None:
+    if msg_type != 'news':
+        return
+    articles = content.get('articles', [])
+    if not isinstance(articles, list) or not articles:
+        raise HTTPException(400, '图文消息至少需要一条文章')
+
+    for index, article in enumerate(articles, start=1):
+        if not isinstance(article, dict):
+            raise HTTPException(400, f'图文第 {index} 条文章格式不正确')
+        article_url = article.get('url', '')
+        if not is_public_http_url(article_url):
+            raise HTTPException(400, f'图文第 {index} 条文章链接必须是公网可访问的 http(s) 地址')
+        if len(article_url) > 2000:
+            raise HTTPException(400, f'图文第 {index} 条文章链接过长，请缩短后重试')
+        picurl = article.get('picurl', '')
+        if picurl:
+            if not is_public_http_url(picurl):
+                raise HTTPException(400, f'图文第 {index} 条封面图必须是公网可访问的 http(s) 图片地址')
+            if len(picurl) > 2000:
+                raise HTTPException(400, f'图文第 {index} 条封面图地址过长，请缩短后重试')
+
+
 
 async def do_send_to_groups(db: Session, groups: list[models.Group], msg_type: str, content_json: dict, variables_json: dict, user: models.User, schedule: models.Schedule | None = None, run_mode: str = 'immediate'):
     results = []
@@ -208,6 +281,7 @@ async def do_send_to_groups(db: Session, groups: list[models.Group], msg_type: s
     for group in groups:
         rendered_content = render_message_content(msg_type, content_json, variables_json, user, group)
         rendered_content = attach_asset_paths(db, msg_type, rendered_content)
+        validate_outbound_content(msg_type, rendered_content)
         
         msg = models.Message(
             source_type='schedule' if schedule else 'manual',
@@ -222,29 +296,115 @@ async def do_send_to_groups(db: Session, groups: list[models.Group], msg_type: s
         )
         db.add(msg)
         db.commit()
-        
-        send_message_task.delay(msg.id)
-        results.append({'group_id': group.id, 'group_name': group.name, 'success': True, 'response': 'Queued'})
+
+        if run_mode == 'test':
+            try:
+                webhook = resolve_group_webhook(group)
+                payload, response = await WeComService.send(webhook, msg_type, rendered_content, group_key=str(group.id))
+                stored_payload = WeComService.payload_for_storage(payload)
+                msg.request_payload = json_dumps(stored_payload)
+                msg.status = 'sent'
+                msg.sent_at = datetime.utcnow()
+                msg.retry_count += 1
+                db.add(
+                    models.MessageLog(
+                        message_id=msg.id,
+                        request_payload=json_dumps(stored_payload),
+                        response_payload=json_dumps(response),
+                        http_status=200,
+                        success=1,
+                        latency_ms=0,
+                        attempt_no=msg.retry_count,
+                    )
+                )
+                db.commit()
+                results.append({'group_id': group.id, 'group_name': group.name, 'success': True, 'response': response})
+            except Exception as exc:
+                msg.status = 'failed'
+                msg.sent_at = datetime.utcnow()
+                msg.retry_count += 1
+                db.add(
+                    models.MessageLog(
+                        message_id=msg.id,
+                        request_payload=json_dumps(rendered_content),
+                        response_payload='{}',
+                        http_status=500,
+                        success=0,
+                        latency_ms=0,
+                        error_message=str(exc),
+                        attempt_no=msg.retry_count,
+                    )
+                )
+                db.commit()
+                results.append({'group_id': group.id, 'group_name': group.name, 'success': False, 'response': str(exc)})
+            continue
+
+        try:
+            send_message_task.delay(msg.id)
+            results.append({'group_id': group.id, 'group_name': group.name, 'success': True, 'response': 'Queued'})
+        except Exception as exc:
+            try:
+                webhook = resolve_group_webhook(group)
+                payload, response = await WeComService.send(webhook, msg_type, rendered_content, group_key=str(group.id))
+                stored_payload = WeComService.payload_for_storage(payload)
+                msg.request_payload = json_dumps(stored_payload)
+                msg.status = 'sent'
+                msg.sent_at = datetime.utcnow()
+                msg.retry_count += 1
+                db.add(
+                    models.MessageLog(
+                        message_id=msg.id,
+                        request_payload=json_dumps(stored_payload),
+                        response_payload=json_dumps(response),
+                        http_status=200,
+                        success=1,
+                        latency_ms=0,
+                        attempt_no=msg.retry_count,
+                    )
+                )
+                db.commit()
+                results.append({'group_id': group.id, 'group_name': group.name, 'success': True, 'response': 'Sent directly (queue unavailable)'})
+            except Exception as send_exc:
+                msg.status = 'failed'
+                msg.sent_at = datetime.utcnow()
+                msg.retry_count += 1
+                db.add(
+                    models.MessageLog(
+                        message_id=msg.id,
+                        request_payload=json_dumps(rendered_content),
+                        response_payload='{}',
+                        http_status=500,
+                        success=0,
+                        latency_ms=0,
+                        error_message=f'Queue error: {exc}; Send error: {send_exc}',
+                        attempt_no=msg.retry_count,
+                    )
+                )
+                db.commit()
+                results.append({'group_id': group.id, 'group_name': group.name, 'success': False, 'response': str(send_exc)})
         
     return results
 
 async def perform_job_send(db: Session, schedule: models.Schedule, run_mode: str = 'scheduled'):
     user = schedule.owner or db.query(models.User).filter(models.User.role == 'admin').first()
-    if schedule.require_approval and schedule.approval_status != 'approved':
+    if schedule.approval_required and schedule.status != 'approved':
         return {'skipped': True, 'reason': 'pending approval'}
 
-    group_ids = [schedule.group_id] if schedule.group_id else []
+    group_ids = json_loads(schedule.group_ids_json, [])
     groups = db.query(models.Group).filter(models.Group.id.in_(group_ids), models.Group.enabled == 1).all()
     results = await do_send_to_groups(
         db,
         groups,
         schedule.msg_type,
-        json_loads(schedule.content_snapshot, {}),
+        json_loads(schedule.content, {}),
         json_loads(schedule.variables, {}),
         user,
         schedule=schedule,
         run_mode=run_mode,
     )
+    schedule.last_error = ''
+    schedule.last_sent_at = datetime.utcnow()
+    db.commit()
     
     return results
 def get_user_or_401(request: Request, db: Session):
@@ -255,7 +415,7 @@ def bootstrap(request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
     total_logs = db.query(models.MessageLog).count()
     success_logs = db.query(models.MessageLog).filter(models.MessageLog.success == True).count()
-    pending_approval_count = db.query(models.Schedule).filter(models.Schedule.require_approval == 1, models.Schedule.approval_status != 'approved').count()
+    pending_approval_count = db.query(models.Schedule).filter(models.Schedule.approval_required == 1, models.Schedule.status == 'pending_approval').count()
     return {
         'current_user': {'id': user.id, 'username': user.username, 'display_name': user.display_name, 'role': user.role},
         'dashboard': {
@@ -418,6 +578,7 @@ async def preview_message(request: Request, db: Session = Depends(get_db)):
         group = db.query(models.Group).filter(models.Group.id == data['group_ids'][0]).first()
     rendered_content = render_message_content(data['msg_type'], data.get('content_json', {}), data.get('variables_json', {}), user, group)
     rendered_content = attach_asset_paths(db, data['msg_type'], rendered_content)
+    validate_outbound_content(data['msg_type'], rendered_content)
     payload = WeComService.build_payload(data['msg_type'], rendered_content if data['msg_type'] != 'file' else {**rendered_content, 'media_id': rendered_content.get('media_id', '<运行时上传后生成>')})
     return {'rendered_content': rendered_content, 'payload_preview': payload}
 
@@ -428,6 +589,10 @@ async def send_message(request: Request, db: Session = Depends(get_db)):
     group_ids = data.get('group_ids', [])
     if data.get('test_group_only'):
         groups = db.query(models.Group).filter(models.Group.group_type == 'test', models.Group.enabled == 1).all()
+        if not groups:
+            groups = db.query(models.Group).filter(models.Group.enabled == 1).filter(
+                (models.Group.alias == 'TEST_GROUP') | (models.Group.name == '测试群')
+            ).all()
     else:
         groups = db.query(models.Group).filter(models.Group.id.in_(group_ids), models.Group.enabled == 1).all()
     if not groups:
@@ -457,11 +622,11 @@ async def create_or_update_schedule(request: Request, db: Session = Depends(get_
     group_ids = data.get('group_ids', [])
     if not group_ids:
         raise HTTPException(400, '请选择至少一个群')
-    job.name = data['title']
-    job.group_id = int(group_ids[0])
+    job.title = data['title']
+    job.group_ids_json = json_dumps(group_ids)
     job.template_id = data.get('template_id')
     job.msg_type = data['msg_type']
-    job.content_snapshot = json_dumps(data.get('content_json', {}))
+    job.content = json_dumps(data.get('content_json', {}))
     job.variables = json_dumps(data.get('variables_json', {}))
     job.schedule_type = data.get('schedule_type', 'none')
     run_at = data.get('run_at')
@@ -469,20 +634,22 @@ async def create_or_update_schedule(request: Request, db: Session = Depends(get_
     job.cron_expr = data.get('cron_expr', '')
     job.timezone = data.get('timezone', 'Asia/Shanghai')
     job.enabled = 1 if data.get('enabled', True) else 0
-    job.require_approval = 1 if data.get('approval_required', False) else 0
-    job.skip_dates = json_dumps(data.get('skip_dates', []))
+    job.approval_required = 1 if data.get('approval_required', False) else 0
+    job.skip_dates_json = json_dumps(data.get('skip_dates', []))
     job.skip_weekends = 1 if data.get('skip_weekends', False) else 0
     if job.schedule_type == 'none':
         job.enabled = 0
-    if job.require_approval:
-        job.approval_status = 'approved' if user.role == 'admin' else 'pending'
-    else:
-        job.approval_status = 'not_required'
+    approval_state = 'approved' if job.approval_required and user.role == 'admin' else 'pending' if job.approval_required else 'not_required'
+    job.status = resolve_schedule_status(job.schedule_type, bool(job.enabled), bool(job.approval_required), approval_state)
+    if approval_state == 'approved':
+        job.approved_at = datetime.utcnow()
+        job.approved_by_id = user.id
+    sync_schedule_legacy_fields(job)
     db.commit()
-    if job.require_approval and job.approval_status == 'pending':
+    if job.approval_required and job.status == 'pending_approval':
         req = db.query(models.ApprovalRequest).filter(models.ApprovalRequest.target_type == 'schedule', models.ApprovalRequest.target_id == job.id, models.ApprovalRequest.status == 'pending').first()
         if not req:
-            db.add(models.ApprovalRequest(target_type='schedule', target_id=job.id, status='pending', applicant_id=user.id, reason=f'创建/更新定时任务 {job.name} 需要审批'))
+            db.add(models.ApprovalRequest(target_type='schedule', target_id=job.id, status='pending', applicant_id=user.id, reason=f'创建/更新定时任务 {job.title} 需要审批'))
             db.commit()
     schedule_service.add_or_update_job(job)
     return serialize_schedule(job)
@@ -494,11 +661,14 @@ def clone_schedule(job_id: int, request: Request, db: Session = Depends(get_db))
     if not job:
         raise HTTPException(404, '任务不存在')
     cloned = models.Schedule(
-        name=f'{job.name} - 副本',
+        name=f'{job.title} - 副本',
+        title=f'{job.title} - 副本',
         group_id=job.group_id,
+        group_ids_json=job.group_ids_json,
         template_id=job.template_id,
         msg_type=job.msg_type,
         content_snapshot=job.content_snapshot,
+        content=job.content,
         variables=job.variables,
         schedule_type=job.schedule_type,
         run_at=job.run_at,
@@ -506,8 +676,11 @@ def clone_schedule(job_id: int, request: Request, db: Session = Depends(get_db))
         timezone=job.timezone,
         enabled=0,
         require_approval=job.require_approval,
+        approval_required=job.approval_required,
         approval_status='pending' if job.require_approval else 'not_required',
+        status='pending_approval' if job.approval_required else 'draft',
         skip_dates=job.skip_dates,
+        skip_dates_json=job.skip_dates_json,
         skip_weekends=job.skip_weekends,
         owner_id=user.id,
     )
@@ -524,6 +697,8 @@ def toggle_schedule(job_id: int, request: Request, db: Session = Depends(get_db)
     if user.role != 'admin' and job.owner_id != user.id:
         raise HTTPException(403, '不能操作其他人的任务')
     job.enabled = not job.enabled
+    job.status = resolve_schedule_status(job.schedule_type, bool(job.enabled), bool(job.approval_required), job.approval_status)
+    sync_schedule_legacy_fields(job)
     db.commit()
     schedule_service.add_or_update_job(job)
     return serialize_schedule(job)
@@ -535,7 +710,11 @@ def approve_schedule(job_id: int, request: Request, db: Session = Depends(get_db
     job = db.query(models.Schedule).filter(models.Schedule.id == job_id).first()
     if not job:
         raise HTTPException(404, '任务不存在')
-    job.approval_status = 'approved'
+    job.approval_required = 1
+    job.status = 'approved'
+    job.approved_at = datetime.utcnow()
+    job.approved_by_id = user.id
+    sync_schedule_legacy_fields(job)
     db.commit()
     schedule_service.add_or_update_job(job)
     return serialize_schedule(job)
@@ -561,7 +740,7 @@ async def run_schedule_now(job_id: int, request: Request, db: Session = Depends(
         raise HTTPException(404, '任务不存在')
     if user.role != 'admin' and job.owner_id != user.id:
         raise HTTPException(403, '不能执行其他人的任务')
-    if job.require_approval and job.approval_status != 'approved' and user.role != 'admin':
+    if job.approval_required and job.status != 'approved' and user.role != 'admin':
         raise HTTPException(403, '该任务尚未审批')
     results = await perform_job_send(db, job, run_mode='manual-run')
     return {'results': results}
@@ -587,17 +766,20 @@ async def retry_log(log_id: int, request: Request, db: Session = Depends(get_db)
         raise HTTPException(403, '不能重试其他人的日志')
     if not log.message.group:
         raise HTTPException(400, '该日志缺少群信息，无法重试')
-    webhook = decrypt_webhook(log.message.group.webhook_cipher)
+    webhook = resolve_group_webhook(log.message.group)
     try:
+        rendered_content = json_loads(log.message.rendered_content, {})
+        validate_outbound_content(log.message.msg_type, rendered_content)
         payload, response = await WeComService.send(
             webhook,
             log.message.msg_type,
-            json_loads(log.message.rendered_content, {}),
+            rendered_content,
             group_key=str(log.message.group_id),
         )
+        stored_payload = WeComService.payload_for_storage(payload)
         new_log = models.MessageLog(
             message_id=log.message_id,
-            request_payload=json_dumps(payload),
+            request_payload=json_dumps(stored_payload),
             response_payload=json_dumps(response),
             http_status=200,
             success=1,
@@ -658,7 +840,7 @@ def get_dashboard_summary(request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
     total_logs = db.query(models.MessageLog).count()
     success_logs = db.query(models.MessageLog).filter(models.MessageLog.success == True).count()
-    pending_approval_count = db.query(models.Schedule).filter(models.Schedule.require_approval == 1, models.Schedule.approval_status != 'approved').count()
+    pending_approval_count = db.query(models.Schedule).filter(models.Schedule.approval_required == 1, models.Schedule.status == 'pending_approval').count()
     return {
         'group_count': db.query(models.Group).count(),
         'template_count': db.query(models.Template).count(),
@@ -770,7 +952,11 @@ async def approve_request(approval_id: int, request: Request, db: Session = Depe
     if appr.target_type == 'schedule':
         job = db.query(models.Schedule).filter(models.Schedule.id == appr.target_id).first()
         if job:
-            job.approval_status = 'approved'
+            job.approval_required = 1
+            job.status = 'approved'
+            job.approved_at = datetime.utcnow()
+            job.approved_by_id = user.id
+            sync_schedule_legacy_fields(job)
             schedule_service.add_or_update_job(job)
     
     db.commit()
@@ -793,7 +979,9 @@ async def reject_request(approval_id: int, request: Request, db: Session = Depen
     if appr.target_type == 'schedule':
         job = db.query(models.Schedule).filter(models.Schedule.id == appr.target_id).first()
         if job:
-            job.approval_status = 'rejected'
+            job.approval_required = 1
+            job.status = 'rejected'
+            sync_schedule_legacy_fields(job)
             schedule_service.add_or_update_job(job)
             
     db.commit()

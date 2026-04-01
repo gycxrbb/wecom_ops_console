@@ -58,6 +58,10 @@
             <template #icon><el-icon><View /></el-icon></template>
             预览消息
           </el-button>
+          <el-button type="warning" @click="$emit('sendTest')" :loading="isTestSending">
+            <template #icon><el-icon><Position /></el-icon></template>
+            发送到测试群
+          </el-button>
           <el-button type="primary" @click="$emit('send')" :loading="isSending">
             <template #icon><el-icon><Position /></el-icon></template>
             立即发送
@@ -79,8 +83,9 @@ defineProps({
   templates: { type: Array as PropType<any[]>, required: true },
   selectedTemplate: { type: [Number, String, null] as PropType<number | string | null> },
   isPreviewing: { type: Boolean, default: false },
-  isSending: { type: Boolean, default: false }
+  isSending: { type: Boolean, default: false },
+  isTestSending: { type: Boolean, default: false }
 })
 
-defineEmits(['templateChange', 'preview', 'send', 'update:selectedTemplate', 'msgTypeChange', 'contentUpdate', 'variablesUpdate'])
+defineEmits(['templateChange', 'preview', 'send', 'sendTest', 'update:selectedTemplate', 'msgTypeChange', 'contentUpdate', 'variablesUpdate'])
 </script>

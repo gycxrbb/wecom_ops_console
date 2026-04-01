@@ -14,6 +14,12 @@ import time
 
 logger = get_task_logger(__name__)
 
+def _has_real_webhook(webhook: str | None) -> bool:
+    if not webhook:
+        return False
+    lowered = webhook.lower()
+    return 'replace-test-key' not in lowered and 'replace-prod-key' not in lowered
+
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=60)
 def send_message_task(self, message_id: int):
     logger.info(f"Processing message {message_id}")
@@ -29,7 +35,23 @@ def send_message_task(self, message_id: int):
             db.commit()
             return 'Group disabled or not found'
 
-        webhook_url = decrypt_webhook(group.webhook_cipher)
+        webhook_url = decrypt_webhook(group.webhook_cipher) if group.webhook_cipher else ''
+        if not _has_real_webhook(webhook_url):
+            message.status = 'failed'
+            message.sent_at = datetime.utcnow()
+            message.retry_count += 1
+            db.add(models.MessageLog(
+                message_id=message.id,
+                request_payload=message.rendered_content,
+                response_payload='{}',
+                http_status=400,
+                success=0,
+                latency_ms=0,
+                error_message=f'群“{group.name}”的 webhook 尚未配置为真实企业微信群机器人地址',
+                attempt_no=message.retry_count
+            ))
+            db.commit()
+            return 'Webhook not configured'
         rendered_content = json_loads(message.rendered_content, {})
 
         start_time = time.time()
@@ -39,6 +61,9 @@ def send_message_task(self, message_id: int):
         http_status = 200
 
         try:
+            if message.msg_type == 'news':
+                from app.routers.api import validate_outbound_content
+                validate_outbound_content(message.msg_type, rendered_content)
             # WeComService.send is async, we run it in a sync wrapper
             # Wait, payload here is raw payload or content?
             # WeComService.send expects msg_type and content dictionary!
@@ -46,7 +71,7 @@ def send_message_task(self, message_id: int):
             payload_data, resp_data = asyncio.run(WeComService.send(webhook_url, msg_type, rendered_content, group_key=str(group.id)))
             success = True
             message.status = 'sent'
-            message.request_payload = json_dumps(payload_data)
+            message.request_payload = json_dumps(WeComService.payload_for_storage(payload_data))
         except Exception as e:
             success = False
             error_msg = str(e)
@@ -60,7 +85,7 @@ def send_message_task(self, message_id: int):
         
         log = models.MessageLog(
             message_id=message.id,
-            request_payload=json_dumps(payload_data),
+            request_payload=json_dumps(WeComService.payload_for_storage(payload_data if success else rendered_content)),
             response_payload=json_dumps(resp_data),
             http_status=http_status,
             success=1 if success else 0,

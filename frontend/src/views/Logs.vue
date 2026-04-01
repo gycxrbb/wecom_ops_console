@@ -6,24 +6,24 @@
       <el-table-column prop="group_name" label="群组" />
       <el-table-column prop="msg_type" label="消息类型" />
       <el-table-column prop="run_mode" label="触发方式" />
-      <el-table-column prop="status" label="状态">
+      <el-table-column label="状态">
         <template #default="{ row }">
-          <el-tag :type="row.is_success ? 'success' : 'danger'">{{ row.is_success ? '成功' : '失败' }}</el-tag>
+          <el-tag :type="row.success ? 'success' : 'danger'">{{ row.success ? '成功' : '失败' }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column type="expand">
         <template #default="props">
           <div style="padding: 20px;">
             <p><strong>请求内容:</strong></p>
-            <pre>{{ props.row.request_payload }}</pre>
+            <pre>{{ formatPayload(props.row.request_json) }}</pre>
             <p><strong>响应内容/错误信息:</strong></p>
-            <pre>{{ props.row.error_message || props.row.response_payload }}</pre>
+            <pre>{{ props.row.error_message || formatPayload(props.row.response_json) }}</pre>
           </div>
         </template>
       </el-table-column>
       <el-table-column label="操作" width="100">
         <template #default="{ row }">
-          <el-button type="primary" link @click="retryLog(row)" v-if="!row.is_success">重试</el-button>
+          <el-button type="primary" link @click="retryLog(row)" v-if="!row.success">重试</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -56,6 +56,11 @@ const retryLog = async (row: any) => {
     ElMessage.success('重试成功')
     fetchLogs()
   } catch (e) { console.error(e) }
+}
+
+const formatPayload = (value: any) => {
+  if (!value) return '-'
+  return typeof value === 'string' ? value : JSON.stringify(value, null, 2)
 }
 
 onMounted(() => {

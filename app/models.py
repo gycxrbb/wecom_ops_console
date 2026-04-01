@@ -67,10 +67,13 @@ class Schedule(Base, TimestampMixin):
     __tablename__ = 'schedules'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(128), index=True)
+    title: Mapped[str | None] = mapped_column(String(128), nullable=True)
     group_id: Mapped[int] = mapped_column(ForeignKey('groups.id'))
+    group_ids_json: Mapped[str] = mapped_column(Text, default='[]')
     template_id: Mapped[int | None] = mapped_column(ForeignKey('templates.id'), nullable=True)
     msg_type: Mapped[str] = mapped_column(String(32), default='markdown')
     content_snapshot: Mapped[str] = mapped_column(Text)
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
     variables: Mapped[str] = mapped_column(Text, default='{}')
     schedule_type: Mapped[str] = mapped_column(String(32), default='once')
     cron_expr: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -78,64 +81,21 @@ class Schedule(Base, TimestampMixin):
     timezone: Mapped[str] = mapped_column(String(64), default='Asia/Shanghai')
     skip_weekends: Mapped[int] = mapped_column(Integer, default=0)
     skip_dates: Mapped[str] = mapped_column(Text, default='[]')
+    skip_dates_json: Mapped[str] = mapped_column(Text, default='[]')
     require_approval: Mapped[int] = mapped_column(Integer, default=0)
+    approval_required: Mapped[int] = mapped_column(Integer, default=0)
     approval_status: Mapped[str] = mapped_column(String(32), default='not_required')
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    approved_by_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     enabled: Mapped[int] = mapped_column(Integer, default=1)
+    status: Mapped[str] = mapped_column(String(32), default='draft')
+    last_error: Mapped[str] = mapped_column(Text, default='')
+    last_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     next_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     owner_id: Mapped[int | None] = mapped_column(ForeignKey('users.id'), nullable=True)
     group = relationship('Group')
     template = relationship('Template')
     owner = relationship('User')
-
-    @property
-    def title(self) -> str:
-        return self.name
-
-    @title.setter
-    def title(self, value: str) -> None:
-        self.name = value
-
-    @property
-    def content(self) -> str:
-        return self.content_snapshot
-
-    @content.setter
-    def content(self, value: str) -> None:
-        self.content_snapshot = value
-
-    @property
-    def group_ids_json(self) -> str:
-        return f'[{self.group_id}]' if self.group_id is not None else '[]'
-
-    @group_ids_json.setter
-    def group_ids_json(self, value: str) -> None:
-        try:
-            import json
-            parsed = json.loads(value) if isinstance(value, str) else value
-        except Exception:
-            parsed = value
-        if isinstance(parsed, list):
-            self.group_id = int(parsed[0]) if parsed else 0
-        elif parsed in (None, ''):
-            self.group_id = 0
-        else:
-            self.group_id = int(parsed)
-
-    @property
-    def skip_dates_json(self) -> str:
-        return self.skip_dates
-
-    @skip_dates_json.setter
-    def skip_dates_json(self, value: str) -> None:
-        self.skip_dates = value
-
-    @property
-    def approval_required(self) -> bool:
-        return bool(self.require_approval)
-
-    @approval_required.setter
-    def approval_required(self, value: bool) -> None:
-        self.require_approval = 1 if value else 0
 
 class Message(Base, TimestampMixin):
     __tablename__ = 'messages'

@@ -15,12 +15,14 @@
           v-model:selectedTemplate="selectedTemplate"
           :isPreviewing="isPreviewing"
           :isSending="isSending"
+          :isTestSending="isTestSending"
           @templateChange="handleTemplateChange"
           @msgTypeChange="handleMsgTypeChange"
           @contentUpdate="handleContentUpdate"
           @variablesUpdate="handleVariablesUpdate"
           @preview="handlePreview"
           @send="handleSend"
+          @sendTest="handleTestSend"
         />
       </el-col>
 
@@ -57,11 +59,13 @@ const {
   scheduleForm,
   isPreviewing,
   isSending,
+  isTestSending,
   isScheduling,
   handleMsgTypeChange,
   handleTemplateChange,
   handlePreview,
   handleSend,
+  handleTestSend,
   handleSchedule
 } = useSendLogic()
 

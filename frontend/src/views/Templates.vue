@@ -82,9 +82,9 @@ const defaultContentByType: Record<string, any> = {
   text: { content: '', mentioned_list: [], mentioned_mobile_list: [] },
   markdown: { content: '' },
   news: { articles: [] },
-  image: {},
-  file: {},
-  template_card: { card_type: 'text_notice', main_title: { title: '' } },
+  image: { asset_id: undefined, asset_name: '', asset_url: '', image_path: '' },
+  file: { asset_id: undefined, asset_name: '', media_id: '' },
+  template_card: { template_card: { card_type: 'text_notice', main_title: { title: '' } } },
 }
 
 const form = reactive({
