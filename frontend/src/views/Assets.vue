@@ -13,6 +13,7 @@
         </el-button>
       </el-upload>
     </div>
+    <div class="upload-hint">{{ uploadHint }}</div>
 
     <el-card shadow="never" class="table-card">
       <el-table :data="assets" v-loading="loading" style="width: 100%">
@@ -56,10 +57,12 @@ import { ref, onMounted } from 'vue'
 import { Upload } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
+import { ASSET_UPLOAD_HINT, validateAssetUpload } from '@/utils/assets'
 
 const assets = ref<any[]>([])
 const loading = ref(false)
 const uploading = ref(false)
+const uploadHint = ASSET_UPLOAD_HINT
 
 const fetchAssets = async () => {
   loading.value = true
@@ -74,6 +77,12 @@ const fetchAssets = async () => {
 }
 
 const handleUpload = async (options: any) => {
+  const validation = validateAssetUpload(options.file, 'all')
+  if (!validation.valid) {
+    ElMessage.warning(validation.message)
+    return
+  }
+
   uploading.value = true
   try {
     const formData = new FormData()
@@ -93,7 +102,19 @@ const handleUpload = async (options: any) => {
 }
 
 const handleDownload = (row: any) => {
-  window.open(row.url + '?token=' + localStorage.getItem('access_token'), '_blank')
+  const targetUrl = row.download_url || row.url
+  request.get(targetUrl, { responseType: 'blob' }).then((blob: Blob) => {
+    const downloadUrl = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = downloadUrl
+    link.download = row.name || 'asset'
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.URL.revokeObjectURL(downloadUrl)
+  }).catch((error) => {
+    console.error(error)
+  })
 }
 
 const handleDelete = async (row: any) => {
@@ -137,5 +158,10 @@ onMounted(() => {
 }
 .upload-btn {
   display: inline-block;
+}
+.upload-hint {
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 </style>

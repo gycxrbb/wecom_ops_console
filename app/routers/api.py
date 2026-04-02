@@ -96,13 +96,17 @@ def serialize_template(tpl: models.Template):
 
 
 def serialize_material(material: models.Material):
+    preview_url = f'/api/v1/assets/{material.id}/preview' if material.material_type == 'image' else ''
+    download_url = f'/api/v1/assets/{material.id}/download'
     return {
         'id': material.id,
         'name': material.name,
         'material_type': material.material_type,
         'mime_type': material.mime_type,
         'file_size': material.file_size,
-        'url': f'/api/v1/assets/{material.id}/download',
+        'url': download_url,
+        'preview_url': preview_url,
+        'download_url': download_url,
         'created_at': material.created_at.isoformat(),
     }
 
@@ -553,6 +557,17 @@ def download_asset(asset_id: int, request: Request, db: Session = Depends(get_db
     if not asset:
         raise HTTPException(404, '资产不存在')
     return FileResponse(asset.storage_path, media_type=asset.mime_type, filename=asset.name)
+
+@router.get('/assets/{asset_id}/preview')
+def preview_asset(asset_id: int, request: Request, db: Session = Depends(get_db)):
+    from fastapi.responses import FileResponse
+    get_user_or_401(request, db)
+    asset = db.query(models.Material).filter(models.Material.id == asset_id).first()
+    if not asset:
+        raise HTTPException(404, '资产不存在')
+    if asset.material_type != 'image':
+        raise HTTPException(400, '当前素材不支持图片预览')
+    return FileResponse(asset.storage_path, media_type=asset.mime_type)
 
 @router.delete('/assets/{asset_id}')
 def delete_asset(asset_id: int, request: Request, db: Session = Depends(get_db)):

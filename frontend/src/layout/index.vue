@@ -3,7 +3,7 @@
     <el-aside width="240px" class="custom-aside">
       <div class="logo">
         <div class="logo-wrapper">
-          <img :src="isDark ? '/images/light-logo.png' : '/images/dark-logo.jpg'" alt="logo" class="logo-img" />
+          <img :src="isDark ? '/images/light-logo.svg' : '/images/dark-logo.svg'" alt="logo" class="logo-img" />
         </div>
         <span class="logo-text">企微运营平台</span>
       </div>
@@ -192,11 +192,12 @@ const getRouteName = () => {
   width: 48px;
   height: 48px;
   border-radius: 8px;
-  overflow: hidden;
   display: flex;
   justify-content: center;
   align-items: center;
   background-color: transparent;
+  padding: 4px;
+  box-sizing: border-box;
 }
 :global(html.dark) .logo-wrapper {
   background: radial-gradient(circle, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0) 70%);
@@ -204,8 +205,7 @@ const getRouteName = () => {
 .logo-img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
-  transform: scale(1.8);
+  object-fit: contain;
 }
 :global(html.dark) .logo-img {
   filter: drop-shadow(0px 0px 8px rgba(255, 255, 255, 0.6)) drop-shadow(0px 0px 2px rgba(255, 255, 255, 1));

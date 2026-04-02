@@ -78,3 +78,12 @@
 - **复现条件**: 发送 `image` 类型消息，尤其是使用真实图片素材时。
 - **解决方案**: 发送前保留完整 payload 参与请求，但写库时改为压缩存储版本，将超大的 `image.base64` 替换为长度占位文本；同时让主发送、异步任务和重试入口统一使用该压缩存储逻辑。
 - **关联文件**: app/services/wecom.py, app/routers/api.py, app/tasks.py
+
+## Bug #10: 素材下载地址被同时拿来做图片预览，导致缩略图失败且下载链路失效
+
+- **日期**: 2026-04-02
+- **现象**: 发送中心从素材库选择图片时缩略图显示 `FAILED`，但真实发送不受影响；素材库点击“下载”也无法真正下载文件。
+- **根因**: 后端把素材 `url` 统一序列化成受鉴权保护的下载接口，前端又把它直接用于 `<el-image>` 预览和 `window.open()` 下载；浏览器这两种访问方式都不会自动带 SPA 里的 `Authorization` 请求头，而后端原先也不识别 query token。
+- **复现条件**: 登录后在发送中心打开图片素材弹窗，或在素材库点击任一素材“下载”。
+- **解决方案**: 后端为图片素材新增独立 `preview` 接口，并让鉴权兼容 `token` query；素材序列化拆出 `preview_url` / `download_url`；前端图片预览统一走带 token 的预览地址，下载改为 axios 带鉴权请求 blob 后再触发保存。
+- **关联文件**: app/security.py, app/routers/api.py, frontend/src/utils/assets.ts, frontend/src/components/message-editor/AssetPicker.vue, frontend/src/components/message-editor/ImageEditor.vue, frontend/src/views/Assets.vue

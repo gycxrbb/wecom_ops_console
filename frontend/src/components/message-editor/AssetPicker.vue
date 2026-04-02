@@ -21,6 +21,7 @@
         <el-button type="primary" size="small">上传新素材</el-button>
       </el-upload>
     </div>
+    <div class="upload-hint">{{ uploadHint }}</div>
 
     <!-- 素材列表 -->
     <div v-loading="loading" style="min-height: 200px">
@@ -37,7 +38,7 @@
           <div class="asset-thumb">
             <el-image
               v-if="isImage(item)"
-              :src="item.url"
+              :src="buildAssetPreviewUrl(item)"
               fit="cover"
               style="width: 100%; height: 100%"
             />
@@ -74,6 +75,7 @@ import { ref, computed, watch } from 'vue'
 import { Document } from '@element-plus/icons-vue'
 import request from '@/utils/request'
 import { ElMessage } from 'element-plus'
+import { ASSET_UPLOAD_HINT, buildAssetAuthUrl, validateAssetUpload } from '@/utils/assets'
 
 const props = defineProps<{
   visible: boolean
@@ -90,6 +92,7 @@ const loading = ref(false)
 const listFilter = ref(props.acceptType || 'all')
 const selectedId = ref<number | null>(null)
 const selectedAsset = ref<any>(null)
+const uploadHint = ASSET_UPLOAD_HINT
 
 const filteredList = computed(() => {
   if (listFilter.value === 'all') return assets.value
@@ -97,6 +100,7 @@ const filteredList = computed(() => {
 })
 
 const isImage = (item: any) => item.material_type === 'image' || (item.mime_type || '').startsWith('image/')
+const buildAssetPreviewUrl = (item: any) => buildAssetAuthUrl(item.preview_url || item.url)
 
 const formatSize = (bytes: number) => {
   if (!bytes) return '-'
@@ -118,6 +122,12 @@ const fetchAssets = async () => {
 }
 
 const handleUpload = async (options: any) => {
+  const validation = validateAssetUpload(options.file, props.acceptType || 'all')
+  if (!validation.valid) {
+    ElMessage.warning(validation.message)
+    return
+  }
+
   const formData = new FormData()
   formData.append('file', options.file)
   try {
@@ -155,6 +165,11 @@ watch(() => props.visible, (val) => {
 </script>
 
 <style scoped>
+.upload-hint {
+  margin-bottom: 16px;
+  font-size: 12px;
+  color: #909399;
+}
 .asset-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

@@ -39,8 +39,8 @@ const toggleTheme = () => {
 const animate = () => {
   if (isDark.value) {
     gsap.to(handleWrapperRef.value, { x: 0, duration: 0.5, ease: "power2.out" })
-    gsap.to(handleRef.value, { 
-      boxShadow: "inset 9px -4px 0 0 #00506A",
+    gsap.to(handleRef.value, {
+      boxShadow: "inset 7px -3px 0 0 #00506A",
       backgroundColor: "transparent",
       duration: 0.5, 
       ease: "power2.out" 
@@ -50,13 +50,13 @@ const animate = () => {
       duration: 0.5
     })
     gsap.to(textRef.value, {
-      x: 40,
+      x: 30,
       color: "#00506A",
       duration: 0.5
     })
 
   } else {
-    gsap.to(handleWrapperRef.value, { x: 60, duration: 0.5, ease: "power2.out" })
+    gsap.to(handleWrapperRef.value, { x: 46, duration: 0.5, ease: "power2.out" })
     gsap.to(handleRef.value, {
       boxShadow: "inset 0 0 0 0 transparent",
       backgroundColor: "#ffffff",
@@ -85,11 +85,11 @@ watch(() => props.modelValue, (val) => {
 onMounted(() => {
   if (isDark.value) {
     gsap.set(handleWrapperRef.value, { x: 0 })
-    gsap.set(handleRef.value, { boxShadow: "inset 9px -4px 0 0 #00506A", backgroundColor: "transparent" })
+    gsap.set(handleRef.value, { boxShadow: "inset 7px -3px 0 0 #00506A", backgroundColor: "transparent" })
     gsap.set(bgRef.value, { background: "linear-gradient(90deg, #0ce2f7, #d6f5ff)" })
-    gsap.set(textRef.value, { x: 40, color: "#00506A" })
+    gsap.set(textRef.value, { x: 30, color: "#00506A" })
   } else {
-    gsap.set(handleWrapperRef.value, { x: 60 })
+    gsap.set(handleWrapperRef.value, { x: 46 })
     gsap.set(handleRef.value, { boxShadow: "inset 0 0 0 0 transparent", backgroundColor: "#ffffff" })
     gsap.set(bgRef.value, { background: "linear-gradient(90deg, #008eb5, #003B52)" })
     gsap.set(textRef.value, { x: 0, color: "#ffffff" })
@@ -100,9 +100,9 @@ onMounted(() => {
 <style scoped>
 .theme-toggle {
   position: relative;
-  width: 110px;
-  height: 40px;
-  border-radius: 20px;
+  width: 80px;
+  height: 30px;
+  border-radius: 15px;
   cursor: pointer;
   overflow: hidden;
   user-select: none;
@@ -126,8 +126,8 @@ onMounted(() => {
   position: absolute;
   z-index: 2;
   font-weight: 600;
-  font-size: 13px;
-  width: 70px;
+  font-size: 10px;
+  width: 50px;
   text-align: center;
   left: 0;
 }
@@ -135,9 +135,9 @@ onMounted(() => {
 .toggle-handle-container {
   position: absolute;
   z-index: 3;
-  left: 10px;
-  width: 30px;
-  height: 30px;
+  left: 6px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   display: flex;
   justify-content: center;
@@ -145,8 +145,8 @@ onMounted(() => {
 }
 
 .toggle-handle {
-  width: 24px;
-  height: 24px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
 }
 </style>

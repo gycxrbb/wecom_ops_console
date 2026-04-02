@@ -74,6 +74,15 @@ def get_current_user(request: Request, db: Session):
             user_id = payload.get("sub")
         except PyJWTError:
             pass
+
+    if not user_id:
+        token = request.query_params.get("token")
+        if token:
+            try:
+                payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
+                user_id = payload.get("sub")
+            except PyJWTError:
+                pass
             
     # 2. Try session (fallback)
     if not user_id:

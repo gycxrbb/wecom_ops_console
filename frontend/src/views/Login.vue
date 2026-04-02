@@ -4,7 +4,7 @@
       <template #header>
         <div class="card-header">
           <div class="logo-wrapper">
-            <img :src="isDark ? '/images/light-logo.png' : '/images/dark-logo.jpg'" alt="logo" class="login-logo" />
+            <img :src="isDark ? '/images/light-logo.svg' : '/images/dark-logo.svg'" alt="logo" class="login-logo" />
           </div>
           <h2>企微运营平台</h2>
         </div>
@@ -106,10 +106,11 @@ const handleLogin = async () => {
   width: 80px;
   height: 80px;
   border-radius: 12px;
-  overflow: hidden;
   display: flex;
   justify-content: center;
   align-items: center;
+  padding: 8px;
+  box-sizing: border-box;
 }
 :global(html.dark) .logo-wrapper {
   background: radial-gradient(circle, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0) 70%);
@@ -117,8 +118,7 @@ const handleLogin = async () => {
 .login-logo {
   width: 100%;
   height: 100%;
-  object-fit: cover;
-  transform: scale(1.8);
+  object-fit: contain;
 }
 :global(html.dark) .login-logo {
   filter: drop-shadow(0px 0px 8px rgba(255, 255, 255, 0.6)) drop-shadow(0px 0px 2px rgba(255, 255, 255, 1));

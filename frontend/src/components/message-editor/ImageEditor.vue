@@ -13,7 +13,7 @@
     <el-image
       v-if="previewUrl"
       :src="previewUrl"
-      fit="cover"
+      fit="contain"
       class="preview-image"
     />
 
@@ -32,6 +32,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import AssetPicker from './AssetPicker.vue'
+import { buildAssetAuthUrl } from '@/utils/assets'
 
 const props = defineProps<{ modelValue: Record<string, any> }>()
 const emit = defineEmits<{ (e: 'update:modelValue', val: Record<string, any>): void }>()
@@ -48,14 +49,14 @@ const selectedLabel = computed(() => {
   return ''
 })
 
-const previewUrl = computed(() => props.modelValue.asset_url || '')
+const previewUrl = computed(() => buildAssetAuthUrl(props.modelValue.asset_url || ''))
 
 const handleAssetSelect = (asset: any) => {
   emit('update:modelValue', {
     ...props.modelValue,
     asset_id: asset.id,
     asset_name: asset.name,
-    asset_url: asset.url,
+    asset_url: asset.preview_url || asset.url,
     image_path: ''
   })
 }
@@ -85,6 +86,7 @@ const clearAsset = () => {
   border-radius: 8px;
   border: 1px solid #e4e7ed;
   margin-top: 8px;
+  object-fit: contain;
 }
 .field-hint {
   margin-top: 12px;
