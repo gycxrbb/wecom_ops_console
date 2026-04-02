@@ -87,3 +87,12 @@
 - **复现条件**: 登录后在发送中心打开图片素材弹窗，或在素材库点击任一素材“下载”。
 - **解决方案**: 后端为图片素材新增独立 `preview` 接口，并让鉴权兼容 `token` query；素材序列化拆出 `preview_url` / `download_url`；前端图片预览统一走带 token 的预览地址，下载改为 axios 带鉴权请求 blob 后再触发保存。
 - **关联文件**: app/security.py, app/routers/api.py, frontend/src/utils/assets.ts, frontend/src/components/message-editor/AssetPicker.vue, frontend/src/components/message-editor/ImageEditor.vue, frontend/src/views/Assets.vue
+
+## Bug #11: 素材库下载请求被前端 baseURL 二次拼接，导致接口稳定返回 404
+
+- **日期**: 2026-04-02
+- **现象**: 素材库页面点击“下载”后前端提示 `Request failed with status code 404`。
+- **根因**: 素材数据里的 `download_url` 已经是完整的站内接口路径 `/api/v1/assets/{id}/download`，但前端继续使用带 `baseURL: /api` 的 axios 实例发起请求，最终实际访问成 `/api/api/v1/assets/...`。
+- **复现条件**: 在素材库列表页点击任一素材“下载”。
+- **解决方案**: 下载链路改为直接使用原始 axios 请求 `download_url`，只补 `Authorization` 请求头，不再经过带 `/api` 前缀的统一 request 实例；同时把素材库页升级为列表/平铺双模式，便于在同一页面完成预览和文件管理。
+- **关联文件**: frontend/src/views/Assets.vue, frontend/src/utils/assets.ts

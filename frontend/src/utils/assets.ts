@@ -15,6 +15,11 @@ export const buildAssetAuthUrl = (url?: string) => {
   return `${url}${separator}token=${encodeURIComponent(token)}`
 }
 
+export const buildAssetDownloadHeaders = () => {
+  const token = localStorage.getItem('access_token')
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
 export const validateAssetUpload = (file: File, acceptType: 'image' | 'file' | 'all' = 'all') => {
   const imageFile = isImageFile(file)
 
