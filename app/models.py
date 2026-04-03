@@ -49,7 +49,9 @@ class AssetFolder(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    parent_id: Mapped[int | None] = mapped_column(ForeignKey('asset_folders.id'), nullable=True)
     owner_id: Mapped[int | None] = mapped_column(ForeignKey('users.id'), nullable=True)
+    parent = relationship('AssetFolder', remote_side=[id], backref='children')
     owner = relationship('User')
 
 class Material(Base, TimestampMixin):
@@ -72,6 +74,63 @@ class Material(Base, TimestampMixin):
     @property
     def file_name(self) -> str:
         return self.name
+
+
+class Plan(Base, TimestampMixin):
+    __tablename__ = 'plans'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(128), index=True)
+    topic: Mapped[str] = mapped_column(String(128), default='')
+    stage: Mapped[str] = mapped_column(String(64), default='')
+    description: Mapped[str] = mapped_column(Text, default='')
+    status: Mapped[str] = mapped_column(String(32), default='draft')
+    owner_id: Mapped[int | None] = mapped_column(ForeignKey('users.id'), nullable=True)
+    owner = relationship('User')
+    days: Mapped[list['PlanDay']] = relationship(
+        'PlanDay',
+        back_populates='plan',
+        cascade='all, delete-orphan',
+        order_by='PlanDay.day_number',
+    )
+
+
+class PlanDay(Base, TimestampMixin):
+    __tablename__ = 'plan_days'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    plan_id: Mapped[int] = mapped_column(ForeignKey('plans.id'), index=True)
+    day_number: Mapped[int] = mapped_column(Integer, default=1)
+    title: Mapped[str] = mapped_column(String(128), default='')
+    focus: Mapped[str] = mapped_column(Text, default='')
+    status: Mapped[str] = mapped_column(String(32), default='draft')
+    owner_id: Mapped[int | None] = mapped_column(ForeignKey('users.id'), nullable=True)
+    plan: Mapped['Plan'] = relationship('Plan', back_populates='days')
+    owner = relationship('User')
+    nodes: Mapped[list['PlanNode']] = relationship(
+        'PlanNode',
+        back_populates='plan_day',
+        cascade='all, delete-orphan',
+        order_by='PlanNode.sort_order',
+    )
+
+
+class PlanNode(Base, TimestampMixin):
+    __tablename__ = 'plan_nodes'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    plan_day_id: Mapped[int] = mapped_column(ForeignKey('plan_days.id'), index=True)
+    node_type: Mapped[str] = mapped_column(String(32), default='custom')
+    title: Mapped[str] = mapped_column(String(128), default='')
+    description: Mapped[str] = mapped_column(String(255), default='')
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    template_id: Mapped[int | None] = mapped_column(ForeignKey('templates.id'), nullable=True)
+    msg_type: Mapped[str] = mapped_column(String(32), default='markdown')
+    content_json: Mapped[str] = mapped_column(Text, default='{}')
+    variables_json: Mapped[str] = mapped_column(Text, default='{}')
+    status: Mapped[str] = mapped_column(String(32), default='draft')
+    enabled: Mapped[int] = mapped_column(Integer, default=1)
+    owner_id: Mapped[int | None] = mapped_column(ForeignKey('users.id'), nullable=True)
+    plan_day: Mapped['PlanDay'] = relationship('PlanDay', back_populates='nodes')
+    template = relationship('Template')
+    owner = relationship('User')
 
 class Schedule(Base, TimestampMixin):
     __tablename__ = 'schedules'

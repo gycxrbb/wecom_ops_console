@@ -81,11 +81,12 @@
           <span>未分类</span>
         </div>
         <div
-          v-for="folder in folders"
+          v-for="folder in flattenedFolders"
           :key="folder.id"
           class="move-item"
           :class="{ 'is-selected': moveTargetId === folder.id }"
           @click="moveTargetId = folder.id"
+          :style="{ paddingLeft: `${14 + folder.depth * 18}px` }"
         >
           <el-icon><FolderIcon /></el-icon>
           <span>{{ folder.name }}</span>
@@ -100,7 +101,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { Download, Delete, Rank, FolderOpened } from '@element-plus/icons-vue'
 import { Folder as FolderIcon } from '@element-plus/icons-vue'
 import { buildAssetAuthUrl } from '@/utils/assets'
@@ -118,6 +119,28 @@ const emit = defineEmits(['download', 'delete', 'move'])
 const moveDialogVisible = ref(false)
 const moveTargetId = ref<number | null>(null)
 const moveAssetId = ref<number | null>(null)
+
+const flattenedFolders = computed(() => {
+  const map = new Map<number | null, Folder[]>()
+  for (const folder of props.folders) {
+    const key = folder.parent_id ?? null
+    const list = map.get(key) || []
+    list.push(folder)
+    map.set(key, list)
+  }
+
+  const result: Array<Folder & { depth: number }> = []
+  const walk = (parentId: number | null, depth: number) => {
+    const children = map.get(parentId) || []
+    for (const folder of children) {
+      result.push({ ...folder, depth })
+      walk(folder.id, depth + 1)
+    }
+  }
+
+  walk(null, 0)
+  return result
+})
 
 const handleDownload = (item: Asset) => emit('download', item)
 const handleDelete = (item: Asset) => emit('delete', item)

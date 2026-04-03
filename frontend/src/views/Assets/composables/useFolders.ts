@@ -6,7 +6,9 @@ export interface Folder {
   id: number
   name: string
   sort_order: number
+  parent_id: number | null
   asset_count: number
+  child_count: number
   created_at: string
 }
 
@@ -26,9 +28,9 @@ export function useFolders() {
     }
   }
 
-  const createFolder = async (name: string) => {
+  const createFolder = async (name: string, parentId: number | null = null) => {
     try {
-      await request.post('/v1/asset-folders', { name })
+      await request.post('/v1/asset-folders', { name, parent_id: parentId })
       ElMessage.success('文件夹创建成功')
       await fetchFolders()
     } catch (e: any) {
@@ -56,5 +58,15 @@ export function useFolders() {
     }
   }
 
-  return { folders, loading, fetchFolders, createFolder, renameFolder, deleteFolder }
+  const moveFolder = async (id: number, parentId: number | null) => {
+    try {
+      await request.patch(`/v1/asset-folders/${id}/move`, { parent_id: parentId })
+      ElMessage.success('文件夹已移动')
+      await fetchFolders()
+    } catch (e: any) {
+      ElMessage.error(e?.response?.data?.detail || '移动失败')
+    }
+  }
+
+  return { folders, loading, fetchFolders, createFolder, renameFolder, deleteFolder, moveFolder }
 }

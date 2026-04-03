@@ -59,7 +59,12 @@
       <div class="user-footer">
         <el-dropdown trigger="click" @command="handleCommand">
           <span class="user-dropdown">
-            <el-avatar :size="32" style="background-color: #22C55E">{{ userStore.user?.display_name?.charAt(0) || 'U' }}</el-avatar>
+            <el-avatar 
+              :size="32" 
+              :src="userStore.user?.role === 'admin' ? '/images/admain.jpg' : ''"
+              style="background-color: #22C55E">
+              {{ userStore.user?.role === 'admin' ? '' : (userStore.user?.display_name?.charAt(0) || 'U') }}
+            </el-avatar>
             <div class="user-info">
               <span class="user-name">{{ userStore.user?.display_name }}</span>
               <span class="user-role">{{ userStore.user?.role }}</span>

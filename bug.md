@@ -105,3 +105,12 @@
 - **复现条件**: 打开发送中心，不选任何模板，直接把消息类型切到 `Markdown` 并开始编辑。
 - **解决方案**: 发送中心改为按“消息类型是否支持变量”控制显示，并保留“已选模板时一定显示”的兜底逻辑，不再依赖模板选择状态。
 - **关联文件**: frontend/src/views/SendCenter/components/MessageForm.vue
+
+## Bug #13: 运营编排中心迁移在 MySQL 下给 TEXT 列声明默认值，导致应用启动失败
+
+- **日期**: 2026-04-04
+- **现象**: 新增运营编排中心后，后端启动在 `ensure_plan_schema(engine)` 阶段失败，报错 `BLOB, TEXT, GEOMETRY or JSON column 'description' can't have a default value`。
+- **根因**: `schema_migrations.py` 里的原始建表 SQL 为 `plans.description`、`plan_days.focus`、`plan_nodes.content_json`、`plan_nodes.variables_json` 这些 `TEXT` 列写了 `DEFAULT ''` 或 `DEFAULT '{}'`，该写法在 MySQL 上不兼容。
+- **复现条件**: 使用 MySQL 数据库启动包含运营编排中心迁移逻辑的后端应用。
+- **解决方案**: 移除这些 `TEXT` 列的数据库默认值，改为由应用写入链路显式提供内容，保持 SQLite/MySQL 双端兼容。
+- **关联文件**: app/schema_migrations.py, app/routers/api_operation_plans.py

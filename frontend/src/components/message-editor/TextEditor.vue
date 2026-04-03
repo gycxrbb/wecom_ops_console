@@ -89,48 +89,49 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, toRefs } from 'vue'
 import { ElMessage } from 'element-plus'
 import { User, Phone } from '@element-plus/icons-vue'
 
 const props = defineProps<{ modelValue: Record<string, any> }>()
 const emit = defineEmits<{ (e: 'update:modelValue', val: Record<string, any>): void }>()
+const { modelValue } = toRefs(props)
 
 const mentionInput = ref('')
 const phoneInput = ref('')
-const contentLength = computed(() => String(props.modelValue.content || '').trim().length)
+const contentLength = computed(() => String(modelValue.value.content || '').trim().length)
 
 const updateField = (field: string, value: any) => {
-  emit('update:modelValue', { ...props.modelValue, [field]: value })
+  emit('update:modelValue', { ...modelValue.value, [field]: value })
 }
 
 const addMention = () => {
   const val = mentionInput.value.trim()
   if (!val) return
-  const list = [...(props.modelValue.mentioned_list || [])]
+  const list = [...(modelValue.value.mentioned_list || [])]
   if (list.includes(val)) {
     ElMessage.warning('已存在该用户')
     return
   }
   list.push(val)
-  emit('update:modelValue', { ...props.modelValue, mentioned_list: list })
+  emit('update:modelValue', { ...modelValue.value, mentioned_list: list })
   mentionInput.value = ''
 }
 
 const addMentionAll = () => {
-  const list = [...(props.modelValue.mentioned_list || [])]
+  const list = [...(modelValue.value.mentioned_list || [])]
   if (list.includes('@all')) {
     ElMessage.warning('已添加@所有人')
     return
   }
   list.push('@all')
-  emit('update:modelValue', { ...props.modelValue, mentioned_list: list })
+  emit('update:modelValue', { ...modelValue.value, mentioned_list: list })
 }
 
-const removeMention = (idx: number) => {
-  const list = [...(props.modelValue.mentioned_list || [])]
-  list.splice(idx, 1)
-  emit('update:modelValue', { ...props.modelValue, mentioned_list: list })
+const removeMention = (idx: string | number) => {
+  const list = [...(modelValue.value.mentioned_list || [])]
+  list.splice(Number(idx), 1)
+  emit('update:modelValue', { ...modelValue.value, mentioned_list: list })
 }
 
 const addPhone = () => {
@@ -140,20 +141,20 @@ const addPhone = () => {
     ElMessage.warning('请输入正确的手机号')
     return
   }
-  const list = [...(props.modelValue.mentioned_mobile_list || [])]
+  const list = [...(modelValue.value.mentioned_mobile_list || [])]
   if (list.includes(val)) {
     ElMessage.warning('已存在该手机号')
     return
   }
   list.push(val)
-  emit('update:modelValue', { ...props.modelValue, mentioned_mobile_list: list })
+  emit('update:modelValue', { ...modelValue.value, mentioned_mobile_list: list })
   phoneInput.value = ''
 }
 
-const removePhone = (idx: number) => {
-  const list = [...(props.modelValue.mentioned_mobile_list || [])]
-  list.splice(idx, 1)
-  emit('update:modelValue', { ...props.modelValue, mentioned_mobile_list: list })
+const removePhone = (idx: string | number) => {
+  const list = [...(modelValue.value.mentioned_mobile_list || [])]
+  list.splice(Number(idx), 1)
+  emit('update:modelValue', { ...modelValue.value, mentioned_mobile_list: list })
 }
 </script>
 
@@ -164,15 +165,15 @@ const removePhone = (idx: number) => {
 .intro-card {
   margin-bottom: 12px;
   padding: 12px 14px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border-color);
   border-radius: 10px;
-  background: #f8fafc;
+  background: var(--bg-color);
 }
 .intro-card__title {
   margin-bottom: 4px;
   font-size: 13px;
   font-weight: 600;
-  color: #334155;
+  color: var(--text-primary);
 }
 .intro-card__desc {
   font-size: 12px;
@@ -185,8 +186,8 @@ const removePhone = (idx: number) => {
 .text-editor__surface {
   width: 100%;
   border-radius: 16px;
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  background: #ffffff;
+  border: 1px solid var(--border-color);
+  background: var(--card-bg);
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
   overflow: hidden;
   transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
@@ -194,7 +195,6 @@ const removePhone = (idx: number) => {
 .text-editor__surface:focus-within {
   border-color: rgba(34, 197, 94, 0.34);
   box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.08);
-  background: #ffffff;
 }
 .text-editor__surface-bar {
   display: flex;
@@ -202,18 +202,18 @@ const removePhone = (idx: number) => {
   justify-content: space-between;
   gap: 12px;
   padding: 10px 14px 8px;
-  border-bottom: 1px solid rgba(241, 245, 249, 0.9);
-  background: #ffffff;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--card-bg);
 }
 .text-editor__surface-label {
   font-size: 12px;
   font-weight: 600;
-  color: #64748b;
+  color: var(--text-muted);
   letter-spacing: 0.02em;
 }
 .text-editor__surface-tip {
   font-size: 12px;
-  color: #cbd5e1;
+  color: var(--text-muted);
 }
 .text-editor__textarea :deep(.el-textarea__inner) {
   border: none;
@@ -224,11 +224,11 @@ const removePhone = (idx: number) => {
   line-height: 1.8;
   min-height: 180px !important;
   background: transparent;
-  color: #0f172a;
+  color: var(--text-primary);
   resize: vertical;
 }
 .text-editor__textarea :deep(.el-textarea__inner::placeholder) {
-  color: #a8b3c2;
+  color: var(--text-muted);
   line-height: 1.9;
 }
 .text-editor__textarea :deep(.el-textarea__inner:focus) {
@@ -241,7 +241,7 @@ const removePhone = (idx: number) => {
   margin-top: -4px;
   margin-bottom: 8px;
   font-size: 12px;
-  color: #64748b;
+  color: var(--text-muted);
 }
 
 .mention-section {

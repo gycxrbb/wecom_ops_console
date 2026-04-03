@@ -33,6 +33,7 @@
           :previewError="previewError"
           :msgType="form.msg_type"
           :isPreviewing="isPreviewing"
+          :contentJson="form.contentJson"
         />
 
         <ScheduleCard

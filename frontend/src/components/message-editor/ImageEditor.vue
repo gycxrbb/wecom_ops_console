@@ -84,17 +84,17 @@ const clearAsset = () => {
   width: 240px;
   height: 140px;
   border-radius: 8px;
-  border: 1px solid #e4e7ed;
+  border: 1px solid var(--border-color);
   margin-top: 8px;
   object-fit: contain;
 }
 .field-hint {
   margin-top: 12px;
   padding: 12px;
-  background: #f9fafb;
+  background: var(--bg-color);
   border-radius: 6px;
   font-size: 12px;
-  color: #606266;
+  color: var(--text-secondary);
   line-height: 1.5;
 }
 </style>

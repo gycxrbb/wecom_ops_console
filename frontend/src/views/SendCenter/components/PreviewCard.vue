@@ -10,12 +10,15 @@
         <el-radio-button label="json">JSON</el-radio-button>
       </el-radio-group>
     </div>
+
     <div class="card-body">
       <div v-if="isPreviewing" class="loading-state">
         <el-icon class="is-loading" :size="28"><Loading /></el-icon>
         <div style="margin-top: 12px;">正在生成预览...</div>
       </div>
+
       <div v-else-if="previewError" class="preview-error">{{ previewError }}</div>
+
       <div v-else-if="previewData" class="preview-content">
         <pre v-if="mode === 'json'" class="preview-box">{{ previewJson }}</pre>
 
@@ -23,6 +26,10 @@
           <div class="wechat-bubble">
             <template v-if="msgType === 'text'">
               <div class="message-text">{{ stringContent }}</div>
+              <div v-if="mentionSummary" class="mention-info">
+                <el-icon :size="12"><UserFilled /></el-icon>
+                <span>将通知：{{ mentionSummary }}</span>
+              </div>
             </template>
 
             <template v-else-if="msgType === 'markdown'">
@@ -71,11 +78,14 @@
             </template>
 
             <template v-else>
-              <div class="message-text">{{ stringContent || '当前消息类型暂不支持可视化模拟，请切到 JSON 查看。' }}</div>
+              <div class="message-text">
+                {{ stringContent || '当前消息类型暂不支持可视化模拟，请切到 JSON 查看。' }}
+              </div>
             </template>
           </div>
         </div>
       </div>
+
       <div v-else class="empty-state">
         <el-icon class="empty-state__icon"><Monitor /></el-icon>
         <span class="empty-state__text">点击「预览消息」查看发送效果</span>
@@ -86,13 +96,14 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { Monitor, Loading, Document } from '@element-plus/icons-vue'
+import { Document, Loading, Monitor, UserFilled } from '@element-plus/icons-vue'
 
 const props = defineProps({
   previewData: { type: Object, default: null },
   previewError: { type: String, default: '' },
   msgType: { type: String, default: 'text' },
-  isPreviewing: { type: Boolean, default: false }
+  isPreviewing: { type: Boolean, default: false },
+  contentJson: { type: Object, default: () => ({}) }
 })
 
 const mode = ref<'mock' | 'json'>('mock')
@@ -129,10 +140,9 @@ const markdownHtml = computed(() => {
   let listItems: string[] = []
 
   const flushList = () => {
-    if (listItems.length) {
-      blocks.push(`<ul>${listItems.join('')}</ul>`)
-      listItems = []
-    }
+    if (!listItems.length) return
+    blocks.push(`<ul>${listItems.join('')}</ul>`)
+    listItems = []
   }
 
   for (const rawLine of lines) {
@@ -175,6 +185,26 @@ const markdownHtml = computed(() => {
 })
 
 const imageUrl = computed(() => renderedContent.value.asset_url || renderedContent.value.image_url || '')
+const mentionList = computed(() => {
+  const raw = renderedContent.value.mentioned_list || props.contentJson?.mentioned_list || []
+  return Array.isArray(raw) ? raw : []
+})
+const mentionMobileList = computed(() => {
+  const raw = renderedContent.value.mentioned_mobile_list || props.contentJson?.mentioned_mobile_list || []
+  return Array.isArray(raw) ? raw : []
+})
+const mentionSummary = computed(() => {
+  const items: string[] = []
+  for (const item of mentionList.value) {
+    const label = item === '@all' || item === 'all' ? '@所有人' : String(item)
+    if (!items.includes(label)) items.push(label)
+  }
+  for (const item of mentionMobileList.value) {
+    const label = item === '@all' || item === 'all' ? '@所有人' : String(item)
+    if (!items.includes(label)) items.push(label)
+  }
+  return items.join('、')
+})
 const articles = computed(() => Array.isArray(renderedContent.value.articles) ? renderedContent.value.articles : [])
 const templateCard = computed<Record<string, any>>(() => renderedContent.value?.template_card || {})
 const templateCardTitle = computed(() => templateCard.value?.main_title?.title || '模板卡片预览')
@@ -197,7 +227,7 @@ const templateCardButtonText = computed(() => templateCard.value?.jump_list?.[0]
   word-break: break-word;
   font-size: 12px;
   line-height: 1.6;
-  color: #334155;
+  color: var(--text-secondary);
 }
 
 .preview-error {
@@ -209,26 +239,40 @@ const templateCardButtonText = computed(() => templateCard.value?.jump_list?.[0]
   min-height: 220px;
   padding: 14px;
   border-radius: 16px;
-  background: linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
+  background: var(--bg-color);
+  border: 1px solid var(--border-color);
 }
 
 .wechat-bubble {
   max-width: 100%;
   padding: 14px;
   border-radius: 14px;
-  background: #ffffff;
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
+  background: var(--card-bg);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.06);
 }
 
 .message-text {
   white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.7;
-  color: #1f2937;
+  color: var(--text-primary);
+}
+
+.mention-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--bg-color);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .markdown-body {
-  color: #1f2937;
+  color: var(--text-primary);
   line-height: 1.75;
 }
 
@@ -236,7 +280,7 @@ const templateCardButtonText = computed(() => templateCard.value?.jump_list?.[0]
 .markdown-body :deep(h2),
 .markdown-body :deep(h3) {
   margin: 0 0 10px;
-  color: #0f172a;
+  color: var(--text-primary);
   font-weight: 700;
 }
 
@@ -269,16 +313,16 @@ const templateCardButtonText = computed(() => templateCard.value?.jump_list?.[0]
   margin: 0 0 10px;
   padding: 8px 12px;
   border-left: 3px solid #93c5fd;
-  background: #eff6ff;
-  color: #334155;
+  background: var(--bg-color);
+  color: var(--text-secondary);
   border-radius: 0 8px 8px 0;
 }
 
 .markdown-body :deep(code) {
   padding: 2px 6px;
   border-radius: 6px;
-  background: #f1f5f9;
-  color: #0f172a;
+  background: var(--bg-color);
+  color: var(--text-primary);
   font-size: 12px;
 }
 
@@ -301,7 +345,7 @@ const templateCardButtonText = computed(() => templateCard.value?.jump_list?.[0]
 .image-mock {
   border-radius: 12px;
   overflow: hidden;
-  background: #f3f4f6;
+  background: var(--bg-color);
 }
 
 .image-mock__img {
@@ -314,7 +358,7 @@ const templateCardButtonText = computed(() => templateCard.value?.jump_list?.[0]
 .image-mock__placeholder {
   padding: 40px 12px;
   text-align: center;
-  color: #94a3b8;
+  color: var(--text-muted);
 }
 
 .file-mock {
@@ -326,7 +370,7 @@ const templateCardButtonText = computed(() => templateCard.value?.jump_list?.[0]
 
 .file-mock__name {
   font-weight: 600;
-  color: #1f2937;
+  color: var(--text-primary);
 }
 
 .file-mock__desc,
@@ -334,7 +378,7 @@ const templateCardButtonText = computed(() => templateCard.value?.jump_list?.[0]
 .news-item__url,
 .card-mock__desc {
   font-size: 12px;
-  color: #64748b;
+  color: var(--text-muted);
 }
 
 .news-list {
@@ -354,7 +398,7 @@ const templateCardButtonText = computed(() => templateCard.value?.jump_list?.[0]
   height: 72px;
   border-radius: 10px;
   overflow: hidden;
-  background: #f1f5f9;
+  background: var(--bg-color);
 }
 
 .news-item__cover-img {
@@ -371,7 +415,7 @@ const templateCardButtonText = computed(() => templateCard.value?.jump_list?.[0]
   align-items: center;
   justify-content: center;
   font-size: 12px;
-  color: #94a3b8;
+  color: var(--text-muted);
 }
 
 .news-item__content {
@@ -382,7 +426,7 @@ const templateCardButtonText = computed(() => templateCard.value?.jump_list?.[0]
 .card-mock__title {
   margin-bottom: 6px;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--text-primary);
 }
 
 .news-item__url {
