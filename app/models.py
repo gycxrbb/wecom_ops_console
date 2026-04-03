@@ -44,6 +44,14 @@ class Template(Base, TimestampMixin):
     enabled: Mapped[int] = mapped_column(Integer, default=1)
     owner = relationship('User')
 
+class AssetFolder(Base, TimestampMixin):
+    __tablename__ = 'asset_folders'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    owner_id: Mapped[int | None] = mapped_column(ForeignKey('users.id'), nullable=True)
+    owner = relationship('User')
+
 class Material(Base, TimestampMixin):
     __tablename__ = 'materials'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -55,8 +63,10 @@ class Material(Base, TimestampMixin):
     file_size: Mapped[int] = mapped_column(Integer, default=0)
     file_hash: Mapped[str] = mapped_column(String(64), default='')
     tags: Mapped[str] = mapped_column(Text, default='[]')
+    folder_id: Mapped[int | None] = mapped_column(ForeignKey('asset_folders.id'), nullable=True)
     owner_id: Mapped[int | None] = mapped_column(ForeignKey('users.id'), nullable=True)
     enabled: Mapped[int] = mapped_column(Integer, default=1)
+    folder = relationship('AssetFolder')
     owner = relationship('User')
 
     @property

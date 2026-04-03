@@ -7,7 +7,7 @@ from typing import Any
 from urllib.parse import urlparse
 from uuid import uuid4
 from zoneinfo import ZoneInfo
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from .. import models
@@ -104,6 +104,7 @@ def serialize_material(material: models.Material):
         'material_type': material.material_type,
         'mime_type': material.mime_type,
         'file_size': material.file_size,
+        'folder_id': material.folder_id,
         'url': download_url,
         'preview_url': preview_url,
         'download_url': download_url,
@@ -530,13 +531,18 @@ def delete_template(template_id: int, request: Request, db: Session = Depends(ge
     return {'ok': True}
 
 @router.get('/assets')
-def list_assets(request: Request, db: Session = Depends(get_db)):
+def list_assets(request: Request, folder_id: str = None, db: Session = Depends(get_db)):
     get_user_or_401(request, db)
-    assets = db.query(models.Material).order_by(models.Material.id.desc()).all()
+    query = db.query(models.Material).order_by(models.Material.id.desc())
+    if folder_id == 'uncategorized':
+        query = query.filter(models.Material.folder_id == None)
+    elif folder_id is not None and folder_id.isdigit():
+        query = query.filter(models.Material.folder_id == int(folder_id))
+    assets = query.all()
     return [serialize_material(a) for a in assets]
 
 @router.post('/assets')
-async def upload_asset(request: Request, file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def upload_asset(request: Request, file: UploadFile = File(...), folder_id: str = Form(None), db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
     ext = Path(file.filename).suffix
     unique_name = f'{uuid4().hex}{ext}'
@@ -544,7 +550,8 @@ async def upload_asset(request: Request, file: UploadFile = File(...), db: Sessi
     with stored_path.open('wb') as fh:
         shutil.copyfileobj(file.file, fh)
     asset_type = 'image' if (file.content_type or '').startswith('image/') else 'file'
-    asset = models.Material(name=Path(file.filename).name, material_type=asset_type, storage_path=str(stored_path), mime_type=file.content_type or 'application/octet-stream', file_size=stored_path.stat().st_size, owner_id=user.id)
+    fid = int(folder_id) if folder_id and folder_id.isdigit() else None
+    asset = models.Material(name=Path(file.filename).name, material_type=asset_type, storage_path=str(stored_path), mime_type=file.content_type or 'application/octet-stream', file_size=stored_path.stat().st_size, folder_id=fid, owner_id=user.id)
     db.add(asset)
     db.commit()
     return serialize_material(asset)
@@ -583,6 +590,23 @@ def delete_asset(asset_id: int, request: Request, db: Session = Depends(get_db))
     db.delete(asset)
     db.commit()
     return {'ok': True}
+
+
+@router.patch('/assets/{asset_id}/move')
+async def move_asset(asset_id: int, request: Request, db: Session = Depends(get_db)):
+    get_user_or_401(request, db)
+    asset = db.query(models.Material).filter(models.Material.id == asset_id).first()
+    if not asset:
+        raise HTTPException(404, '素材不存在')
+    body = await request.json()
+    folder_id = body.get('folder_id')
+    if folder_id is not None:
+        folder = db.query(models.AssetFolder).filter(models.AssetFolder.id == int(folder_id)).first()
+        if not folder:
+            raise HTTPException(404, '文件夹不存在')
+    asset.folder_id = int(folder_id) if folder_id is not None else None
+    db.commit()
+    return serialize_material(asset)
 
 @router.post('/preview')
 async def preview_message(request: Request, db: Session = Depends(get_db)):

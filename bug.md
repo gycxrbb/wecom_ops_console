@@ -96,3 +96,12 @@
 - **复现条件**: 在素材库列表页点击任一素材“下载”。
 - **解决方案**: 下载链路改为直接使用原始 axios 请求 `download_url`，只补 `Authorization` 请求头，不再经过带 `/api` 前缀的统一 request 实例；同时把素材库页升级为列表/平铺双模式，便于在同一页面完成预览和文件管理。
 - **关联文件**: frontend/src/views/Assets.vue, frontend/src/utils/assets.ts
+
+## Bug #12: 发送中心把变量面板错误绑定到“是否选模板”，导致 Markdown 直编时看不到自定义变量
+
+- **日期**: 2026-04-03
+- **现象**: 在发送中心不选择模板、直接切换到 `Markdown` 等消息类型开始编辑时，自定义变量面板不会出现；只有先选模板才会显示。
+- **根因**: 前端把 `MessageEditor` 的 `showVariables` 条件写成了 `!!selectedTemplate`，把“是否支持变量”误绑成了“是否引用模板”。
+- **复现条件**: 打开发送中心，不选任何模板，直接把消息类型切到 `Markdown` 并开始编辑。
+- **解决方案**: 发送中心改为按“消息类型是否支持变量”控制显示，并保留“已选模板时一定显示”的兜底逻辑，不再依赖模板选择状态。
+- **关联文件**: frontend/src/views/SendCenter/components/MessageForm.vue

@@ -44,28 +44,34 @@
     </div>
 
     <!-- 变量编辑区（仅模板模式） -->
-    <div v-if="showVariables" class="variable-section">
-      <el-divider content-position="left">自定义变量（可选）</el-divider>
-      <div class="var-intro">
-        <div class="var-title">这里是给模板占位符填写默认值的地方。</div>
-        <div class="var-desc">如果你只使用内置变量，保持 `{}` 就可以，不需要额外填写。</div>
-      </div>
-      <JsonEditor
-        :model-value="variablesJson"
-        @update:model-value="$emit('update:variables', $event)"
-        :rows="4"
-      />
-      <div class="var-example">
-        <span class="var-example-label">示例：</span>
-        <code>{ "course_name": "减脂营", "deadline": "今晚 20:00" }</code>
-      </div>
-      <div class="var-hint">
-        内置变量：today、tomorrow、weekday、coach_name、group_name
-      </div>
-    </div>
+    <el-collapse v-if="showVariables" v-model="variableCollapse" class="variable-collapse">
+      <el-collapse-item name="variables">
+        <template #title>
+          <div class="variable-header">
+            <span class="variable-header__title">自定义变量（可选）</span>
+            <el-popover placement="top-start" trigger="click" :width="320">
+              <template #reference>
+                <button class="variable-tip-button" type="button" @click.stop>
+                  <el-icon :size="15"><QuestionFilled /></el-icon>
+                </button>
+              </template>
+              <div class="variable-tip-content">
+                <div class="variable-tip-title">什么时候需要填这里？</div>
+                <div class="variable-tip-text">如果你只用了内置变量，可以不填。只有像 `course_name`、`deadline` 这种你自己写的变量，才需要补默认值。</div>
+                <div class="variable-tip-text">内置变量：today、tomorrow、weekday、coach_name、group_name</div>
+              </div>
+            </el-popover>
+          </div>
+        </template>
+        <VariableEditor
+          :model-value="variablesJson"
+          @update:model-value="$emit('update:variables', $event)"
+        />
+      </el-collapse-item>
+    </el-collapse>
 
     <!-- 高级模式：JSON 折叠区 -->
-    <el-collapse v-if="msgType !== 'raw_json'" style="margin-top: 16px">
+    <el-collapse v-if="msgType !== 'raw_json'" class="advanced-collapse">
       <el-collapse-item title="高级模式 (JSON)" name="json">
         <JsonEditor
           :model-value="contentJson"
@@ -78,7 +84,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
+import { QuestionFilled } from '@element-plus/icons-vue'
 import TextEditor from './TextEditor.vue'
 import MarkdownEditor from './MarkdownEditor.vue'
 import NewsEditor from './NewsEditor.vue'
@@ -86,6 +93,7 @@ import ImageEditor from './ImageEditor.vue'
 import FileEditor from './FileEditor.vue'
 import TemplateCardEditor from './TemplateCardEditor.vue'
 import JsonEditor from './JsonEditor.vue'
+import VariableEditor from './VariableEditor.vue'
 
 const props = withDefaults(defineProps<{
   modelValue: Record<string, any>
@@ -104,6 +112,7 @@ const emit = defineEmits<{
 
 const contentJson = computed(() => props.modelValue || {})
 const variablesJson = computed(() => props.variables || {})
+const variableCollapse = ref<string[]>([])
 
 const handleVisualUpdate = (val: Record<string, any>) => {
   emit('update:modelValue', val)
@@ -118,48 +127,88 @@ const handleJsonUpdate = (val: Record<string, any>) => {
 .message-editor {
   padding: 0;
 }
-.variable-section {
-  margin-top: 16px;
+.variable-collapse {
+  margin-top: 20px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  overflow: hidden;
 }
-.var-intro {
-  margin-bottom: 10px;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: #f8fafc;
-  border: 1px solid #e5e7eb;
-}
-.var-title {
-  margin-bottom: 4px;
+.variable-collapse :deep(.el-collapse-item__header) {
+  padding: 0 16px;
+  background: var(--bg-color);
+  border-bottom: none;
+  font-weight: 500;
   font-size: 13px;
-  font-weight: 600;
-  color: #334155;
 }
-.var-desc {
+.variable-collapse :deep(.el-collapse-item__wrap) {
+  border-bottom: none;
+}
+.variable-collapse :deep(.el-collapse-item__content) {
+  padding: 16px;
+  background: #fff;
+}
+.variable-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.variable-header__title {
+  color: var(--text-secondary);
+}
+.variable-tip-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.12);
+  color: #64748b;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+.variable-tip-button:hover {
+  background: rgba(59, 130, 246, 0.12);
+  color: #2563eb;
+}
+.variable-tip-content {
   font-size: 12px;
   line-height: 1.6;
-  color: #64748b;
-}
-.var-example {
-  margin-top: 8px;
-  font-size: 12px;
-  color: #64748b;
-}
-.var-example-label {
-  margin-right: 6px;
   color: #475569;
 }
-.var-example code {
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: #f1f5f9;
+.variable-tip-title {
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 700;
   color: #0f172a;
 }
-.var-hint {
-  font-size: 12px;
-  color: #909399;
-  margin-top: 8px;
+.variable-tip-text + .variable-tip-text {
+  margin-top: 6px;
 }
 .unknown-type {
   padding: 24px;
+}
+
+/* Advanced Collapse */
+.advanced-collapse {
+  margin-top: 20px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.advanced-collapse :deep(.el-collapse-item__header) {
+  padding: 0 16px;
+  background: var(--bg-color);
+  border-bottom: none;
+  font-weight: 500;
+  font-size: 13px;
+}
+.advanced-collapse :deep(.el-collapse-item__wrap) {
+  border-bottom: none;
+}
+.advanced-collapse :deep(.el-collapse-item__content) {
+  padding: 0;
 }
 </style>

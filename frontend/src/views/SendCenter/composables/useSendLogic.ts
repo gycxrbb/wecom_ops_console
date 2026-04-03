@@ -1,5 +1,6 @@
 import { ref, reactive, onMounted } from 'vue'
 import request from '@/utils/request'
+import { buildAssetAuthUrl } from '@/utils/assets'
 import { ElMessage } from 'element-plus'
 
 // 每种消息类型的默认 content_json 结构
@@ -16,7 +17,8 @@ export function useSendLogic() {
   const groups = ref<any[]>([])
   const templates = ref<any[]>([])
   const selectedTemplate = ref<any>(null)
-  const previewResult = ref('暂无预览...')
+  const previewData = ref<any | null>(null)
+  const previewError = ref('')
   const isPreviewing = ref(false)
   const isSending = ref(false)
   const isTestSending = ref(false)
@@ -87,6 +89,7 @@ export function useSendLogic() {
 
   const handlePreview = async () => {
     isPreviewing.value = true
+    previewError.value = ''
     try {
       const res = await request.post('/v1/preview', {
         msg_type: form.msg_type,
@@ -94,9 +97,23 @@ export function useSendLogic() {
         variables_json: form.variables,
         group_ids: form.groups.length > 0 ? [form.groups[0]] : undefined
       })
-      previewResult.value = JSON.stringify(res, null, 2)
+      const nextPreview = { ...res }
+      if (form.msg_type === 'image') {
+        nextPreview.rendered_content = {
+          ...(nextPreview.rendered_content || {}),
+          asset_url: buildAssetAuthUrl(form.contentJson?.asset_url || '')
+        }
+      }
+      if (form.msg_type === 'file') {
+        nextPreview.rendered_content = {
+          ...(nextPreview.rendered_content || {}),
+          asset_name: form.contentJson?.asset_name || ''
+        }
+      }
+      previewData.value = nextPreview
     } catch (e: any) {
-      previewResult.value = '预览失败: ' + String(e)
+      previewData.value = null
+      previewError.value = '预览失败: ' + String(e)
     } finally {
       isPreviewing.value = false
     }
@@ -175,7 +192,8 @@ export function useSendLogic() {
     groups,
     templates,
     selectedTemplate,
-    previewResult,
+    previewData,
+    previewError,
     form,
     scheduleForm,
     isPreviewing,

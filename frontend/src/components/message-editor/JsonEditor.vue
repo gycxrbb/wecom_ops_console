@@ -13,6 +13,7 @@
       @update:model-value="handleChange"
       :class="{ 'json-error': error }"
       placeholder="请输入 JSON 内容"
+      class="json-textarea"
     />
   </div>
 </template>
@@ -88,22 +89,33 @@ const compressJson = () => {
 
 <style scoped>
 .json-editor {
-  border: 1px solid var(--el-border-color);
-  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
   overflow: hidden;
 }
 .toolbar {
   display: flex;
   align-items: center;
-  padding: 4px 8px;
-  background: #f5f7fa;
-  border-bottom: 1px solid var(--el-border-color);
+  padding: 8px 12px;
+  background: var(--bg-color);
+  border-bottom: 1px solid var(--border-color);
   gap: 4px;
 }
 .error-tag {
   margin-left: auto;
 }
+.json-textarea :deep(.el-textarea__inner) {
+  border: none;
+  border-radius: 0;
+  padding: 14px 16px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  box-shadow: none !important;
+}
 .json-error :deep(.el-textarea__inner) {
-  border-color: var(--el-color-danger);
+  border-color: var(--el-color-danger) !important;
+  border-width: 2px;
+  border-style: solid;
 }
 </style>

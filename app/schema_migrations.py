@@ -100,3 +100,14 @@ def ensure_schedule_schema(engine: Engine) -> None:
                     "skip_dates_json": row["skip_dates_json"] or row["skip_dates"] or "[]",
                 },
             )
+
+
+def ensure_asset_folders_schema(engine: Engine) -> None:
+    inspector = inspect(engine)
+
+    # Add folder_id column to materials if missing
+    if "materials" in inspector.get_table_names():
+        existing_columns = {column["name"] for column in inspector.get_columns("materials")}
+        if "folder_id" not in existing_columns:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE materials ADD COLUMN folder_id INTEGER NULL"))

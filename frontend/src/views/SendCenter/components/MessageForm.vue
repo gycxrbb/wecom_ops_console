@@ -60,24 +60,16 @@
         </div>
       </div>
 
-      <!-- Message Editor Area -->
-      <div class="editor-area">
-        <div class="editor-area__header">
-          <span class="editor-area__title">编辑消息内容</span>
-          <span class="editor-area__required"><span class="required-star">*</span> 为必填项</span>
-        </div>
-        <div class="editor-area__body">
-          <MessageEditor
-            :model-value="form.contentJson"
-            @update:model-value="$emit('contentUpdate', $event)"
-            :msg-type="form.msg_type"
-            :variables="form.variables"
-            @update:variables="$emit('variablesUpdate', $event)"
-            :show-variables="!!selectedTemplate"
-            style="width: 100%"
-          />
-        </div>
-      </div>
+      <!-- Message Editor -->
+      <MessageEditor
+        :model-value="form.contentJson"
+        @update:model-value="$emit('contentUpdate', $event)"
+        :msg-type="form.msg_type"
+        :variables="form.variables"
+        @update:variables="$emit('variablesUpdate', $event)"
+        :show-variables="supportsVariables"
+        style="width: 100%"
+      />
 
       <!-- Action Footer -->
       <div class="action-footer">
@@ -99,11 +91,12 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { EditPen, View, Position, ChatDotRound, Document, Memo } from '@element-plus/icons-vue'
 import MessageEditor from '@/components/message-editor/index.vue'
 import type { PropType } from 'vue'
 
-defineProps({
+const props = defineProps({
   form: { type: Object as PropType<any>, required: true },
   groups: { type: Array as PropType<any[]>, required: true },
   templates: { type: Array as PropType<any[]>, required: true },
@@ -114,10 +107,13 @@ defineProps({
 })
 
 defineEmits(['templateChange', 'preview', 'send', 'sendTest', 'update:selectedTemplate', 'msgTypeChange', 'contentUpdate', 'variablesUpdate'])
+
+const variableEnabledTypes = new Set(['text', 'markdown', 'news', 'template_card'])
+const supportsVariables = computed(() => !!props.selectedTemplate || variableEnabledTypes.has(props.form?.msg_type))
 </script>
 
 <style scoped>
-/* Config Bar - horizontal config strip */
+/* Config Bar */
 .config-bar {
   display: flex;
   gap: 16px;
@@ -158,37 +154,7 @@ defineEmits(['templateChange', 'preview', 'send', 'sendTest', 'update:selectedTe
   margin-left: 1px;
 }
 
-/* Editor Area */
-.editor-area {
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  overflow: hidden;
-}
-.editor-area__header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 16px;
-  background: rgba(0, 0, 0, 0.015);
-  border-bottom: 1px solid var(--border-color);
-}
-:global(html.dark) .editor-area__header {
-  background: rgba(255, 255, 255, 0.02);
-}
-.editor-area__title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-secondary);
-}
-.editor-area__required {
-  font-size: 11px;
-  color: var(--text-muted);
-}
-.editor-area__body {
-  padding: 16px;
-}
-
-/* Responsive: stack on smaller screens */
+/* Responsive */
 @media (max-width: 1100px) {
   .config-bar {
     flex-direction: column;

@@ -82,6 +82,9 @@
           <el-breadcrumb-item>{{ getRouteName() }}</el-breadcrumb-item>
         </el-breadcrumb>
         <div class="header-right">
+          <el-tooltip content="刷新页面" placement="bottom">
+            <el-button :icon="RefreshRight" circle class="refresh-btn" @click="handleRefresh" />
+          </el-tooltip>
           <ThemeToggle v-model="isDark" @change="handleThemeChange" />
         </div>
       </el-header>
@@ -100,7 +103,7 @@
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
-import { Platform, DataBoard, Promotion, ChatDotRound, Document, Picture, Timer, Tickets, Stamp, User, CaretBottom } from '@element-plus/icons-vue'
+import { Platform, DataBoard, Promotion, ChatDotRound, Document, Picture, Timer, Tickets, Stamp, User, CaretBottom, RefreshRight } from '@element-plus/icons-vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 
 const isDark = ref(localStorage.getItem('theme') === 'dark' || !localStorage.getItem('theme'))
@@ -126,6 +129,10 @@ const handleThemeChange = (val: boolean) => {
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+
+const handleRefresh = () => {
+  router.go(0)
+}
 
 const handleLogout = async () => {
   localStorage.removeItem('access_token')
@@ -292,6 +299,17 @@ const getRouteName = () => {
 .header-right {
   display: flex;
   align-items: center;
+  gap: 12px;
+}
+.refresh-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  transition: all 0.2s;
+}
+.refresh-btn:hover {
+  color: var(--primary-color);
+  background: rgba(34, 197, 94, 0.08);
 }
 .custom-main {
   padding: 24px 32px;

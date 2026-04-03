@@ -29,7 +29,9 @@
       <!-- Right column: Preview & Timeline -->
       <el-col :xs="24" :lg="10">
         <PreviewCard
-          :previewResult="previewResult"
+          :previewData="previewData"
+          :previewError="previewError"
+          :msgType="form.msg_type"
           :isPreviewing="isPreviewing"
         />
 
@@ -54,7 +56,8 @@ const {
   groups,
   templates,
   selectedTemplate,
-  previewResult,
+  previewData,
+  previewError,
   form,
   scheduleForm,
   isPreviewing,

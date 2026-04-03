@@ -7,13 +7,15 @@ from .database import Base, engine, SessionLocal
 from .routers.auth import router as auth_router
 from .routers.pages import router as pages_router
 from .routers.api import router as api_router
-from .schema_migrations import ensure_schedule_schema
+from .schema_migrations import ensure_schedule_schema, ensure_asset_folders_schema
+from .routers.api_folders import router as folders_router
 from .services.seed import seed_all
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     ensure_schedule_schema(engine)
+    ensure_asset_folders_schema(engine)
     db = SessionLocal()
     try:
         seed_all(db)
@@ -27,3 +29,4 @@ app.mount('/static', StaticFiles(directory=str(STATIC_DIR)), name='static')
 app.include_router(auth_router)
 app.include_router(pages_router)
 app.include_router(api_router)
+app.include_router(folders_router)

@@ -36,6 +36,7 @@
       :model-value="modelValue.content || ''"
       @update:model-value="updateContent"
       placeholder="输入 Markdown 内容...&#10;&#10;支持格式:&#10;# 标题&#10;**加粗**&#10;[链接文字](url)&#10;> 引用"
+      class="md-textarea"
     />
   </div>
 
@@ -188,19 +189,29 @@ const replaceSelection = (textarea: HTMLTextAreaElement | undefined, text: strin
 
 <style scoped>
 .markdown-editor {
-  border: 1px solid var(--el-border-color);
-  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
   overflow: hidden;
 }
 .toolbar {
   display: flex;
   align-items: center;
-  padding: 6px 8px;
-  background: #f5f7fa;
-  border-bottom: 1px solid var(--el-border-color);
+  padding: 8px 12px;
+  background: var(--bg-color);
+  border-bottom: 1px solid var(--border-color);
 }
 .toolbar :deep(.el-button) {
-  padding: 4px 8px;
+  padding: 5px 10px;
   font-size: 13px;
+  border-radius: 6px;
+}
+.md-textarea :deep(.el-textarea__inner) {
+  border: none;
+  border-radius: 0;
+  padding: 16px;
+  font-size: 14px;
+  line-height: 1.7;
+  min-height: 260px !important;
+  box-shadow: none !important;
 }
 </style>
