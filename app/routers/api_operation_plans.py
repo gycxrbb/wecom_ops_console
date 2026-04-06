@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from .. import models
 from ..database import get_db
+from ..services.operation_plan_import import parse_operation_plan_file
 from ..security import get_current_user, json_dumps, json_loads, require_role
 
 router = APIRouter(prefix='/api/v1/operation-plans', tags=['operation-plans'])
@@ -302,6 +303,118 @@ def clone_node_payload(source: models.PlanNode, target: models.PlanNode, owner_i
 def get_node_presets(request: Request, db: Session = Depends(get_db)):
     get_user_or_401(request, db)
     return NODE_PRESETS
+
+
+@router.post('/import/preview')
+async def preview_operation_plan_import(
+    request: Request,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    user = get_user_or_401(request, db)
+    require_role(user, 'admin', 'coach')
+    parsed = await parse_operation_plan_file(file)
+    day_numbers = [day['day_number'] for day in parsed['days']]
+    duplicate_days = sorted({day for day in day_numbers if day_numbers.count(day) > 1})
+    errors: list[str] = []
+    warnings = list(parsed.get('warnings', []))
+
+    if duplicate_days:
+        errors.append(f"存在重复的运营天：{', '.join(str(day) for day in duplicate_days)}")
+
+    sorted_days = sorted(day_numbers)
+    if sorted_days and sorted_days != list(range(sorted_days[0], sorted_days[0] + len(sorted_days))):
+        warnings.append('检测到运营天不是连续编号，导入后将按文件中的 day_number 创建')
+
+    node_count = sum(len(day['nodes']) for day in parsed['days'])
+    return {
+        'ok': len(errors) == 0,
+        'plan': {
+            'name': parsed['plan_name'],
+            'stage': parsed['stage'],
+            'topic': parsed['topic'],
+            'description': parsed['description'],
+            'day_count': parsed['day_count'],
+        },
+        'summary': {
+            'day_count': parsed['day_count'],
+            'node_count': node_count,
+        },
+        'days': [
+            {
+                'day_number': day['day_number'],
+                'week_label': day['week_label'],
+                'day_title': day['day_title'],
+                'node_count': len(day['nodes']),
+                'nodes': [{'node_type': node['node_type'], 'title': node['title']} for node in day['nodes']],
+            }
+            for day in parsed['days'][:5]
+        ],
+        'errors': errors,
+        'warnings': warnings,
+    }
+
+
+@router.post('/import')
+async def import_operation_plan(
+    request: Request,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    user = get_user_or_401(request, db)
+    require_role(user, 'admin', 'coach')
+    parsed = await parse_operation_plan_file(file)
+
+    day_numbers = [day['day_number'] for day in parsed['days']]
+    if len(set(day_numbers)) != len(day_numbers):
+        raise HTTPException(400, '存在重复的运营天，无法导入')
+
+    plan = models.Plan(
+        name=parsed['plan_name'],
+        topic=parsed['topic'],
+        stage=parsed['stage'],
+        description=parsed['description'],
+        status='draft',
+        owner_id=user.id,
+    )
+    db.add(plan)
+    db.flush()
+
+    for day_payload in parsed['days']:
+        day = models.PlanDay(
+            plan_id=plan.id,
+            day_number=day_payload['day_number'],
+            title=day_payload['day_title'] or f"第{day_payload['day_number']}天",
+            focus=day_payload['day_focus'],
+            status='draft',
+            owner_id=user.id,
+        )
+        db.add(day)
+        db.flush()
+        for node_payload in day_payload['nodes']:
+            node = models.PlanNode(
+                plan_day_id=day.id,
+                node_type=node_payload['node_type'],
+                title=node_payload['title'],
+                description=node_payload['description'],
+                sort_order=node_payload['sort_order'],
+                template_id=None,
+                msg_type=node_payload['msg_type'],
+                content_json=json_dumps({'content': node_payload['content']}),
+                variables_json=json_dumps(node_payload.get('variables_json', {})),
+                status=node_payload.get('status', 'draft'),
+                enabled=1 if node_payload.get('enabled', True) else 0,
+                owner_id=user.id,
+            )
+            db.add(node)
+
+    db.commit()
+    db.refresh(plan)
+    return {
+        'ok': True,
+        'plan_id': plan.id,
+        'plan': serialize_plan(get_plan_or_404(db, plan.id), include_days=True),
+    }
 
 
 @router.get('')

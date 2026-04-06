@@ -114,3 +114,21 @@
 - **复现条件**: 使用 MySQL 数据库启动包含运营编排中心迁移逻辑的后端应用。
 - **解决方案**: 移除这些 `TEXT` 列的数据库默认值，改为由应用写入链路显式提供内容，保持 SQLite/MySQL 双端兼容。
 - **关联文件**: app/schema_migrations.py, app/routers/api_operation_plans.py
+
+## Bug #14: SOP 导入器引入 openpyxl 但未同步运行时依赖，导致后端启动失败
+
+- **日期**: 2026-04-06
+- **现象**: 新增 `sheet1` SOP 导入功能后，后端启动时报错 `ModuleNotFoundError: No module named 'openpyxl'`，应用在导入路由加载阶段直接失败。
+- **根因**: `app/services/operation_plan_import.py` 新增了 `openpyxl` 依赖，但项目的 `.venv` 和 `requirements.txt` 没有同步补齐该包，导致开发环境与代码真值漂移。
+- **复现条件**: 在未安装 `openpyxl` 的环境中启动包含 SOP 导入器的后端应用。
+- **解决方案**: 将 `openpyxl==3.1.5` 正式加入 `requirements.txt`，并在当前 `.venv` 中安装后重新执行启动验证。
+- **关联文件**: app/services/operation_plan_import.py, requirements.txt
+
+## Bug #15: 登录系统只认本地 users 表，无法直接复用 CRM 运营成员账号
+
+- **日期**: 2026-04-06
+- **现象**: 企微运营平台登录只支持本地 seed 出来的 `admin/coach` 账号，CRM 后台真实运营成员即使存在于外部 `mfgcrmdb.admins` 表中，也无法登录当前系统。
+- **根因**: 认证逻辑完全绑定本地 `users` 表和 PBKDF2 密码哈希，没有预留外部用户库认证或本地镜像同步能力。
+- **复现条件**: 使用 CRM `admins` 表中的任意运营成员账号尝试登录当前系统。
+- **解决方案**: 保留本地 `admin` 账号为正式管理员入口；其余账号接入 CRM `admins` 表认证，并在登录成功后自动同步到本地 `users` 表作为镜像账号，继续复用现有 JWT、权限和 owner_id 体系。
+- **关联文件**: app/config.py, app/security.py, app/services/crm_admin_auth.py, app/routers/api.py, app/routers/auth.py, frontend/src/views/Login.vue, .env

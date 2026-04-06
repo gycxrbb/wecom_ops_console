@@ -5,11 +5,12 @@
         <div class="plans-hero__eyebrow">Operation Studio</div>
         <h1 class="plans-hero__title">运营编排中心</h1>
         <p class="plans-hero__desc">
-          按“主题 / 天数 / 流程节点”组织运营内容。先看主题阶段，再进入每天固定的 6 个节点去配置实际发送内容。
+          按“主题 / 天数 / 流程节点”组织运营内容。先看主题阶段，再进入每天的固定流程节点去配置实际发送内容。
         </p>
       </div>
       <div class="plans-hero__actions">
-        <el-button plain size="large" @click="activeView = 'templates'">查看模板库</el-button>
+        <el-button plain size="large" @click="handleSwitchView('templates')">查看模板库</el-button>
+        <el-button plain size="large" @click="openSopImportDialog">导入 SOP</el-button>
         <el-button type="primary" size="large" @click="openCreatePlan">新建运营主题</el-button>
       </div>
     </div>
@@ -19,7 +20,7 @@
         type="button"
         class="view-switch__item"
         :class="{ 'is-active': activeView === 'plans' }"
-        @click="activeView = 'plans'"
+        @click="handleSwitchView('plans')"
       >
         运营编排
       </button>
@@ -27,7 +28,7 @@
         type="button"
         class="view-switch__item"
         :class="{ 'is-active': activeView === 'templates' }"
-        @click="activeView = 'templates'"
+        @click="handleSwitchView('templates')"
       >
         模板库
       </button>
@@ -47,6 +48,10 @@
           <span class="summary-card__label">已完成天数</span>
           <strong>{{ completionSummary.completed }}</strong>
         </div>
+        <div class="summary-card summary-card--accent">
+          <span class="summary-card__label">待完善天数</span>
+          <strong>{{ currentPlanPendingDays }}</strong>
+        </div>
       </div>
 
       <div class="planner-layout">
@@ -64,7 +69,7 @@
               type="button"
               class="topic-card"
               :class="{ 'is-active': currentPlan?.id === plan.id }"
-              @click="selectPlan(plan.id)"
+              @click="handleSelectPlan(plan.id)"
             >
               <div class="topic-card__head">
                 <span class="topic-card__stage">{{ plan.stage || '未分阶段' }}</span>
@@ -89,13 +94,16 @@
           <div class="planner-panel__header">
             <div>
               <h3>天数展开</h3>
-              <p>固定 6 个流程节点，查看每天是否已经编排完成。</p>
+              <p>查看每天的固定流程节点，确认是否已经编排完成。</p>
             </div>
             <div class="header-actions">
-              <el-button plain size="small" :disabled="days.length < 2 || !currentDay" @click="openCopyDay">
+              <el-button plain size="small" :disabled="!firstPendingDay" @click="jumpToFirstPending">
+                回到待完善
+              </el-button>
+              <el-button plain size="small" :disabled="days.length < 2 || !currentDay" @click="confirmAndOpenCopyDay">
                 从某天复制
               </el-button>
-              <el-button plain size="small" :disabled="days.length < 2 || !currentDay" @click="openBatchCopyDay">
+              <el-button plain size="small" :disabled="days.length < 2 || !currentDay" @click="confirmAndOpenBatchCopyDay">
                 复制到多天
               </el-button>
             </div>
@@ -107,15 +115,20 @@
               type="button"
               class="day-item"
               :class="{ 'is-active': currentDay?.id === day.id }"
-              @click="selectDay(day.id)"
+              @click="handleSelectDay(day.id)"
             >
               <div class="day-item__left">
                 <strong>Day {{ day.day_number }}</strong>
                 <span>{{ day.title }}</span>
               </div>
-              <span class="day-item__status" :class="`status-${day.status}`">
-                {{ day.status === 'draft' ? '待完善' : day.status }}
-              </span>
+              <div class="day-item__meta">
+                <span v-if="pendingNodeCount(day)" class="day-item__pending">
+                  待完善 {{ pendingNodeCount(day) }}
+                </span>
+                <span class="day-item__status" :class="`status-${day.status}`">
+                  {{ day.status === 'draft' ? '待完善' : day.status }}
+                </span>
+              </div>
             </button>
           </div>
           <el-empty v-else description="请选择一个运营主题" :image-size="60" />
@@ -125,7 +138,7 @@
           <div class="planner-panel__header">
             <div>
               <h3>流程节点</h3>
-              <p>沿着当天固定流程逐条完善，运营同学不需要自己思考顺序。</p>
+              <p>沿着当天固定流程逐条完善，运营同学不需要自己思考顺序。当前还差 {{ currentDayPendingCount }} 个节点。</p>
             </div>
           </div>
           <div v-if="nodes.length" class="node-list">
@@ -135,11 +148,16 @@
               type="button"
               class="node-card"
               :class="{ 'is-active': currentNode?.id === node.id }"
-              @click="selectNode(node.id)"
+              @click="handleSelectNode(node.id)"
             >
               <div class="node-card__head">
                 <span class="node-card__order">{{ node.sort_order }}</span>
-                <span class="node-card__type">{{ msgTypeLabel(node.msg_type) }}</span>
+                <div class="node-card__badges">
+                  <span class="node-card__type">{{ msgTypeLabel(node.msg_type) }}</span>
+                  <span class="node-card__state" :class="{ 'is-draft': node.status === 'draft' }">
+                    {{ node.status === 'draft' ? '待完善' : '已配置' }}
+                  </span>
+                </div>
               </div>
               <div class="node-card__title">{{ node.title }}</div>
               <div class="node-card__desc">{{ node.description }}</div>
@@ -151,12 +169,15 @@
 
       <div class="editor-layout" v-if="currentNode">
         <section class="planner-panel planner-panel--editor">
-            <div class="planner-panel__header">
+          <div class="planner-panel__header">
               <div>
                 <h3>节点编辑</h3>
                 <p>当前编辑：{{ currentNode.title }}</p>
               </div>
             <div class="editor-quick-actions">
+              <span class="editor-status" :class="{ 'is-dirty': nodeDirty }">
+                {{ nodeDirty ? '节点草稿待保存' : '节点已同步' }}
+              </span>
               <el-select
                 v-model="selectedTemplateId"
                 placeholder="从模板库快速套用"
@@ -174,8 +195,14 @@
               <el-button plain :disabled="!selectedTemplateId" @click="handleApplyTemplate">
                 套用模板
               </el-button>
-              <el-button plain :disabled="!currentNode || days.length < 2" @click="openSyncNode">
+              <el-button plain :disabled="!currentNode || days.length < 2" @click="confirmAndOpenSyncNode">
                 同步同类节点
+              </el-button>
+              <el-button plain :disabled="!nodeDirty" @click="resetNodeDraft">
+                重置
+              </el-button>
+              <el-button type="primary" :loading="nodeSaving" :disabled="!nodeDirty" @click="saveNodeDraft">
+                保存节点
               </el-button>
             </div>
           </div>
@@ -184,12 +211,12 @@
             <el-row :gutter="16">
               <el-col :span="12">
                 <el-form-item label="节点标题">
-                  <el-input :model-value="currentNode.title" @update:model-value="updateNode({ title: $event })" />
+                  <el-input :model-value="nodeDraft?.title" @update:model-value="patchNodeDraft({ title: $event })" />
                 </el-form-item>
               </el-col>
               <el-col :span="12">
                 <el-form-item label="消息类型">
-                  <el-select :model-value="currentNode.msg_type" @update:model-value="updateNode({ msg_type: $event })">
+                  <el-select :model-value="nodeDraft?.msg_type" @update:model-value="patchNodeDraft({ msg_type: $event })">
                     <el-option v-for="item in msgTypeOptions" :key="item.value" :label="item.label" :value="item.value" />
                   </el-select>
                 </el-form-item>
@@ -198,8 +225,8 @@
 
             <el-form-item label="节点说明">
               <el-input
-                :model-value="currentNode.description"
-                @update:model-value="updateNode({ description: $event })"
+                :model-value="nodeDraft?.description"
+                @update:model-value="patchNodeDraft({ description: $event })"
                 type="textarea"
                 :rows="2"
               />
@@ -207,12 +234,12 @@
 
             <el-form-item label="发送内容">
               <MessageEditor
-                :model-value="currentNode.content_json"
-                @update:model-value="updateNode({ content_json: $event })"
-                :msg-type="currentNode.msg_type"
-                :variables="currentNode.variables_json"
-                @update:variables="updateNode({ variables_json: $event })"
-                :show-variables="supportsVariables(currentNode.msg_type)"
+                :model-value="nodeDraft?.content_json || {}"
+                @update:model-value="patchNodeDraft({ content_json: $event })"
+                :msg-type="nodeDraft?.msg_type || currentNode.msg_type"
+                :variables="nodeDraft?.variables_json || {}"
+                @update:variables="patchNodeDraft({ variables_json: $event })"
+                :show-variables="supportsVariables(nodeDraft?.msg_type || currentNode.msg_type)"
                 style="width: 100%"
               />
             </el-form-item>
@@ -225,16 +252,27 @@
               <h3>当天上下文</h3>
               <p>帮助运营同学确认今天的主题和重点。</p>
             </div>
+            <div class="context-actions">
+              <span class="editor-status" :class="{ 'is-dirty': dayDirty }">
+                {{ dayDirty ? '当天上下文待保存' : '当天上下文已同步' }}
+              </span>
+              <el-button plain :disabled="!dayDirty" @click="resetDayDraft">
+                重置
+              </el-button>
+              <el-button type="primary" :loading="daySaving" :disabled="!dayDirty" @click="saveDayDraft">
+                保存上下文
+              </el-button>
+            </div>
           </div>
 
           <el-form label-width="88px">
             <el-form-item label="天标题">
-              <el-input :model-value="currentDay?.title" @update:model-value="updateDayMeta({ title: $event })" />
+              <el-input :model-value="dayDraft?.title" @update:model-value="patchDayDraft({ title: $event })" />
             </el-form-item>
             <el-form-item label="当天重点">
               <el-input
-                :model-value="currentDay?.focus"
-                @update:model-value="updateDayMeta({ focus: $event })"
+                :model-value="dayDraft?.focus"
+                @update:model-value="patchDayDraft({ focus: $event })"
                 type="textarea"
                 :rows="4"
                 placeholder="例如：今天聚焦早餐结构与餐后反馈记录"
@@ -262,6 +300,22 @@
             clearable
             :prefix-icon="Search"
           />
+          <div class="source-filter">
+            <button
+              v-for="item in [
+                { value: 'all', label: '全部来源' },
+                { value: 'mine', label: '我的模板' },
+                { value: 'system', label: '系统母版' }
+              ]"
+              :key="item.value"
+              type="button"
+              class="source-filter__chip"
+              :class="{ 'source-filter__chip--active': activeSource === item.value }"
+              @click="activeSource = item.value as 'all' | 'mine' | 'system'"
+            >
+              {{ item.label }}
+            </button>
+          </div>
           <div class="type-filter">
             <button
               v-for="item in typeTabs"
@@ -275,30 +329,69 @@
               <span class="type-filter__count">{{ item.count }}</span>
             </button>
           </div>
+          <div class="category-filter">
+            <button
+              v-for="item in categoryTabs"
+              :key="item"
+              type="button"
+              class="category-filter__chip"
+              :class="{ 'category-filter__chip--active': activeCategory === item }"
+              @click="activeCategory = item"
+            >
+              {{ item === 'all' ? '全部分类' : item }}
+            </button>
+          </div>
         </div>
 
+        <section v-if="showRecentSection" class="planner-panel planner-panel--recent">
+          <div class="planner-panel__header">
+            <div>
+              <h3>最近更新</h3>
+              <p>先从刚改过的模板继续，减少来回翻找。</p>
+            </div>
+          </div>
+          <div class="recent-template-row">
+            <button
+              v-for="tpl in visibleRecentMineTemplates"
+              :key="tpl.id"
+              type="button"
+              class="recent-template-card"
+              @click="handleEditTemplate(tpl)"
+            >
+              <span class="recent-template-card__type">{{ msgTypeLabel(tpl.msg_type) }}</span>
+              <strong>{{ tpl.name }}</strong>
+              <span>{{ formatDate(tpl.updated_at) }}</span>
+            </button>
+          </div>
+        </section>
+
         <div class="template-library__grid">
-          <section class="planner-panel">
+          <section v-if="showMineSection" class="planner-panel">
             <div class="planner-panel__header">
               <div>
                 <h3>我的模板</h3>
                 <p>适合作为运营计划节点的起点。</p>
               </div>
-              <el-button type="primary" @click="openCreate">新增模板</el-button>
+              <el-button type="primary" @click="handleOpenCreateTemplate">新增模板</el-button>
             </div>
-            <div v-if="filteredMineTemplates.length" class="template-grid">
+            <div v-if="visibleMineTemplates.length" class="template-grid">
               <div
-                v-for="tpl in filteredMineTemplates"
+                v-for="tpl in visibleMineTemplates"
                 :key="tpl.id"
                 :data-template-id="tpl.id"
                 class="template-card"
                 :class="{ 'template-card--highlighted': highlightedTemplateId === tpl.id }"
               >
+                <div class="template-card__head">
+                  <span class="template-card__badge">我的模板</span>
+                  <span class="template-card__time">{{ formatDate(tpl.updated_at) }}</span>
+                </div>
                 <h4 class="template-card__name">{{ tpl.name }}</h4>
                 <div class="template-card__meta">{{ msgTypeLabel(tpl.msg_type) }} · {{ tpl.category || '未分类' }}</div>
                 <p class="template-card__desc">{{ tpl.description || contentSummary(tpl) }}</p>
                 <div class="template-card__actions">
-                  <el-button link type="primary" @click="editTemplate(tpl)">编辑</el-button>
+                  <el-button link type="primary" @click="openTemplatePreview(tpl)">预览</el-button>
+                  <el-button link type="primary" @click="handleEditTemplate(tpl)">编辑</el-button>
                   <el-button link type="primary" @click="cloneTemplate(tpl)">复制</el-button>
                   <el-button link type="danger" @click="deleteTemplate(tpl)">删除</el-button>
                 </div>
@@ -307,20 +400,25 @@
             <el-empty v-else :image-size="60" description="暂无符合条件的我的模板" />
           </section>
 
-          <section class="planner-panel">
+          <section v-if="showSystemSection" class="planner-panel">
             <div class="planner-panel__header">
               <div>
                 <h3>系统模板库</h3>
                 <p>作为节点内容的复用母版。</p>
               </div>
             </div>
-            <div v-if="filteredSystemTemplates.length" class="template-grid">
-              <div v-for="tpl in filteredSystemTemplates" :key="tpl.id" class="template-card template-card--system">
+            <div v-if="visibleSystemTemplates.length" class="template-grid">
+              <div v-for="tpl in visibleSystemTemplates" :key="tpl.id" class="template-card template-card--system">
+                <div class="template-card__head">
+                  <span class="template-card__badge template-card__badge--system">系统母版</span>
+                  <span class="template-card__time">{{ formatDate(tpl.updated_at) }}</span>
+                </div>
                 <h4 class="template-card__name">{{ tpl.name }}</h4>
                 <div class="template-card__meta">{{ msgTypeLabel(tpl.msg_type) }} · {{ tpl.category || '未分类' }}</div>
                 <p class="template-card__desc">{{ tpl.description || contentSummary(tpl) }}</p>
                 <div class="template-card__actions">
-                  <el-button link type="primary" @click="createFromTemplate(tpl)">基于此创建</el-button>
+                  <el-button link type="primary" @click="openTemplatePreview(tpl)">预览</el-button>
+                  <el-button link type="primary" @click="handleCreateFromTemplate(tpl)">基于此创建</el-button>
                   <el-button link type="primary" @click="cloneTemplate(tpl)">复制</el-button>
                 </div>
               </div>
@@ -355,6 +453,86 @@
       </template>
     </el-dialog>
 
+    <el-dialog v-model="sopImportDialogVisible" title="导入 SOP" width="760px">
+      <div class="sop-import-dialog">
+        <div class="sop-import-dialog__intro">
+          <strong>支持上传 SOP Excel 或阶段配置 JSON</strong>
+          <span>Excel 会解析第一个 sheet（sheet1），JSON 会按当前第一阶段配置格式直接导入，都会先做预检查再确认入库。</span>
+        </div>
+
+        <el-upload
+          class="sop-import-dialog__upload"
+          drag
+          :auto-upload="false"
+          :limit="1"
+          accept=".xlsx,.json,application/json"
+          :on-change="handleSopFileChange"
+          :on-remove="handleSopFileRemove"
+        >
+          <div>拖拽 `.xlsx` / `.json` 文件到这里，或点击选择文件</div>
+          <div class="el-upload__tip">Excel 当前专门适配 sheet1；JSON 当前专门适配你整理的阶段配置格式。</div>
+        </el-upload>
+
+        <div class="sop-import-dialog__actions">
+          <el-button :disabled="!sopImportFile" :loading="sopImportPreviewing" @click="previewSopImport">
+            预检查
+          </el-button>
+          <el-button
+            type="primary"
+            :disabled="!sopImportPreview?.ok"
+            :loading="sopImporting"
+            @click="confirmSopImport"
+          >
+            确认导入
+          </el-button>
+        </div>
+
+        <div v-if="sopImportPreview" class="sop-import-dialog__preview">
+          <div class="sop-import-dialog__summary">
+            <div class="summary-card">
+              <span class="summary-card__label">主题名称</span>
+              <strong>{{ sopImportPreview.plan.name }}</strong>
+            </div>
+            <div class="summary-card">
+              <span class="summary-card__label">运营天数</span>
+              <strong>{{ sopImportPreview.summary.day_count }}</strong>
+            </div>
+            <div class="summary-card">
+              <span class="summary-card__label">节点总数</span>
+              <strong>{{ sopImportPreview.summary.node_count }}</strong>
+            </div>
+          </div>
+
+          <div v-if="sopImportPreview.errors?.length" class="sop-import-feedback sop-import-feedback--error">
+            <strong>错误</strong>
+            <span v-for="(item, idx) in sopImportPreview.errors" :key="`err-${idx}`">{{ item }}</span>
+          </div>
+
+          <div v-if="sopImportPreview.warnings?.length" class="sop-import-feedback sop-import-feedback--warning">
+            <strong>提示</strong>
+            <span v-for="(item, idx) in sopImportPreview.warnings" :key="`warn-${idx}`">{{ item }}</span>
+          </div>
+
+          <div class="sop-import-daylist">
+            <div class="sop-import-daylist__title">预览前 5 天</div>
+            <div v-for="day in sopImportPreview.days" :key="day.day_number" class="sop-import-day">
+              <div class="sop-import-day__head">
+                <strong>Day {{ day.day_number }}</strong>
+                <span>{{ day.week_label || '未标注周次' }}</span>
+              </div>
+              <div class="sop-import-day__meta">{{ day.day_title }} · {{ day.node_count }} 个节点</div>
+              <div class="sop-import-day__nodes">
+                <span v-for="node in day.nodes" :key="`${day.day_number}-${node.node_type}`">{{ node.title }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="sopImportDialogVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="copyDialogVisible" title="复制当天编排" width="520px">
       <el-form label-width="96px">
         <el-form-item label="复制来源">
@@ -368,8 +546,9 @@
           </el-select>
         </el-form-item>
       </el-form>
-      <div class="copy-dialog__hint">
-        会把来源天的节点内容、消息类型、变量和当天重点复制到当前这一天，适合快速铺排整周或整阶段内容。
+      <div class="copy-dialog__hint copy-dialog__hint--warning">
+        <strong>覆盖提醒</strong>
+        <span>会把来源天的节点内容、消息类型、变量和当天重点整体覆盖到当前这一天，当前天原有编排会被替换。</span>
       </div>
       <template #footer>
         <el-button @click="copyDialogVisible = false">取消</el-button>
@@ -395,8 +574,9 @@
           </el-select>
         </el-form-item>
       </el-form>
-      <div class="copy-dialog__hint">
-        会用当前这一天的整套流程节点覆盖目标天，适合先编好 Day 1，再批量铺到后续多天后微调。
+      <div class="copy-dialog__hint copy-dialog__hint--warning">
+        <strong>覆盖提醒</strong>
+        <span>会用当前这一天的整套流程节点覆盖目标天，目标天原有内容会被整体替换，适合先铺后微调。</span>
       </div>
       <template #footer>
         <el-button @click="batchCopyDialogVisible = false">取消</el-button>
@@ -422,8 +602,9 @@
           </el-select>
         </el-form-item>
       </el-form>
-      <div class="copy-dialog__hint">
-        只会同步当前流程节点到其他天的同类节点，不会影响这些天的其他时间段内容，适合统一“午餐提醒”或“晚安总结”。
+      <div class="copy-dialog__hint copy-dialog__hint--info">
+        <strong>同步范围</strong>
+        <span>只会同步当前流程节点到其他天的同类节点，不会影响这些天的其他时间段内容，适合统一“午餐提醒”或“晚安总结”。</span>
       </div>
       <template #footer>
         <el-button @click="syncNodeDialogVisible = false">取消</el-button>
@@ -431,7 +612,21 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="dialogVisible" :title="form.id ? '编辑模板' : '新增模板'" width="70%" top="5vh">
+    <el-dialog
+      v-model="dialogVisible"
+      :title="form.id ? '编辑模板' : '新增模板'"
+      width="70%"
+      top="5vh"
+      :before-close="handleTemplateDialogBeforeClose"
+    >
+      <div class="template-dialog__status">
+        <span class="editor-status" :class="{ 'is-dirty': templateDirty }">
+          {{ templateDirty ? '模板草稿待保存' : '模板内容已同步' }}
+        </span>
+        <span class="template-dialog__tip">
+          {{ form.id ? '正在编辑已有模板，保存后会更新模板库内容。' : '当前是本地草稿态，保存后才会进入模板库。' }}
+        </span>
+      </div>
       <el-form label-width="100px">
         <el-form-item label="模板名称">
           <el-input v-model="form.name" placeholder="输入模板名称" />
@@ -464,21 +659,69 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="saveTemplate">保存</el-button>
+        <el-button @click="handleCloseTemplateDialog">取消</el-button>
+        <el-button type="primary" :disabled="!templateDirty" @click="handleSaveTemplate">保存</el-button>
       </template>
+    </el-dialog>
+
+    <el-dialog v-model="previewDialogVisible" title="模板预览" width="980px" top="6vh">
+      <div v-if="previewTemplate" class="template-preview-dialog">
+        <div class="template-preview-dialog__meta">
+          <div class="template-preview-dialog__header">
+            <div>
+              <div class="template-preview-dialog__eyebrow">
+                {{ previewTemplate.is_system ? '系统母版' : '我的模板' }}
+              </div>
+              <h3>{{ previewTemplate.name }}</h3>
+            </div>
+            <span class="template-card__time">{{ formatDate(previewTemplate.updated_at) }}</span>
+          </div>
+          <div class="template-preview-dialog__facts">
+            <div class="template-preview-dialog__fact">
+              <span>消息类型</span>
+              <strong>{{ msgTypeLabel(previewTemplate.msg_type) }}</strong>
+            </div>
+            <div class="template-preview-dialog__fact">
+              <span>分类</span>
+              <strong>{{ previewTemplate.category || '未分类' }}</strong>
+            </div>
+          </div>
+          <div class="template-preview-dialog__desc">
+            {{ previewTemplate.description || '暂无补充描述，这里主要展示模板最终会被运营如何看到和复用。' }}
+          </div>
+          <div class="template-preview-dialog__tip">
+            这是模板的只读模拟预览，用来帮助运营快速判断是否可复用，不会直接修改模板内容。
+          </div>
+        </div>
+        <div class="template-preview-dialog__content">
+          <PreviewCard
+            :preview-data="previewTemplateData"
+            :msg-type="previewTemplate.msg_type"
+            :content-json="previewTemplateContent"
+          />
+        </div>
+      </div>
     </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { Search } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import MessageEditor from '@/components/message-editor/index.vue'
+import PreviewCard from '@/views/SendCenter/components/PreviewCard.vue'
+import { onBeforeRouteLeave } from 'vue-router'
 import { useTemplates, msgTypeLabel, msgTypeOptions, supportsVariables } from './composables/useTemplates'
+import type { TemplateItem } from './composables/useTemplates'
 import { useOperationPlans } from './composables/useOperationPlans'
+import type { PlanDay, PlanNode } from './composables/useOperationPlans'
+import request from '@/utils/request'
 
-const activeView = ref<'plans' | 'templates'>('plans')
+const storedView = typeof window !== 'undefined'
+  ? window.localStorage.getItem('templates-active-view')
+  : null
+const activeView = ref<'plans' | 'templates'>(storedView === 'plans' || storedView === 'templates' ? storedView : 'templates')
 
 const {
   plans,
@@ -500,6 +743,7 @@ const {
   syncNodeForm,
   availableSourceDays,
   availableTargetDays,
+  fetchPlans,
   selectPlan,
   selectDay,
   selectNode,
@@ -509,7 +753,6 @@ const {
   openSyncNode,
   savePlan,
   updateNode,
-  applyTemplateToNode,
   updateDayMeta,
   removePlan,
   copyDayContent,
@@ -520,13 +763,146 @@ const {
 const {
   templates, loading: templatesLoading, dialogVisible, activeType, searchKeyword,
   highlightedTemplateId, form,
-  typeTabs, filteredMineTemplates, filteredSystemTemplates,
-  openCreate, editTemplate, createFromTemplate,
+  typeTabs, filteredMineTemplates, filteredSystemTemplates, recentMineTemplates,
+  openCreate: openCreateTemplateDialog,
+  editTemplate: editTemplateDialog,
+  createFromTemplate: createFromTemplateDialog,
   handleMsgTypeChange, cloneTemplate, deleteTemplate, saveTemplate,
-  contentSummary, focusTemplateCard
+  contentSummary, formatDate, focusTemplateCard
 } = useTemplates()
 
 const selectedTemplateId = ref<number | null>(null)
+const templateDraftBaseline = ref('')
+const activeCategory = ref('all')
+const activeSource = ref<'all' | 'mine' | 'system'>('all')
+const previewDialogVisible = ref(false)
+const previewTemplate = ref<TemplateItem | null>(null)
+const sopImportDialogVisible = ref(false)
+const sopImportFile = ref<File | null>(null)
+const sopImportPreview = ref<any | null>(null)
+const sopImportPreviewing = ref(false)
+const sopImporting = ref(false)
+const nodeDraft = ref<Partial<PlanNode> | null>(null)
+const dayDraft = ref<Partial<PlanDay> | null>(null)
+const nodeDirty = ref(false)
+const dayDirty = ref(false)
+const nodeSaving = ref(false)
+const daySaving = ref(false)
+
+const cloneJson = <T,>(value: T): T => JSON.parse(JSON.stringify(value))
+
+const buildNodeDraft = (node: PlanNode | null) => {
+  if (!node) return null
+  return {
+    title: node.title,
+    description: node.description,
+    msg_type: node.msg_type,
+    content_json: cloneJson(node.content_json || {}),
+    variables_json: cloneJson(node.variables_json || {}),
+    template_id: node.template_id,
+    status: node.status,
+    enabled: node.enabled
+  }
+}
+
+const buildDayDraft = (day: PlanDay | null) => {
+  if (!day) return null
+  return {
+    title: day.title,
+    focus: day.focus,
+    status: day.status
+  }
+}
+
+const resetNodeDraft = () => {
+  nodeDraft.value = buildNodeDraft(currentNode.value)
+  nodeDirty.value = false
+}
+
+const resetDayDraft = () => {
+  dayDraft.value = buildDayDraft(currentDay.value)
+  dayDirty.value = false
+}
+
+const patchNodeDraft = (patch: Partial<PlanNode>) => {
+  if (!nodeDraft.value) {
+    resetNodeDraft()
+  }
+  nodeDraft.value = {
+    ...(nodeDraft.value || {}),
+    ...patch
+  }
+  nodeDirty.value = true
+}
+
+const patchDayDraft = (patch: Partial<PlanDay>) => {
+  if (!dayDraft.value) {
+    resetDayDraft()
+  }
+  dayDraft.value = {
+    ...(dayDraft.value || {}),
+    ...patch
+  }
+  dayDirty.value = true
+}
+
+const serializeTemplateDraft = () => JSON.stringify({
+  id: form.id,
+  name: form.name,
+  description: form.description,
+  msg_type: form.msg_type,
+  category: form.category,
+  contentJson: form.contentJson,
+  variablesJson: form.variablesJson
+})
+
+const syncTemplateDraftBaseline = () => {
+  templateDraftBaseline.value = serializeTemplateDraft()
+}
+
+const templateDirty = computed(() => dialogVisible.value && serializeTemplateDraft() !== templateDraftBaseline.value)
+
+const categoryTabs = computed(() => {
+  const categories = Array.from(new Set(
+    templates.value
+      .map(item => item.category?.trim())
+      .filter((item): item is string => !!item)
+  ))
+  return ['all', ...categories]
+})
+
+const categoryMatched = (category?: string) =>
+  activeCategory.value === 'all' || (category || '未分类') === activeCategory.value
+
+const visibleMineTemplates = computed(() =>
+  filteredMineTemplates.value.filter(item => categoryMatched(item.category || '未分类'))
+)
+
+const visibleSystemTemplates = computed(() =>
+  filteredSystemTemplates.value.filter(item => categoryMatched(item.category || '未分类'))
+)
+
+const visibleRecentMineTemplates = computed(() =>
+  recentMineTemplates.value.filter(item => categoryMatched(item.category || '未分类'))
+)
+
+const showMineSection = computed(() => activeSource.value === 'all' || activeSource.value === 'mine')
+const showSystemSection = computed(() => activeSource.value === 'all' || activeSource.value === 'system')
+const showRecentSection = computed(() => activeSource.value !== 'system' && visibleRecentMineTemplates.value.length > 0)
+
+const pendingNodeCount = (day: PlanDay) => day.nodes?.filter(node => node.status === 'draft').length || 0
+
+const currentPlanPendingDays = computed(() =>
+  days.value.filter(day => pendingNodeCount(day) > 0).length
+)
+
+const currentDayPendingCount = computed(() => nodes.value.filter(node => node.status === 'draft').length)
+
+const firstPendingDay = computed(() => days.value.find(day => pendingNodeCount(day) > 0) || null)
+const previewTemplateContent = computed(() => parseTemplateJson(previewTemplate.value?.content_json ?? previewTemplate.value?.content))
+const previewTemplateData = computed(() => ({
+  rendered_content: previewTemplateContent.value
+}))
 
 const templateApplyOptions = computed(() =>
   templates.value.map(item => ({
@@ -535,15 +911,305 @@ const templateApplyOptions = computed(() =>
   }))
 )
 
+const saveNodeDraft = async () => {
+  if (!currentNode.value || !nodeDraft.value || !nodeDirty.value) return
+  nodeSaving.value = true
+  try {
+    const saved = await updateNode(nodeDraft.value)
+    if (!saved) return false
+    resetNodeDraft()
+    return true
+  } finally {
+    nodeSaving.value = false
+  }
+}
+
+const saveDayDraft = async () => {
+  if (!currentDay.value || !dayDraft.value || !dayDirty.value) return
+  daySaving.value = true
+  try {
+    const saved = await updateDayMeta(dayDraft.value)
+    if (!saved) return false
+    resetDayDraft()
+    return true
+  } finally {
+    daySaving.value = false
+  }
+}
+
+const hasUnsavedChanges = computed(() => nodeDirty.value || dayDirty.value)
+
+const discardCurrentDrafts = () => {
+  resetNodeDraft()
+  resetDayDraft()
+}
+
+const saveCurrentDrafts = async () => {
+  if (nodeDirty.value) {
+    const nodeSaved = await saveNodeDraft()
+    if (!nodeSaved) return false
+  }
+  if (dayDirty.value) {
+    const daySaved = await saveDayDraft()
+    if (!daySaved) return false
+  }
+  return true
+}
+
+const confirmDiscardDraft = async () => {
+  if (!hasUnsavedChanges.value) return true
+  let action: 'confirm' | 'cancel' | 'close'
+  try {
+    await ElMessageBox.confirm('当前有未保存的改动，切换后会丢失。是否继续切换？', '放弃未保存内容', {
+      confirmButtonText: '保存并切换',
+      cancelButtonText: '放弃修改',
+      distinguishCancelAndClose: true,
+      closeOnClickModal: false,
+      closeOnPressEscape: false,
+      type: 'warning'
+    })
+    action = 'confirm'
+  } catch (error) {
+    action = error as 'cancel' | 'close'
+  }
+
+  if (action === 'close') {
+    return false
+  }
+
+  if (action === 'cancel') {
+    discardCurrentDrafts()
+    return true
+  }
+
+  return await saveCurrentDrafts()
+}
+
+const handleSwitchView = async (view: 'plans' | 'templates') => {
+  if (activeView.value === view) return
+  if (!(await confirmDiscardDraft())) return
+  activeView.value = view
+  window.localStorage.setItem('templates-active-view', view)
+}
+
+const handleSelectPlan = async (planId: number) => {
+  if (!(await confirmDiscardDraft())) return
+  selectPlan(planId)
+}
+
+const handleSelectDay = async (dayId: number) => {
+  if (!(await confirmDiscardDraft())) return
+  selectDay(dayId)
+}
+
+const handleSelectNode = async (nodeId: number) => {
+  if (!(await confirmDiscardDraft())) return
+  selectNode(nodeId)
+}
+
+const jumpToFirstPending = async () => {
+  if (!firstPendingDay.value) return
+  const targetDay = firstPendingDay.value
+  const targetNode = targetDay.nodes?.find(node => node.status === 'draft') || targetDay.nodes?.[0]
+  if (currentDay.value?.id !== targetDay.id) {
+    await handleSelectDay(targetDay.id)
+  }
+  if (targetNode) {
+    await handleSelectNode(targetNode.id)
+  }
+}
+
+const openTemplatePreview = (template: TemplateItem) => {
+  previewTemplate.value = template
+  previewDialogVisible.value = true
+}
+
+const openSopImportDialog = () => {
+  sopImportDialogVisible.value = true
+  sopImportPreview.value = null
+  sopImportFile.value = null
+}
+
+const handleSopFileChange = (uploadFile: any) => {
+  sopImportFile.value = uploadFile.raw || null
+  sopImportPreview.value = null
+}
+
+const handleSopFileRemove = () => {
+  sopImportFile.value = null
+  sopImportPreview.value = null
+}
+
+const previewSopImport = async () => {
+  if (!sopImportFile.value) {
+    ElMessage.warning('请先选择一个 SOP 文件')
+    return
+  }
+  sopImportPreviewing.value = true
+  try {
+    const formData = new FormData()
+    formData.append('file', sopImportFile.value)
+    sopImportPreview.value = await request.post('/v1/operation-plans/import/preview', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+  } catch (error) {
+    console.error(error)
+    ElMessage.error('SOP 预检查失败')
+  } finally {
+    sopImportPreviewing.value = false
+  }
+}
+
+const confirmSopImport = async () => {
+  if (!sopImportFile.value || !sopImportPreview.value?.ok) return
+  sopImporting.value = true
+  try {
+    const formData = new FormData()
+    formData.append('file', sopImportFile.value)
+    const result: any = await request.post('/v1/operation-plans/import', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+    await fetchPlans()
+    if (result?.plan_id) {
+      activeView.value = 'plans'
+      window.localStorage.setItem('templates-active-view', 'plans')
+      await handleSelectPlan(result.plan_id)
+    }
+    sopImportDialogVisible.value = false
+    sopImportPreview.value = null
+    sopImportFile.value = null
+    ElMessage.success('SOP 已成功导入到运营编排中心')
+  } catch (error) {
+    console.error(error)
+    ElMessage.error('SOP 导入失败')
+  } finally {
+    sopImporting.value = false
+  }
+}
+
+const confirmAndOpenCopyDay = async () => {
+  if (!(await confirmDiscardDraft())) return
+  openCopyDay()
+}
+
+const confirmAndOpenBatchCopyDay = async () => {
+  if (!(await confirmDiscardDraft())) return
+  openBatchCopyDay()
+}
+
+const confirmAndOpenSyncNode = async () => {
+  if (!(await confirmDiscardDraft())) return
+  openSyncNode()
+}
+
+const confirmDiscardTemplateDraft = async () => {
+  if (!templateDirty.value) return true
+  try {
+    await ElMessageBox.confirm('模板弹窗里还有未保存内容，离开后会丢失。是否继续？', '放弃模板草稿', {
+      confirmButtonText: '继续离开',
+      cancelButtonText: '继续编辑',
+      type: 'warning'
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
+const handleOpenCreateTemplate = async () => {
+  if (!(await confirmDiscardTemplateDraft())) return
+  openCreateTemplateDialog()
+  syncTemplateDraftBaseline()
+}
+
+const handleEditTemplate = async (template: (typeof templates.value)[number]) => {
+  if (!(await confirmDiscardTemplateDraft())) return
+  editTemplateDialog(template)
+  syncTemplateDraftBaseline()
+}
+
+const handleCreateFromTemplate = async (template: (typeof templates.value)[number]) => {
+  if (!(await confirmDiscardTemplateDraft())) return
+  createFromTemplateDialog(template)
+  syncTemplateDraftBaseline()
+}
+
+const handleCloseTemplateDialog = async () => {
+  if (!(await confirmDiscardTemplateDraft())) return
+  dialogVisible.value = false
+}
+
+const handleTemplateDialogBeforeClose = async (done: () => void) => {
+  if (!(await confirmDiscardTemplateDraft())) return
+  done()
+}
+
+const handleSaveTemplate = async () => {
+  const saved = await saveTemplate()
+  if (!saved) return
+  syncTemplateDraftBaseline()
+}
+
+const parseTemplateJson = (raw: unknown) => {
+  if (!raw) return {}
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw)
+    } catch {
+      return {}
+    }
+  }
+  if (typeof raw === 'object') {
+    return cloneJson(raw)
+  }
+  return {}
+}
+
 const handleApplyTemplate = async () => {
-  if (!selectedTemplateId.value) return
+  if (!selectedTemplateId.value || !currentNode.value) return
   const template = templates.value.find(item => item.id === selectedTemplateId.value)
   if (!template) return
-  await applyTemplateToNode(template)
+  patchNodeDraft({
+    title: template.name || currentNode.value.title,
+    description: template.description || currentNode.value.description,
+    msg_type: template.msg_type,
+    template_id: template.id,
+    content_json: parseTemplateJson(template.content_json ?? template.content),
+    variables_json: parseTemplateJson(template.variables_json ?? template.variable_schema)
+  })
+  ElMessage.success('模板内容已填入草稿，记得点击保存')
 }
 
 watch(() => currentNode.value?.id, () => {
   selectedTemplateId.value = currentNode.value?.template_id ?? null
+  resetNodeDraft()
+})
+
+watch(() => currentDay.value?.id, () => {
+  resetDayDraft()
+})
+
+watch(() => dialogVisible.value, (visible) => {
+  if (visible) {
+    syncTemplateDraftBaseline()
+  }
+})
+
+const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+  if (!templateDirty.value && !hasUnsavedChanges.value) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+
+window.addEventListener('beforeunload', handleBeforeUnload)
+
+onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', handleBeforeUnload)
+})
+
+onBeforeRouteLeave(async () => {
+  if (!(await confirmDiscardTemplateDraft())) return false
+  return await confirmDiscardDraft()
 })
 </script>
 
@@ -552,6 +1218,35 @@ watch(() => currentNode.value?.id, () => {
   display: flex;
   flex-direction: column;
   gap: 18px;
+  --tpl-accent-soft: rgba(34, 197, 94, 0.12);
+  --tpl-accent-soft-strong: rgba(34, 197, 94, 0.18);
+  --tpl-accent-border: rgba(34, 197, 94, 0.38);
+  --tpl-accent-border-strong: rgba(34, 197, 94, 0.52);
+  --tpl-accent-ring: rgba(34, 197, 94, 0.1);
+  --tpl-surface-top: rgba(255, 255, 255, 0.96);
+  --tpl-surface-bottom: rgba(248, 250, 252, 0.96);
+  --tpl-card-top: rgba(248, 250, 252, 0.85);
+  --tpl-card-bottom: rgba(255, 255, 255, 0.96);
+  --tpl-shadow: 0 12px 24px rgba(15, 23, 42, 0.06);
+  --tpl-badge-bg: rgba(59, 130, 246, 0.1);
+  --tpl-badge-color: #2563eb;
+  --tpl-warning-color: #f59e0b;
+}
+
+:global(html.dark) .plans-page {
+  --tpl-accent-soft: rgba(34, 197, 94, 0.18);
+  --tpl-accent-soft-strong: rgba(34, 197, 94, 0.24);
+  --tpl-accent-border: rgba(74, 222, 128, 0.34);
+  --tpl-accent-border-strong: rgba(74, 222, 128, 0.48);
+  --tpl-accent-ring: rgba(74, 222, 128, 0.14);
+  --tpl-surface-top: rgba(33, 34, 36, 0.96);
+  --tpl-surface-bottom: rgba(26, 27, 29, 0.96);
+  --tpl-card-top: rgba(39, 40, 42, 0.92);
+  --tpl-card-bottom: rgba(29, 30, 31, 0.98);
+  --tpl-shadow: 0 16px 28px rgba(0, 0, 0, 0.28);
+  --tpl-badge-bg: rgba(96, 165, 250, 0.18);
+  --tpl-badge-color: #93c5fd;
+  --tpl-warning-color: #fbbf24;
 }
 
 .plans-hero,
@@ -570,8 +1265,8 @@ watch(() => currentNode.value?.id, () => {
   gap: 20px;
   padding: 24px 28px;
   background:
-    radial-gradient(circle at top left, rgba(34, 197, 94, 0.12), transparent 34%),
-    linear-gradient(135deg, rgba(255,255,255,0.96), rgba(248,250,252,0.96));
+    radial-gradient(circle at top left, var(--tpl-accent-soft), transparent 34%),
+    linear-gradient(135deg, var(--tpl-surface-top), var(--tpl-surface-bottom));
 }
 
 .plans-hero__eyebrow {
@@ -610,6 +1305,8 @@ watch(() => currentNode.value?.id, () => {
 .view-switch__item {
   min-width: 120px;
   padding: 10px 16px;
+  appearance: none;
+  -webkit-appearance: none;
   border: none;
   border-radius: 14px;
   background: transparent;
@@ -618,7 +1315,7 @@ watch(() => currentNode.value?.id, () => {
 }
 
 .view-switch__item.is-active {
-  background: rgba(34, 197, 94, 0.12);
+  background: var(--tpl-accent-soft);
   color: var(--primary-color);
   font-weight: 700;
 }
@@ -702,6 +1399,31 @@ watch(() => currentNode.value?.id, () => {
   flex-wrap: wrap;
 }
 
+.context-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.editor-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background: rgba(148, 163, 184, 0.08);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.editor-status.is-dirty {
+  border-color: var(--tpl-accent-border);
+  background: var(--tpl-accent-soft);
+  color: var(--color-primary);
+}
+
 .topic-list,
 .day-list,
 .node-list,
@@ -719,9 +1441,11 @@ watch(() => currentNode.value?.id, () => {
 .day-item,
 .node-card,
 .template-card {
+  appearance: none;
+  -webkit-appearance: none;
   border: 1px solid var(--border-color);
   border-radius: 16px;
-  background: linear-gradient(180deg, rgba(248,250,252,0.85), rgba(255,255,255,0.96));
+  background: linear-gradient(180deg, var(--tpl-card-top), var(--tpl-card-bottom));
   padding: 16px;
   text-align: left;
   cursor: pointer;
@@ -733,16 +1457,16 @@ watch(() => currentNode.value?.id, () => {
 .node-card:hover,
 .template-card:hover {
   transform: translateY(-1px);
-  border-color: rgba(34, 197, 94, 0.38);
-  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.06);
+  border-color: var(--tpl-accent-border);
+  box-shadow: var(--tpl-shadow);
 }
 
 .topic-card.is-active,
 .day-item.is-active,
 .node-card.is-active,
 .template-card--highlighted {
-  border-color: rgba(34, 197, 94, 0.52);
-  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.1);
+  border-color: var(--tpl-accent-border-strong);
+  box-shadow: 0 0 0 3px var(--tpl-accent-ring);
 }
 
 .topic-card__head,
@@ -759,8 +1483,8 @@ watch(() => currentNode.value?.id, () => {
   display: inline-flex;
   padding: 4px 10px;
   border-radius: 999px;
-  background: rgba(59, 130, 246, 0.1);
-  color: #2563eb;
+  background: var(--tpl-badge-bg);
+  color: var(--tpl-badge-color);
   font-size: 12px;
 }
 
@@ -799,7 +1523,7 @@ watch(() => currentNode.value?.id, () => {
 
 .day-item__status {
   font-size: 12px;
-  color: #f59e0b;
+  color: var(--tpl-warning-color);
 }
 
 .node-card__order {
@@ -850,6 +1574,27 @@ watch(() => currentNode.value?.id, () => {
   color: var(--text-muted);
   font-size: 13px;
   line-height: 1.7;
+  display: grid;
+  gap: 6px;
+}
+
+.copy-dialog__hint strong {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.copy-dialog__hint span {
+  line-height: 1.65;
+}
+
+.copy-dialog__hint--warning {
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.22);
+}
+
+.copy-dialog__hint--info {
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.18);
 }
 
 .batch-copy__source {
@@ -857,8 +1602,26 @@ watch(() => currentNode.value?.id, () => {
   padding: 10px 12px;
   border-radius: 12px;
   border: 1px solid var(--border-color);
-  background: rgba(34, 197, 94, 0.06);
+  background: var(--tpl-accent-soft);
   color: var(--text-primary);
+}
+
+.template-dialog__status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  margin-bottom: 18px;
+  border-radius: 16px;
+  border: 1px solid var(--border-color);
+  background: linear-gradient(135deg, var(--tpl-card-top), var(--tpl-card-bottom));
+}
+
+.template-dialog__tip {
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .toolbar-panel {
@@ -874,6 +1637,8 @@ watch(() => currentNode.value?.id, () => {
 }
 
 .type-filter__chip {
+  appearance: none;
+  -webkit-appearance: none;
   border: none;
   border-radius: 999px;
   padding: 10px 14px;
@@ -883,7 +1648,7 @@ watch(() => currentNode.value?.id, () => {
 }
 
 .type-filter__chip--active {
-  background: rgba(34, 197, 94, 0.12);
+  background: var(--tpl-accent-soft);
   color: var(--primary-color);
   font-weight: 700;
 }
@@ -905,10 +1670,464 @@ watch(() => currentNode.value?.id, () => {
   gap: 10px;
 }
 
+:global(html.dark) .plans-page .plans-hero,
+:global(html.dark) .plans-page .view-switch,
+:global(html.dark) .plans-page .plan-summary,
+:global(html.dark) .plans-page .planner-panel,
+:global(html.dark) .plans-page .toolbar-panel {
+  background: #1d1e1f !important;
+  border-color: #414243 !important;
+}
+
+:global(html.dark) .plans-page .plans-hero {
+  background:
+    radial-gradient(circle at top left, rgba(34, 197, 94, 0.18), transparent 34%),
+    linear-gradient(135deg, rgba(33, 34, 36, 0.96), rgba(26, 27, 29, 0.96)) !important;
+}
+
+:global(html.dark) .plans-page .summary-card {
+  background: transparent;
+}
+
+:global(html.dark) .plans-page .topic-card,
+:global(html.dark) .plans-page .day-item,
+:global(html.dark) .plans-page .node-card,
+:global(html.dark) .plans-page .template-card {
+  background-color: #232527 !important;
+  background-image: linear-gradient(180deg, rgba(39, 40, 42, 0.92), rgba(29, 30, 31, 0.98)) !important;
+  border-color: rgba(74, 222, 128, 0.24) !important;
+  color: var(--text-primary) !important;
+}
+
+:global(html.dark) .plans-page .topic-card:hover,
+:global(html.dark) .plans-page .day-item:hover,
+:global(html.dark) .plans-page .node-card:hover,
+:global(html.dark) .plans-page .template-card:hover {
+  border-color: rgba(74, 222, 128, 0.34) !important;
+  box-shadow: 0 16px 28px rgba(0, 0, 0, 0.28) !important;
+}
+
+:global(html.dark) .plans-page .topic-card.is-active,
+:global(html.dark) .plans-page .day-item.is-active,
+:global(html.dark) .plans-page .node-card.is-active,
+:global(html.dark) .plans-page .template-card--highlighted {
+  border-color: rgba(74, 222, 128, 0.48) !important;
+  box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.14) !important;
+}
+
+:global(html.dark) .plans-page .topic-card__stage,
+:global(html.dark) .plans-page .node-card__type {
+  background: rgba(96, 165, 250, 0.18) !important;
+  color: #93c5fd !important;
+}
+
+:global(html.dark) .plans-page .day-item__status {
+  color: #fbbf24 !important;
+}
+
+:global(html.dark) .plans-page .preset-item,
+:global(html.dark) .plans-page .copy-dialog__hint,
+:global(html.dark) .plans-page .type-filter__chip {
+  background: rgba(255, 255, 255, 0.04) !important;
+}
+
+:global(html.dark) .plans-page .copy-dialog__hint--warning {
+  background: rgba(245, 158, 11, 0.14) !important;
+  border-color: rgba(251, 191, 36, 0.22) !important;
+}
+
+:global(html.dark) .plans-page .copy-dialog__hint--info {
+  background: rgba(59, 130, 246, 0.14) !important;
+  border-color: rgba(96, 165, 250, 0.24) !important;
+}
+
+:global(html.dark) .plans-page .type-filter__chip--active {
+  background: rgba(34, 197, 94, 0.18) !important;
+}
+
+:global(html.dark) .plans-page .batch-copy__source {
+  background: rgba(34, 197, 94, 0.18) !important;
+  border-color: rgba(74, 222, 128, 0.24) !important;
+}
+
+:global(html.dark) .plans-page .template-dialog__status {
+  background: linear-gradient(135deg, rgba(39, 40, 42, 0.96), rgba(29, 30, 31, 0.98)) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.summary-card--accent {
+  background: linear-gradient(135deg, var(--tpl-accent-soft), rgba(255, 255, 255, 0.82));
+}
+
+.category-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.source-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.source-filter__chip {
+  appearance: none;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.source-filter__chip--active {
+  border-color: var(--tpl-accent-border);
+  background: var(--tpl-accent-soft);
+  color: var(--color-primary);
+}
+
+.category-filter__chip {
+  appearance: none;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.category-filter__chip--active {
+  border-color: var(--tpl-accent-border);
+  background: var(--tpl-accent-soft);
+  color: var(--color-primary);
+}
+
+.recent-template-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.recent-template-card {
+  appearance: none;
+  text-align: left;
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid var(--border-color);
+  background: linear-gradient(135deg, var(--tpl-card-top), var(--tpl-card-bottom));
+  cursor: pointer;
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.recent-template-card:hover {
+  transform: translateY(-1px);
+  border-color: var(--tpl-accent-border);
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
+}
+
+.recent-template-card__type {
+  color: var(--color-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.template-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.template-card__badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--tpl-accent-soft);
+  color: var(--color-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.template-card__badge--system {
+  background: var(--tpl-badge-bg);
+  color: var(--tpl-badge-color);
+}
+
+.template-card__time {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.template-preview-dialog {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 18px;
+}
+
+.template-preview-dialog__meta {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px solid var(--border-color);
+  background: linear-gradient(135deg, var(--tpl-card-top), var(--tpl-card-bottom));
+}
+
+.template-preview-dialog__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.template-preview-dialog__header h3 {
+  margin: 6px 0 0;
+  color: var(--text-primary);
+  font-size: 22px;
+}
+
+.template-preview-dialog__eyebrow {
+  color: var(--color-primary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.template-preview-dialog__facts {
+  display: grid;
+  gap: 10px;
+}
+
+.template-preview-dialog__fact {
+  display: grid;
+  gap: 4px;
+}
+
+.template-preview-dialog__fact span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.template-preview-dialog__fact strong {
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.template-preview-dialog__desc {
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+
+.template-preview-dialog__tip {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.18);
+  color: var(--text-muted);
+  line-height: 1.65;
+}
+
+.template-preview-dialog__content {
+  min-width: 0;
+}
+
+.sop-import-dialog {
+  display: grid;
+  gap: 18px;
+}
+
+.sop-import-dialog__intro {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid var(--border-color);
+  background: linear-gradient(135deg, var(--tpl-card-top), var(--tpl-card-bottom));
+  color: var(--text-secondary);
+}
+
+.sop-import-dialog__intro strong {
+  color: var(--text-primary);
+}
+
+.sop-import-dialog__actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.sop-import-dialog__preview {
+  display: grid;
+  gap: 14px;
+}
+
+.sop-import-feedback {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.sop-import-feedback strong {
+  color: var(--text-primary);
+}
+
+.sop-import-feedback--error {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.18);
+}
+
+.sop-import-feedback--warning {
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+.sop-import-daylist {
+  display: grid;
+  gap: 12px;
+}
+
+.sop-import-daylist__title {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.sop-import-day {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid var(--border-color);
+  background: linear-gradient(135deg, var(--tpl-card-top), var(--tpl-card-bottom));
+}
+
+.sop-import-day__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.sop-import-day__head strong {
+  color: var(--text-primary);
+}
+
+.sop-import-day__head span,
+.sop-import-day__meta {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.sop-import-day__nodes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sop-import-day__nodes span {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--tpl-accent-soft);
+  color: var(--color-primary);
+  font-size: 12px;
+}
+
+.day-item__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.day-item__pending {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.12);
+  color: var(--tpl-warning-color);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.node-card__badges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.node-card__state {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.12);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.node-card__state.is-draft {
+  background: rgba(245, 158, 11, 0.12);
+  color: var(--tpl-warning-color);
+}
+
+:global(html.dark) .plans-page .summary-card--accent,
+:global(html.dark) .plans-page .recent-template-card,
+:global(html.dark) .plans-page .category-filter__chip--active,
+:global(html.dark) .plans-page .source-filter__chip--active {
+  background: rgba(34, 197, 94, 0.14) !important;
+}
+
+:global(html.dark) .plans-page .recent-template-card:hover {
+  box-shadow: 0 16px 30px rgba(0, 0, 0, 0.24) !important;
+}
+
+:global(html.dark) .plans-page .template-preview-dialog__meta {
+  background: linear-gradient(135deg, rgba(39, 40, 42, 0.96), rgba(29, 30, 31, 0.98)) !important;
+}
+
+:global(html.dark) .plans-page .template-preview-dialog__tip {
+  background: rgba(59, 130, 246, 0.14) !important;
+  border-color: rgba(96, 165, 250, 0.24) !important;
+}
+
+:global(html.dark) .plans-page .sop-import-dialog__intro,
+:global(html.dark) .plans-page .sop-import-day {
+  background: linear-gradient(135deg, rgba(39, 40, 42, 0.96), rgba(29, 30, 31, 0.98)) !important;
+}
+
+:global(html.dark) .plans-page .sop-import-feedback--warning {
+  background: rgba(245, 158, 11, 0.14) !important;
+  border-color: rgba(251, 191, 36, 0.22) !important;
+}
+
+:global(html.dark) .plans-page .sop-import-feedback--error {
+  background: rgba(239, 68, 68, 0.14) !important;
+  border-color: rgba(248, 113, 113, 0.22) !important;
+}
+
 @media (max-width: 1200px) {
   .planner-layout,
   .editor-layout,
   .template-library__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .template-preview-dialog {
     grid-template-columns: 1fr;
   }
 }

@@ -941,6 +941,46 @@ onMounted(() => {
   background: rgba(17, 24, 39, 0.4);
 }
 
+:global(html.dark) .templates-hero,
+:global(html.dark) .toolbar-panel,
+:global(html.dark) .recent-strip,
+:global(html.dark) .library-panel {
+  background: var(--surface-1);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.24);
+}
+
+:global(html.dark) .recent-card,
+:global(html.dark) .template-card {
+  background: var(--surface-2);
+  border-color: rgba(100, 116, 139, 0.26);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.18);
+}
+
+:global(html.dark) .recent-card:hover,
+:global(html.dark) .template-card:hover {
+  box-shadow: 0 18px 32px rgba(0, 0, 0, 0.28);
+}
+
+:global(html.dark) .recent-card__type {
+  background: rgba(59, 130, 246, 0.18);
+  color: #93c5fd;
+}
+
+:global(html.dark) .section-kicker {
+  background: rgba(59, 130, 246, 0.16);
+  color: #93c5fd;
+}
+
+:global(html.dark) .section-kicker--green {
+  background: rgba(34, 197, 94, 0.16);
+  color: #86efac;
+}
+
+:global(html.dark) .section-kicker--blue {
+  background: rgba(59, 130, 246, 0.16);
+  color: #93c5fd;
+}
+
 :global(html.dark) .toolbar-search :deep(.el-input__wrapper) {
   background: rgba(17, 24, 39, 0.72);
 }
@@ -949,6 +989,14 @@ onMounted(() => {
 :global(html.dark) .template-card__meta span,
 :global(html.dark) .template-card__preview {
   background: rgba(255, 255, 255, 0.04);
+}
+
+:global(html.dark) .type-filter__chip:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+:global(html.dark) .el-empty__description p {
+  color: var(--text-secondary);
 }
 
 @media (max-width: 1180px) {

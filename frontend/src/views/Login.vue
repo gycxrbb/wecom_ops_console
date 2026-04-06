@@ -16,6 +16,9 @@
         <el-form-item prop="password">
           <el-input v-model="form.password" type="password" placeholder="密码（回车快捷登录）" @keyup.enter="handleLogin" />
         </el-form-item>
+        <div class="login-tip">
+          `admin` 继续使用当前本地管理员账号，其他运营成员请使用 CRM 后台账号登录。
+        </div>
         <el-form-item>
           <el-button type="primary" class="login-btn" :loading="loading" @click="handleLogin">
             登 录
@@ -23,8 +26,7 @@
         </el-form-item>
       </el-form>
       <div class="tips" style="margin-top:20px; text-align:center; color:#999; font-size:12px;">
-        <div>admin / Admin123456</div>
-        <div>coach / Coach123456</div>
+        <div>管理员账号：admin / 当前本地密码</div>
       </div>
     </el-card>
   </div>
@@ -76,6 +78,11 @@ const handleLogin = async () => {
         router.push('/')
       } catch (error) {
         console.error(error)
+        const message =
+          (error as any)?.response?.data?.detail ||
+          (error as any)?.message ||
+          '登录失败，请检查账号密码或稍后重试'
+        ElMessage.error(message)
       } finally {
         loading.value = false
       }
@@ -91,6 +98,13 @@ const handleLogin = async () => {
   align-items: center;
   height: 100vh;
   background-color: var(--bg-color);
+}
+
+.login-tip {
+  margin: -4px 0 12px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
 }
 .login-card {
   width: 400px;

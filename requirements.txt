@@ -15,3 +15,4 @@ pyjwt
 redis
 pymysql
 celery
+openpyxl==3.1.5

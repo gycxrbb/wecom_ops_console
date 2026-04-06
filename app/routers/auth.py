@@ -3,6 +3,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from sqlalchemy.orm import Session
 from ..database import get_db
 from ..security import authenticate
+from ..services.crm_admin_auth import CrmAdminAuthUnavailable
 from ..config import TEMPLATE_DIR
 from fastapi.templating import Jinja2Templates
 
@@ -17,7 +18,12 @@ def login_page(request: Request):
 
 @router.post('/login')
 def do_login(request: Request, username: str = Form(...), password: str = Form(...), db: Session = Depends(get_db)):
-    user = authenticate(db, username, password)
+    try:
+        user = authenticate(db, username, password)
+    except CrmAdminAuthUnavailable:
+        if request.headers.get("accept", "").startswith("application/json") or request.headers.get("sec-fetch-mode") == "cors":
+            raise HTTPException(status_code=503, detail="CRM 用户库暂时不可用，请稍后重试")
+        return templates.TemplateResponse('login.html', {'request': request, 'title': '登录', 'error': 'CRM 用户库暂时不可用，请稍后重试'}, status_code=503)
     if not user:
         # Check if requested from API (Axios/Vue) or Browser
         if request.headers.get("accept", "").startswith("application/json") or request.headers.get("sec-fetch-mode") == "cors":

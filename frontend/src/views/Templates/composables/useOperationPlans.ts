@@ -219,7 +219,7 @@ export function useOperationPlans() {
   }
 
   const updateNode = async (payload: Partial<PlanNode>) => {
-    if (!currentNode.value) return
+    if (!currentNode.value) return null
     try {
       const nextPayload = {
         node_type: payload.node_type ?? currentNode.value.node_type,
@@ -241,9 +241,11 @@ export function useOperationPlans() {
         day.nodes.splice(nodeIndex, 1, saved)
       }
       ElMessage.success('流程节点已更新')
+      return saved
     } catch (error) {
       console.error(error)
       ElMessage.error('更新流程节点失败')
+      return null
     }
   }
 
@@ -275,7 +277,7 @@ export function useOperationPlans() {
   }
 
   const updateDayMeta = async (payload: Partial<PlanDay>) => {
-    if (!currentDay.value) return
+    if (!currentDay.value) return null
     try {
       const saved = await request.put(`/v1/operation-plans/days/${currentDay.value.id}`, {
         day_number: payload.day_number ?? currentDay.value.day_number,
@@ -290,9 +292,11 @@ export function useOperationPlans() {
         plan.days.splice(index, 1, saved)
       }
       ElMessage.success('当天信息已更新')
+      return saved
     } catch (error) {
       console.error(error)
       ElMessage.error('更新当天信息失败')
+      return null
     }
   }
 

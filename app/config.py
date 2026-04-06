@@ -20,6 +20,13 @@ class Settings(BaseSettings):
     admin_password: str = 'Admin123456'
     coach_username: str = 'coach'
     coach_password: str = 'Coach123456'
+    crm_admin_auth_enabled: bool = False
+    crm_admin_db_host: str = ''
+    crm_admin_db_port: int = 3306
+    crm_admin_db_user: str = ''
+    crm_admin_db_password: str = ''
+    crm_admin_db_name: str = 'mfgcrmdb'
+    crm_admin_table_name: str = 'admins'
     database_url: str = 'sqlite:///./data/app.db'
     redis_url: str = 'redis://127.0.0.1:6379/0'
     default_timezone: str = 'Asia/Shanghai'

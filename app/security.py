@@ -10,6 +10,7 @@ import jwt
 from jwt.exceptions import PyJWTError
 from .config import settings
 from . import models
+from .services.crm_admin_auth import CrmAdminAuthUnavailable, authenticate_crm_admin, crm_admin_auth_enabled, sync_crm_admin_to_local
 
 pwd_context = CryptContext(schemes=['pbkdf2_sha256'], deprecated='auto')
 
@@ -54,12 +55,31 @@ def json_loads(text: str | None, default: Any):
 
 
 def authenticate(db: Session, username: str, password: str):
-    user = db.query(models.User).filter(models.User.username == username, models.User.status == 1).first()
-    if not user:
+    username = (username or '').strip()
+    if not username:
         return None
-    if not verify_password(password, user.password_hash):
+
+    local_user = db.query(models.User).filter(models.User.username == username, models.User.status == 1).first()
+
+    # 保留当前本地 admin 账号为正式兜底入口，不走外部 CRM 用户库。
+    if username == settings.admin_username:
+        if not local_user:
+            return None
+        if not verify_password(password, local_user.password_hash):
+            return None
+        return local_user
+
+    if crm_admin_auth_enabled():
+        crm_admin = authenticate_crm_admin(username, password)
+        if not crm_admin:
+            return None
+        return sync_crm_admin_to_local(db, crm_admin)
+
+    if not local_user:
         return None
-    return user
+    if not verify_password(password, local_user.password_hash):
+        return None
+    return local_user
 
 
 def get_current_user(request: Request, db: Session):

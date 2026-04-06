@@ -17,6 +17,7 @@ from ..security import decrypt_webhook, encrypt_webhook, get_current_user, json_
 from ..services.template_engine import default_context, render_value
 from ..services.wecom import WeComService
 from ..services.scheduler_service import schedule_service
+from ..services.crm_admin_auth import CrmAdminAuthUnavailable
 from ..route_helper import UnifiedResponseRoute
 from ..security import create_access_token, create_refresh_token, authenticate
 
@@ -27,7 +28,10 @@ async def api_login(request: Request, db: Session = Depends(get_db)):
     body = parse_body(await request.json())
     username = body.get('username')
     password = body.get('password')
-    user = authenticate(db, username, password)
+    try:
+        user = authenticate(db, username, password)
+    except CrmAdminAuthUnavailable:
+        return {'code': 50300, 'message': 'CRM 用户库暂时不可用，请稍后重试', 'data': {}}
     if not user:
         return {'code': 40100, 'message': '用户名或密码错误', 'data': {}}
     

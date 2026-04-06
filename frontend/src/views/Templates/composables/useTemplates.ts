@@ -201,7 +201,10 @@ export function useTemplates() {
   }
 
   const saveTemplate = async () => {
-    if (!form.name.trim()) return ElMessage.warning('请输入模板名称')
+    if (!form.name.trim()) {
+      ElMessage.warning('请输入模板名称')
+      return null
+    }
     try {
       const saved = await request.post('/v1/templates', {
         id: form.id,
@@ -216,7 +219,11 @@ export function useTemplates() {
       await fetchTemplates()
       ElMessage.success('保存成功')
       await focusTemplateCard(saved.id, saved.msg_type)
-    } catch (e) { console.error(e) }
+      return saved
+    } catch (e) {
+      console.error(e)
+      return null
+    }
   }
 
   const contentSummary = (tpl: TemplateItem) => {
