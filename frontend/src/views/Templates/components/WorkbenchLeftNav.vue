@@ -43,7 +43,10 @@
         <input type="checkbox" v-model="showPendingOnly" />
         <span>只看未完成</span>
       </label>
-      <button class="wb-left-nav__action" @click="$emit('jump-pending')">回到待完善</button>
+      <div class="wb-left-nav__toolbar-right">
+        <button class="wb-left-nav__action" @click="$emit('jump-pending')">回到待完善</button>
+        <button class="wb-left-nav__action wb-left-nav__action--add" @click="$emit('add-day')">+ 新增天数</button>
+      </div>
     </div>
 
     <div class="wb-left-nav__day-list">
@@ -64,6 +67,11 @@
           </div>
           <span class="wb-day-item__count">{{ completedCount(day) }}/{{ day.nodes?.length || 0 }}</span>
         </div>
+        <el-icon
+          class="wb-day-item__delete"
+          @click.stop="$emit('remove-day', day.id)"
+          :size="14"
+        ><Close /></el-icon>
       </button>
       <el-empty v-if="!filteredDays.length" description="没有天数数据" :image-size="40" />
     </div>
@@ -76,7 +84,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue'
-import { Edit } from '@element-plus/icons-vue'
+import { Edit, Close } from '@element-plus/icons-vue'
 import type { PlanDay } from '../composables/useOperationPlans'
 
 interface Plan {
@@ -104,6 +112,8 @@ const emit = defineEmits<{
   'remove-plan': [plan: Plan | null]
   'rename-plan': [planId: number, newName: string]
   'jump-pending': []
+  'add-day': []
+  'remove-day': [dayId: number]
 }>()
 
 const showPendingOnly = ref(false)
@@ -208,6 +218,12 @@ export default { name: 'WorkbenchLeftNav' }
   border-bottom: 1px solid var(--border-color);
 }
 
+.wb-left-nav__toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .wb-left-nav__filter {
   display: flex;
   align-items: center;
@@ -224,6 +240,10 @@ export default { name: 'WorkbenchLeftNav' }
   color: var(--primary-color);
   font-size: 12px;
   cursor: pointer;
+}
+
+.wb-left-nav__action--add {
+  font-weight: 600;
 }
 
 .wb-left-nav__day-list {
@@ -313,6 +333,23 @@ export default { name: 'WorkbenchLeftNav' }
   font-size: 11px;
 }
 
+.wb-day-item__delete {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+  cursor: pointer;
+}
+.wb-day-item:hover .wb-day-item__delete {
+  opacity: 1;
+}
+.wb-day-item__delete:hover {
+  color: #f56c6c;
+}
+
 .wb-left-nav__footer {
   padding-top: 8px;
   border-top: 1px solid var(--border-color);
@@ -331,6 +368,24 @@ export default { name: 'WorkbenchLeftNav' }
 }
 
 :global(html.dark) .wb-day-item__bar-track {
+  background: rgba(255, 255, 255, 0.1);
+}
+</style>
+
+<style>
+html.dark .wb-day-item:hover {
+  background: rgba(74, 222, 128, 0.06);
+}
+
+html.dark .wb-day-item.is-active {
+  background: rgba(74, 222, 128, 0.08);
+}
+
+html.dark .wb-day-item.is-active::before {
+  background: #4ade80;
+}
+
+html.dark .wb-day-item__bar-track {
   background: rgba(255, 255, 255, 0.1);
 }
 </style>

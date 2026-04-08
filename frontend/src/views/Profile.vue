@@ -24,9 +24,6 @@
           <div class="identity-copy">
             <h1>{{ profile.display_name || profile.username || '个人中心' }}</h1>
             <p class="identity-copy__subtitle">{{ profile.username }} · {{ roleLabel }}</p>
-            <p class="identity-copy__desc">
-              这里集中维护你的身份资料、账号安全和权限边界，避免运营同学在多个页面之间来回确认。
-            </p>
 
             <div class="identity-tags">
               <span class="status-pill">{{ profile.status ? '账号正常' : '账号停用' }}</span>
@@ -43,7 +40,6 @@
         <div v-for="item in heroStats" :key="item.label" class="hero-stat">
           <span>{{ item.label }}</span>
           <strong>{{ item.value }}</strong>
-          <p>{{ item.hint }}</p>
         </div>
       </div>
     </section>
@@ -55,7 +51,6 @@
             <div>
               <span class="section-kicker">资料设置</span>
               <h3>账号资料</h3>
-              <p>维护你的对外展示信息，头像和显示名称会同步出现在系统账号区域与协作标识中。</p>
             </div>
             <el-button type="primary" :loading="profileSaving" @click="saveProfile">
               保存资料
@@ -86,11 +81,6 @@
                 <el-input :model-value="profile.created_at ? formatDateTime(profile.created_at) : '与系统初始化记录一致'" disabled />
               </div>
             </div>
-
-            <div class="profile-editor__note">
-              <strong>头像与身份说明</strong>
-              <p>建议上传清晰的正方形头像，大小不超过 2 MB。上传后会直接替换系统中的个人头像展示。</p>
-            </div>
           </div>
         </article>
 
@@ -99,7 +89,6 @@
             <div>
               <span class="section-kicker">权限边界</span>
               <h3>权限概览</h3>
-              <p>先看清当前账号能做什么、不能做什么，降低误操作和重复确认成本。</p>
             </div>
           </div>
 
@@ -118,18 +107,13 @@
             <div>
               <span class="section-kicker">账号安全</span>
               <h3>密码与认证</h3>
-              <p>先明确密码由谁管理，再决定是在本系统修改还是跳转到外部 CRM 处理。</p>
             </div>
           </div>
 
           <div class="security-mode">
             <span class="security-mode__label">当前模式</span>
             <strong>{{ profile.password_change_available ? '本系统可直接修改密码' : 'CRM 统一管理密码' }}</strong>
-            <p>
-              {{ profile.password_change_available
-                ? '修改前需要校验当前密码，建议使用更长的新密码并避免与旧密码重复。'
-                : '为了避免本系统与 CRM 用户库的正式密码真值漂移，这里不直接覆盖外部密码。' }}
-            </p>
+            
           </div>
 
           <el-form
@@ -157,7 +141,7 @@
               type="info"
               :closable="false"
               show-icon
-              description="如需改密，请前往 CRM 后台处理；本系统保留查看与协作能力，但不会直接改写外部用户库密码。"
+              description="密码由 CRM 统一管理，如需修改请前往 CRM 后台。"
             />
           </div>
         </article>
@@ -167,7 +151,6 @@
             <div>
               <span class="section-kicker">账号状态</span>
               <h3>身份摘要</h3>
-              <p>把最关键的账号信息收拢到一列里，减少来回切换视线。</p>
             </div>
           </div>
 
@@ -224,18 +207,15 @@ const authSourceLabel = computed(() => (profile.auth_source === 'crm' ? 'CRM 账
 const heroStats = computed(() => [
   {
     label: '账号来源',
-    value: authSourceLabel.value,
-    hint: '登录链路和密码管理方式都由这里决定。'
+    value: authSourceLabel.value
   },
   {
     label: '角色权限',
-    value: roleLabel.value,
-    hint: '直接影响运营配置、审批与系统治理边界。'
+    value: roleLabel.value
   },
   {
     label: '密码模式',
-    value: profile.password_change_available ? '本地修改' : 'CRM 管理',
-    hint: '避免在错误入口上反复尝试改密。'
+    value: profile.password_change_available ? '本地修改' : 'CRM 管理'
   }
 ])
 
@@ -411,12 +391,6 @@ onMounted(fetchProfile)
   color: var(--text-secondary);
 }
 
-.identity-copy__desc {
-  max-width: 620px;
-  margin: 14px 0 0;
-  line-height: 1.72;
-  color: var(--text-secondary);
-}
 
 .avatar-shell {
   position: relative;
@@ -510,12 +484,6 @@ onMounted(fetchProfile)
   line-height: 1.3;
 }
 
-.hero-stat p {
-  margin: 10px 0 0;
-  color: var(--text-secondary);
-  line-height: 1.6;
-  font-size: 13px;
-}
 
 .profile-workbench {
   display: grid;
@@ -651,12 +619,12 @@ onMounted(fetchProfile)
 :deep(.field-shell .el-input__wrapper),
 :deep(.security-form .el-input__wrapper) {
   border-radius: 14px;
-  box-shadow: none;
-  background: color-mix(in srgb, var(--card-bg) 92%, transparent);
+  box-shadow: 0 0 0 1px var(--border-color) inset;
+  background: var(--bg-color);
 }
 
 :deep(.field-shell .el-input.is-disabled .el-input__wrapper) {
-  background: color-mix(in srgb, var(--card-bg) 76%, transparent);
+  background: color-mix(in srgb, var(--bg-color) 60%, var(--card-bg));
 }
 
 .security-form {
@@ -765,5 +733,88 @@ onMounted(fetchProfile)
     flex-direction: column;
     align-items: stretch;
   }
+}
+</style>
+
+<style>
+/* ===== 暗黑模式 — 非 scoped 确保命中 ===== */
+html.dark .profile-page {
+  --profile-surface: rgba(29, 30, 31, 0.92) !important;
+  --profile-surface-strong: rgba(35, 36, 38, 0.98) !important;
+  --profile-muted-surface: rgba(255, 255, 255, 0.03) !important;
+  --profile-tint: rgba(34, 197, 94, 0.16) !important;
+  --profile-blue-tint: rgba(59, 130, 246, 0.14) !important;
+  --profile-shadow: 0 24px 42px rgba(0, 0, 0, 0.3) !important;
+}
+
+html.dark .profile-hero {
+  background:
+    radial-gradient(circle at top left, rgba(34, 197, 94, 0.18), transparent 32%),
+    radial-gradient(circle at right center, rgba(59, 130, 246, 0.1), transparent 28%),
+    linear-gradient(135deg, rgba(32, 33, 35, 0.98), rgba(24, 25, 28, 0.96)) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 22px 38px rgba(0, 0, 0, 0.34) !important;
+}
+
+html.dark .hero-stat {
+  background:
+    linear-gradient(180deg, rgba(39, 40, 42, 0.6), rgba(29, 30, 31, 0.4)),
+    rgba(255, 255, 255, 0.03) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+html.dark .profile-card {
+  background:
+    linear-gradient(180deg, rgba(39, 40, 42, 0.55), rgba(29, 30, 31, 0)),
+    rgba(29, 30, 31, 0.92) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.2) !important;
+}
+
+html.dark .profile-card--editor {
+  background:
+    radial-gradient(circle at top right, rgba(34, 197, 94, 0.1), transparent 28%),
+    linear-gradient(180deg, rgba(39, 40, 42, 0.6), rgba(29, 30, 31, 0)),
+    rgba(29, 30, 31, 0.92) !important;
+}
+
+html.dark .field-shell {
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+html.dark .profile-editor__note,
+html.dark .security-mode {
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+html.dark .permission-item,
+html.dark .meta-item {
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+html.dark .status-pill {
+  color: #86efac !important;
+}
+
+html.dark .status-pill--soft {
+  color: #93c5fd !important;
+}
+
+html.dark .avatar-shell .el-avatar {
+  border-color: rgba(35, 36, 38, 0.92) !important;
+}
+
+html.dark .avatar-shell__overlay {
+  background: rgba(0, 0, 0, 0.72);
+}
+
+html.dark .field-shell .el-input__wrapper,
+html.dark .security-form .el-input__wrapper {
+  background: rgba(20, 20, 22, 0.8) !important;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1) inset !important;
+}
+
+html.dark .field-shell .el-input.is-disabled .el-input__wrapper {
+  background: rgba(20, 20, 22, 0.5) !important;
 }
 </style>

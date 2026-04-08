@@ -48,6 +48,7 @@ const emit = defineEmits<{
 
 const rows = ref<VariableRow[]>([])
 let rowSeed = 1
+let selfUpdate = false
 
 const rebuildRows = (value: Record<string, any>) => {
   const entries = Object.entries(value || {})
@@ -59,6 +60,7 @@ const rebuildRows = (value: Record<string, any>) => {
 }
 
 watch(() => props.modelValue, (value) => {
+  if (selfUpdate) return
   rebuildRows(value || {})
 }, { deep: true, immediate: true })
 
@@ -69,7 +71,9 @@ const syncRows = () => {
     acc[key] = row.value
     return acc
   }, {})
+  selfUpdate = true
   emit('update:modelValue', nextValue)
+  Promise.resolve().then(() => { selfUpdate = false })
 }
 
 const addRow = (key = '', value = '') => {

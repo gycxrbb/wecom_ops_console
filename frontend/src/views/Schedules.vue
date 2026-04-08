@@ -77,7 +77,7 @@
         <el-table-column label="操作" width="220" fixed="right">
           <template #default="scope">
             <el-button link type="primary" @click="handleEdit(scope.row)">编辑</el-button>
-            <el-button link type="primary" @click="handleRunNow(scope.row)">运行</el-button>
+            <el-button link type="primary" :loading="runNowLoading" @click="handleRunNow(scope.row)">立即执行</el-button>
             <el-button link type="primary" @click="handleClone(scope.row)">克隆</el-button>
             <el-popconfirm title="确定要删除该任务吗？" @confirm="handleDelete(scope.row)">
               <template #reference>
@@ -154,8 +154,11 @@
       </el-form>
       <div class="dialog-tip">
         {{ isEditMode
-          ? '这里可以调整执行时间、规则和审批方式；消息内容本身仍建议回发送中心修改。'
-          : '完整创建任务请前往【发送中心】选择消息体后保存为定时任务。这里主要承担管理和规则调整。' }}
+          ? '调整执行时间和规则后保存即可。消息内容请回发送中心修改。'
+          : '请前往【发送中心】选择消息体后保存为定时任务。' }}
+      </div>
+      <div v-if="isEditMode && willReactivate" class="dialog-tip dialog-tip--warning">
+        任务将重新激活并等待新的执行时间。
       </div>
       <template #footer>
         <el-button @click="dialogVisible = false">关闭</el-button>
@@ -169,7 +172,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
 import request from '@/utils/request'
 import CronBuilder from '@/components/CronBuilder.vue'
@@ -177,6 +180,7 @@ import CronBuilder from '@/components/CronBuilder.vue'
 const router = useRouter()
 const schedules = ref<any[]>([])
 const loading = ref(false)
+const runNowLoading = ref(false)
 const previewRuns = ref<string[]>([])
 const previewHint = ref('修改时间或规则后，这里会显示未来几次执行时间。')
 const previewLoading = ref(false)
@@ -241,6 +245,7 @@ const fetchSchedules = async () => {
 const getStatusType = (status: string) => {
   switch(status) {
     case 'draft': return 'info'
+    case 'scheduled': return 'success'
     case 'pending_approval': return 'warning'
     case 'approved': return 'success'
     case 'rejected': return 'danger'
@@ -252,8 +257,9 @@ const getStatusType = (status: string) => {
 const formatStatus = (status: string) => {
   switch(status) {
     case 'draft': return '草稿'
+    case 'scheduled': return '等待执行'
     case 'pending_approval': return '待审批'
-    case 'approved': return '已通过/生效'
+    case 'approved': return '已通过'
     case 'rejected': return '已拒绝'
     case 'completed': return '已完成'
     default: return status
@@ -349,10 +355,23 @@ const refreshPreview = async () => {
 
 const handleRunNow = async (row: any) => {
   try {
+    await ElMessageBox.confirm(
+      `确定立即执行"${row.title}"？会立刻向 ${row.group_count || row.group_ids?.length || 0} 个目标群发送消息。`,
+      '立即执行',
+      { confirmButtonText: '确定执行', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch {
+    return
+  }
+  runNowLoading.value = true
+  try {
     await request.post(`/v1/schedules/${row.id}/run-now`)
-    ElMessage.success('已触发运行')
-  } catch(error) {
-    console.error(error)
+    ElMessage.success('已触发执行')
+    fetchSchedules()
+  } catch (error: any) {
+    ElMessage.error('执行失败: ' + (error?.message || String(error)))
+  } finally {
+    runNowLoading.value = false
   }
 }
 
@@ -376,6 +395,18 @@ const handleDelete = async (row: any) => {
   }
 }
 
+const willReactivate = computed(() => {
+  if (!isEditMode.value || !form.value.id) return false
+  const original = schedules.value.find((s: any) => s.id === form.value.id)
+  if (!original) return false
+  if (original.status !== 'completed' && original.enabled) return false
+  if (form.value.schedule_type === 'once' && form.value.run_at) {
+    return new Date(form.value.run_at) > new Date()
+  }
+  if (form.value.schedule_type === 'cron' && form.value.cron_expr) return true
+  return false
+})
+
 const handleSaveEdit = async () => {
   if (!form.value.title) {
     ElMessage.warning('请填写任务名称')
@@ -391,7 +422,7 @@ const handleSaveEdit = async () => {
   }
   saving.value = true
   try {
-    await request.post('/v1/schedules', {
+    const payload: any = {
       id: form.value.id,
       title: form.value.title,
       group_ids: form.value.group_ids,
@@ -406,13 +437,14 @@ const handleSaveEdit = async () => {
       approval_required: form.value.approval_required,
       skip_weekends: form.value.skip_weekends,
       skip_dates: form.value.skip_dates,
-      enabled: form.value.enabled
-    })
-    ElMessage.success('任务已更新')
+      enabled: willReactivate.value ? true : form.value.enabled
+    }
+    await request.post('/v1/schedules', payload)
+    ElMessage.success(willReactivate.value ? '任务已重新激活' : '任务已更新')
     dialogVisible.value = false
     fetchSchedules()
-  } catch (error) {
-    console.error(error)
+  } catch (error: any) {
+    ElMessage.error('保存失败: ' + (error?.message || String(error)))
   } finally {
     saving.value = false
   }
@@ -512,6 +544,14 @@ onBeforeUnmount(() => {
   margin-left: 100px;
   margin-bottom: 20px;
   line-height: 1.6;
+}
+
+.dialog-tip--warning {
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.08);
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(245, 158, 11, 0.2);
 }
 .rule-tags {
   display: flex;

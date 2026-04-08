@@ -84,12 +84,13 @@ class WeComService:
         return values[0]
 
     @classmethod
-    async def upload_file(cls, webhook: str, file_path: str):
+    async def upload_file(cls, webhook: str, file_path: str, file_name: str | None = None):
         key = cls.extract_key(webhook)
         url = f'https://qyapi.weixin.qq.com/cgi-bin/webhook/upload_media?key={key}&type=file'
+        display_name = file_name or Path(file_path).name
         async with httpx.AsyncClient(timeout=30) as client:
             with open(file_path, 'rb') as fh:
-                files = {'media': (Path(file_path).name, fh)}
+                files = {'media': (display_name, fh)}
                 resp = await client.post(url, files=files)
                 resp.raise_for_status()
                 data = resp.json()
@@ -102,7 +103,7 @@ class WeComService:
         await cls._check_rate_limit(group_key)
         rendered_content = dict(content)
         if msg_type == 'file' and not rendered_content.get('media_id'):
-            media_id, upload_resp = await cls.upload_file(webhook, rendered_content['file_path'])
+            media_id, upload_resp = await cls.upload_file(webhook, rendered_content['file_path'], rendered_content.get('file_name'))
             rendered_content['media_id'] = media_id
             rendered_content['_upload_response'] = upload_resp
         payload = cls.build_payload(msg_type, rendered_content)

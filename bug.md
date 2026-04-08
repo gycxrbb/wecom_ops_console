@@ -150,3 +150,19 @@
 - **复现条件**: 创建一个一次性或 cron 定时任务，保持应用运行并等待触发时间，或重启应用后观察任务是否自动恢复执行。
 - **解决方案**: 在应用 lifespan 启动阶段拉起调度器并从数据库同步任务，在关闭阶段优雅 shutdown，让定时任务从“仅能管理”升级为“真正随服务运行自动执行”。
 - **关联文件**: app/main.py, app/services/scheduler_service.py, app/routers/api.py, frontend/src/views/SendCenter/composables/useSendLogic.ts, frontend/src/views/Schedules.vue
+
+## Bug #18: 定时任务触发成功但不实际发送消息（Celery 无 worker + 时区偏移）
+
+- **日期**: 2026-04-08
+- **现象**: 定时任务到点后前端显示"已完成"，但实际没有发送消息到企业微信群；后端日志无 `Executing job` 输出，也无报错；前端显示的"最近执行时间"比设定时间早 8 小时（如设定 11:40 却显示 03:40）。
+- **根因**: 三层问题叠加：
+  1. **Celery 无 worker**：`do_send_to_groups` 非测试模式先走 `send_message_task.delay()`，Redis 可达时 `delay()` 不报错返回，但无 worker 消费队列，消息永远不发送。函数返回 `success: True, response: 'Queued'` 有误导性。
+  2. **时区偏移 8 小时**：APScheduler 默认 UTC、`DateTrigger` 未注入时区、`last_sent_at` 使用 `datetime.utcnow()`，三层 UTC 和 Asia/Shanghai 混用导致 8 小时偏移。
+  3. **诊断不足**：`sync_from_db` 和 `add_or_update_job` 无日志输出，问题定位困难。
+- **复现条件**: 创建一次性定时任务，等待到达触发时间，观察消息是否实际发送到企微群。
+- **解决方案**：
+  1. 去掉 Celery 异步队列，`do_send_to_groups` 所有模式统一改为直接同步发送。
+  2. APScheduler 全链路统一 `Asia/Shanghai` 时区：scheduler 初始化、`DateTrigger`、`compute_next_runs`、`last_sent_at`。
+  3. 为 `sync_from_db`、`add_or_update_job`、`execute_job` 增加详细诊断日志。
+  4. `misfire_grace_time` 从 60 秒增加到 300 秒，避免 uvicorn 热重载短暂中断导致 misfire 跳过。
+- **关联文件**: app/routers/api.py, app/services/scheduler_service.py, app/tasks.py, app/celery_app.py

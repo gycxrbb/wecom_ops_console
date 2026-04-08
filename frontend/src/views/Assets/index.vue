@@ -53,10 +53,12 @@
           <el-upload
             action="javascript:;"
             :show-file-list="false"
-            :http-request="handleUpload"
+            :auto-upload="false"
+            :on-change="handleFileChange"
+            multiple
           >
             <el-button type="primary" :loading="uploading">
-              <el-icon><Upload /></el-icon> 上传素材
+              <el-icon><Upload /></el-icon> {{ uploadButtonText }}
             </el-button>
           </el-upload>
         </div>
@@ -130,7 +132,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { FolderAdd, FolderOpened, Upload } from '@element-plus/icons-vue'
-import { ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAssets } from './composables/useAssets'
 import { useFolders } from './composables/useFolders'
 import FolderSidebar from './components/FolderSidebar.vue'
@@ -149,6 +151,13 @@ const {
 
 const activeFolderId = ref<string>('all')
 const uploading = ref(false)
+const uploadProgress = ref({ done: 0, total: 0 })
+
+const uploadButtonText = computed(() => {
+  if (!uploading.value) return '上传素材'
+  const { done, total } = uploadProgress.value
+  return total > 1 ? `上传中 ${done}/${total}` : '上传中...'
+})
 const folderDialogVisible = ref(false)
 const folderDialogMode = ref<'create' | 'rename'>('create')
 const folderDialogInitialName = ref('')
@@ -210,19 +219,39 @@ const handleFolderSelect = (id: string) => {
   }
 }
 
-const handleUpload = async (options: any) => {
+const handleFileChange = async (uploadFile: any, uploadFiles: any[]) => {
+  if (uploading.value) return
+  const files = uploadFiles.map((f: any) => f.raw).filter(Boolean)
+  if (!files.length) return
+
+  let folderId: number | null = null
+  if (activeFolderId.value !== 'all' && activeFolderId.value !== 'uncategorized') {
+    folderId = Number(activeFolderId.value)
+  }
+
   uploading.value = true
-  try {
-    let folderId: number | null = null
-    if (activeFolderId.value !== 'all' && activeFolderId.value !== 'uncategorized') {
-      folderId = Number(activeFolderId.value)
+  uploadProgress.value = { done: 0, total: files.length }
+  let failed = 0
+
+  for (const file of files) {
+    try {
+      await uploadAsset(file, folderId, true)
+    } catch {
+      failed++
     }
-    await uploadAsset(options.file, folderId)
-    await Promise.all([refreshCurrentAssets(), fetchFolders()])
-  } catch (e) {
-    console.error(e)
-  } finally {
-    uploading.value = false
+    uploadProgress.value.done++
+  }
+
+  uploading.value = false
+  uploadProgress.value = { done: 0, total: 0 }
+
+  await Promise.all([refreshCurrentAssets(), fetchFolders()])
+  if (failed === 0) {
+    ElMessage.success(`${files.length} 个文件上传成功`)
+  } else if (failed < files.length) {
+    ElMessage.warning(`${files.length - failed} 个上传成功，${failed} 个失败`)
+  } else {
+    ElMessage.error('全部上传失败')
   }
 }
 

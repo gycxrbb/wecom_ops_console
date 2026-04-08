@@ -284,3 +284,14 @@ const confirmDescDialog = () => {
   opacity: 1;
 }
 </style>
+
+<style>
+html.dark .wb-status-dot {
+  background: rgba(148, 163, 184, 0.06);
+}
+
+html.dark .wb-status-dot.is-dirty {
+  background: rgba(74, 222, 128, 0.14);
+  color: #4ade80;
+}
+</style>

@@ -323,6 +323,122 @@ export function useOperationPlans() {
     }
   }
 
+  const addDay = async (dayNumber?: number) => {
+    if (!currentPlan.value) return
+    const plan = currentPlan.value
+    const maxDay = plan.days?.length ? Math.max(...plan.days.map(d => d.day_number)) : 0
+    const nextDay = dayNumber ?? (maxDay + 1)
+    try {
+      const saved = await request.post(`/v1/operation-plans/${plan.id}/days`, {
+        day_number: nextDay,
+        title: `第${nextDay}天`,
+        focus: '',
+        auto_init_nodes: true
+      })
+      if (plan.days) {
+        plan.days.push(saved)
+        plan.day_count = plan.days.length
+        plan.node_count = plan.days.reduce((sum, d) => sum + (d.nodes?.length || 0), 0)
+      }
+      activeDayId.value = saved.id
+      activeNodeId.value = saved.nodes?.[0]?.id || null
+      ElMessage.success(`第${nextDay}天已添加`)
+    } catch (error: any) {
+      console.error(error)
+      ElMessage.error(error?.response?.data?.detail || '添加天数失败')
+    }
+  }
+
+  const removeDay = async (dayId: number) => {
+    const plan = currentPlan.value
+    if (!plan?.days) return
+    const day = plan.days.find(d => d.id === dayId)
+    if (!day) return
+    try {
+      await ElMessageBox.confirm(`确认删除第${day.day_number}天及其所有节点吗？`, '删除天数', { type: 'warning' })
+      await request.delete(`/v1/operation-plans/days/${dayId}`)
+      plan.days = plan.days.filter(d => d.id !== dayId)
+      plan.day_count = plan.days.length
+      plan.node_count = plan.days.reduce((sum, d) => sum + (d.nodes?.length || 0), 0)
+      if (activeDayId.value === dayId) {
+        const remaining = plan.days.sort((a, b) => a.day_number - b.day_number)
+        const fallback = remaining[0]
+        activeDayId.value = fallback?.id || null
+        activeNodeId.value = fallback?.nodes?.[0]?.id || null
+      }
+      ElMessage.success('天数已删除')
+    } catch {
+      // cancel
+    }
+  }
+
+  const addNode = async (afterNodeId?: number | null) => {
+    if (!currentDay.value) return
+    const day = currentDay.value
+    // 计算插入位置的 sort_order
+    let sortOrder: number
+    const refId = afterNodeId ?? activeNodeId.value
+    if (refId) {
+      const refIdx = day.nodes?.findIndex(n => n.id === refId)
+      if (refIdx >= 0 && refIdx < (day.nodes?.length || 0) - 1) {
+        const prev = day.nodes[refIdx].sort_order
+        const next = day.nodes[refIdx + 1].sort_order
+        sortOrder = Math.round((prev + next) / 2)
+      } else {
+        const maxSort = day.nodes?.length ? Math.max(...day.nodes.map(n => n.sort_order)) : 0
+        sortOrder = maxSort + 10
+      }
+    } else {
+      const maxSort = day.nodes?.length ? Math.max(...day.nodes.map(n => n.sort_order)) : 0
+      sortOrder = maxSort + 10
+    }
+    try {
+      const saved = await request.post(`/v1/operation-plans/days/${day.id}/nodes`, {
+        node_type: 'custom',
+        title: '新节点',
+        description: '',
+        sort_order: sortOrder,
+        msg_type: 'markdown',
+        content_json: { content: '' },
+        variables_json: {},
+        status: 'draft',
+        enabled: true
+      })
+      if (day.nodes) {
+        day.nodes.push(saved)
+        day.nodes.sort((a, b) => a.sort_order - b.sort_order)
+        day.node_count = day.nodes.length
+      }
+      activeNodeId.value = saved.id
+      ElMessage.success('节点已添加')
+    } catch (error: any) {
+      console.error(error)
+      ElMessage.error(error?.response?.data?.detail || '添加节点失败')
+    }
+  }
+
+  const removeNode = async (nodeId: number) => {
+    const day = currentDay.value
+    if (!day?.nodes) return
+    const node = day.nodes.find(n => n.id === nodeId)
+    if (!node) return
+    try {
+      await ElMessageBox.confirm(`确认删除节点「${node.title}」吗？`, '删除节点', { type: 'warning' })
+      await request.delete(`/v1/operation-plans/nodes/${nodeId}`)
+      day.nodes = day.nodes.filter(n => n.id !== nodeId)
+      day.node_count = day.nodes.length
+      if (activeNodeId.value === nodeId) {
+        activeNodeId.value = day.nodes[0]?.id || null
+      }
+      if (currentPlan.value) {
+        currentPlan.value.node_count = currentPlan.value.days?.reduce((sum, d) => sum + (d.nodes?.length || 0), 0) || 0
+      }
+      ElMessage.success('节点已删除')
+    } catch {
+      // cancel
+    }
+  }
+
   const removePlan = async (plan: OperationPlan) => {
     try {
       await ElMessageBox.confirm(`确认删除运营计划「${plan.name}」吗？`, '删除运营计划', { type: 'warning' })
@@ -455,6 +571,10 @@ export function useOperationPlans() {
     selectPlan,
     selectDay,
     selectNode,
+    addDay,
+    removeDay,
+    addNode,
+    removeNode,
     openCreatePlan,
     openCopyDay,
     openBatchCopyDay,

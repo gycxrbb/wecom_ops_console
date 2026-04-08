@@ -68,6 +68,8 @@
           @remove-plan="(plan: any) => removePlan(plan)"
           @rename-plan="renamePlan"
           @jump-pending="jumpToFirstPending"
+          @add-day="addDay"
+          @remove-day="removeDay"
         />
 
         <WorkbenchCenter
@@ -82,6 +84,8 @@
           @patch-day="patchDayDraft"
           @save-day="saveDayDraft"
           @reset-day="resetDayDraft"
+          @add-node="addNode"
+          @remove-node="removeNode"
         />
 
         <WorkbenchEditor
@@ -565,6 +569,10 @@ const {
   selectPlan,
   selectDay,
   selectNode,
+  addDay,
+  removeDay,
+  addNode,
+  removeNode,
   openCreatePlan,
   openCopyDay,
   openBatchCopyDay,
@@ -734,7 +742,8 @@ async function saveNodeDraft() {
   if (!currentNode.value || !nodeDraft.value || !nodeDirty.value) return true
   nodeSaving.value = true
   try {
-    const saved = await updateNode(nodeDraft.value)
+    const payload = { ...nodeDraft.value, status: 'ready' as const }
+    const saved = await updateNode(payload)
     if (!saved) return false
     resetNodeDraft()
     return true
@@ -1522,91 +1531,6 @@ onBeforeRouteLeave(async () => {
   gap: 10px;
 }
 
-:global(html.dark) .plans-page .plans-hero,
-:global(html.dark) .plans-page .view-switch,
-:global(html.dark) .plans-page .plan-summary,
-:global(html.dark) .plans-page .planner-panel,
-:global(html.dark) .plans-page .toolbar-panel {
-  background: #1d1e1f !important;
-  border-color: #414243 !important;
-}
-
-:global(html.dark) .plans-page .plans-hero {
-  background:
-    radial-gradient(circle at top left, rgba(34, 197, 94, 0.18), transparent 34%),
-    linear-gradient(135deg, rgba(33, 34, 36, 0.96), rgba(26, 27, 29, 0.96)) !important;
-}
-
-:global(html.dark) .plans-page .summary-card {
-  background: transparent;
-}
-
-:global(html.dark) .plans-page .topic-card,
-:global(html.dark) .plans-page .day-item,
-:global(html.dark) .plans-page .node-card,
-:global(html.dark) .plans-page .template-card {
-  background-color: #232527 !important;
-  background-image: linear-gradient(180deg, rgba(39, 40, 42, 0.92), rgba(29, 30, 31, 0.98)) !important;
-  border-color: rgba(74, 222, 128, 0.24) !important;
-  color: var(--text-primary) !important;
-}
-
-:global(html.dark) .plans-page .topic-card:hover,
-:global(html.dark) .plans-page .day-item:hover,
-:global(html.dark) .plans-page .node-card:hover,
-:global(html.dark) .plans-page .template-card:hover {
-  border-color: rgba(74, 222, 128, 0.34) !important;
-  box-shadow: 0 16px 28px rgba(0, 0, 0, 0.28) !important;
-}
-
-:global(html.dark) .plans-page .topic-card.is-active,
-:global(html.dark) .plans-page .day-item.is-active,
-:global(html.dark) .plans-page .node-card.is-active,
-:global(html.dark) .plans-page .template-card--highlighted {
-  border-color: rgba(74, 222, 128, 0.48) !important;
-  box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.14) !important;
-}
-
-:global(html.dark) .plans-page .topic-card__stage,
-:global(html.dark) .plans-page .node-card__type {
-  background: rgba(96, 165, 250, 0.18) !important;
-  color: #93c5fd !important;
-}
-
-:global(html.dark) .plans-page .day-item__status {
-  color: #fbbf24 !important;
-}
-
-:global(html.dark) .plans-page .preset-item,
-:global(html.dark) .plans-page .copy-dialog__hint,
-:global(html.dark) .plans-page .type-filter__chip {
-  background: rgba(255, 255, 255, 0.04) !important;
-}
-
-:global(html.dark) .plans-page .copy-dialog__hint--warning {
-  background: rgba(245, 158, 11, 0.14) !important;
-  border-color: rgba(251, 191, 36, 0.22) !important;
-}
-
-:global(html.dark) .plans-page .copy-dialog__hint--info {
-  background: rgba(59, 130, 246, 0.14) !important;
-  border-color: rgba(96, 165, 250, 0.24) !important;
-}
-
-:global(html.dark) .plans-page .type-filter__chip--active {
-  background: rgba(34, 197, 94, 0.18) !important;
-}
-
-:global(html.dark) .plans-page .batch-copy__source {
-  background: rgba(34, 197, 94, 0.18) !important;
-  border-color: rgba(74, 222, 128, 0.24) !important;
-}
-
-:global(html.dark) .plans-page .template-dialog__status {
-  background: linear-gradient(135deg, rgba(39, 40, 42, 0.96), rgba(29, 30, 31, 0.98)) !important;
-  border-color: rgba(255, 255, 255, 0.08) !important;
-}
-
 .summary-card--accent {
   background: linear-gradient(135deg, var(--tpl-accent-soft), rgba(255, 255, 255, 0.82));
 }
@@ -1937,58 +1861,6 @@ onBeforeRouteLeave(async () => {
   color: var(--tpl-warning-color);
 }
 
-:global(html.dark) .plans-page .summary-card--accent,
-:global(html.dark) .plans-page .recent-template-card,
-:global(html.dark) .plans-page .category-filter__chip--active,
-:global(html.dark) .plans-page .source-filter__chip--active {
-  background: rgba(34, 197, 94, 0.14) !important;
-}
-
-:global(html.dark) .plans-page .recent-template-card:hover {
-  box-shadow: 0 16px 30px rgba(0, 0, 0, 0.24) !important;
-}
-
-:global(html.dark) .plans-page .template-preview-dialog__meta {
-  background: linear-gradient(135deg, rgba(39, 40, 42, 0.96), rgba(29, 30, 31, 0.98)) !important;
-}
-
-:global(html.dark) .plans-page .template-preview-dialog__tip {
-  background: rgba(59, 130, 246, 0.14) !important;
-  border-color: rgba(96, 165, 250, 0.24) !important;
-}
-
-:global(html.dark) .plans-page .sop-import-dialog__intro,
-:global(html.dark) .plans-page .sop-import-day {
-  background: linear-gradient(135deg, rgba(39, 40, 42, 0.96), rgba(29, 30, 31, 0.98)) !important;
-}
-
-:global(html.dark) .plans-page .sop-import-feedback--warning {
-  background: rgba(245, 158, 11, 0.14) !important;
-  border-color: rgba(251, 191, 36, 0.22) !important;
-}
-
-:global(html.dark) .plans-page .sop-import-feedback--error {
-  background: rgba(239, 68, 68, 0.14) !important;
-  border-color: rgba(248, 113, 113, 0.22) !important;
-}
-
-:global(html.dark) .plans-page .editor-status {
-  border-color: rgba(148, 163, 184, 0.18) !important;
-  background: rgba(148, 163, 184, 0.06) !important;
-}
-
-:global(html.dark) .plans-page .node-card__state {
-  background: rgba(148, 163, 184, 0.1) !important;
-}
-
-:global(html.dark) .plans-page .node-card__state.is-draft {
-  background: rgba(245, 158, 11, 0.16) !important;
-}
-
-:global(html.dark) .plans-page .day-item__pending {
-  background: rgba(245, 158, 11, 0.16) !important;
-}
-
 @media (max-width: 1200px) {
   .plans-workbench,
   .template-library__grid {
@@ -2025,5 +1897,151 @@ onBeforeRouteLeave(async () => {
   .summary-card:last-child {
     border-bottom: none;
   }
+}
+</style>
+
+<style>
+/* ===== 暗黑模式 — 容器级覆盖（非 scoped，确保命中） ===== */
+html.dark .plans-page .plans-hero,
+html.dark .plans-page .view-switch,
+html.dark .plans-page .plan-summary,
+html.dark .plans-page .planner-panel,
+html.dark .plans-page .toolbar-panel {
+  background: #1d1e1f !important;
+  border-color: #414243 !important;
+}
+
+html.dark .plans-page .plans-hero {
+  background:
+    radial-gradient(circle at top left, rgba(34, 197, 94, 0.18), transparent 34%),
+    linear-gradient(135deg, rgba(33, 34, 36, 0.96), rgba(26, 27, 29, 0.96)) !important;
+}
+
+html.dark .plans-page .summary-card {
+  background: transparent;
+}
+
+html.dark .plans-page .summary-card--accent {
+  background: rgba(34, 197, 94, 0.14) !important;
+}
+
+html.dark .plans-page .recent-template-card {
+  background: rgba(34, 197, 94, 0.14) !important;
+}
+
+html.dark .plans-page .recent-template-card:hover {
+  box-shadow: 0 16px 30px rgba(0, 0, 0, 0.24) !important;
+}
+
+html.dark .plans-page .topic-card,
+html.dark .plans-page .day-item,
+html.dark .plans-page .node-card,
+html.dark .plans-page .template-card {
+  background-color: #232527 !important;
+  background-image: linear-gradient(180deg, rgba(39, 40, 42, 0.92), rgba(29, 30, 31, 0.98)) !important;
+  border-color: rgba(74, 222, 128, 0.24) !important;
+  color: var(--text-primary) !important;
+}
+
+html.dark .plans-page .template-dialog__status {
+  background: linear-gradient(135deg, rgba(39, 40, 42, 0.96), rgba(29, 30, 31, 0.98)) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+html.dark .plans-page .editor-status {
+  border-color: rgba(148, 163, 184, 0.18) !important;
+  background: rgba(148, 163, 184, 0.06) !important;
+}
+
+html.dark .plans-page .node-card__state {
+  background: rgba(148, 163, 184, 0.1) !important;
+}
+
+html.dark .plans-page .node-card__state.is-draft {
+  background: rgba(245, 158, 11, 0.16) !important;
+}
+
+html.dark .plans-page .day-item__pending {
+  background: rgba(245, 158, 11, 0.16) !important;
+}
+
+html.dark .plans-page .preset-item,
+html.dark .plans-page .copy-dialog__hint,
+html.dark .plans-page .type-filter__chip {
+  background: rgba(255, 255, 255, 0.04) !important;
+}
+
+html.dark .plans-page .category-filter__chip--active,
+html.dark .plans-page .source-filter__chip--active {
+  background: rgba(34, 197, 94, 0.14) !important;
+}
+
+html.dark .plans-page .template-preview-dialog__meta {
+  background: linear-gradient(135deg, rgba(39, 40, 42, 0.96), rgba(29, 30, 31, 0.98)) !important;
+}
+
+html.dark .plans-page .template-preview-dialog__tip {
+  background: rgba(59, 130, 246, 0.14) !important;
+  border-color: rgba(96, 165, 250, 0.24) !important;
+}
+
+html.dark .plans-page .sop-import-dialog__intro,
+html.dark .plans-page .sop-import-day {
+  background: linear-gradient(135deg, rgba(39, 40, 42, 0.96), rgba(29, 30, 31, 0.98)) !important;
+}
+
+html.dark .plans-page .sop-import-feedback--warning {
+  background: rgba(245, 158, 11, 0.14) !important;
+  border-color: rgba(251, 191, 36, 0.22) !important;
+}
+
+html.dark .plans-page .sop-import-feedback--error {
+  background: rgba(239, 68, 68, 0.14) !important;
+  border-color: rgba(248, 113, 113, 0.22) !important;
+}
+
+html.dark .plans-page .copy-dialog__hint--warning {
+  background: rgba(245, 158, 11, 0.14) !important;
+  border-color: rgba(251, 191, 36, 0.22) !important;
+}
+
+html.dark .plans-page .copy-dialog__hint--info {
+  background: rgba(59, 130, 246, 0.14) !important;
+  border-color: rgba(96, 165, 250, 0.24) !important;
+}
+
+html.dark .plans-page .batch-copy__source {
+  background: rgba(34, 197, 94, 0.18) !important;
+  border-color: rgba(74, 222, 128, 0.24) !important;
+}
+
+html.dark .plans-page .type-filter__chip--active {
+  background: rgba(34, 197, 94, 0.18) !important;
+}
+
+html.dark .plans-page .topic-card__stage,
+html.dark .plans-page .node-card__type {
+  background: rgba(96, 165, 250, 0.18) !important;
+  color: #93c5fd !important;
+}
+
+html.dark .plans-page .day-item__status {
+  color: #fbbf24 !important;
+}
+
+html.dark .plans-page .topic-card:hover,
+html.dark .plans-page .day-item:hover,
+html.dark .plans-page .node-card:hover,
+html.dark .plans-page .template-card:hover {
+  border-color: rgba(74, 222, 128, 0.34) !important;
+  box-shadow: 0 16px 28px rgba(0, 0, 0, 0.28) !important;
+}
+
+html.dark .plans-page .topic-card.is-active,
+html.dark .plans-page .day-item.is-active,
+html.dark .plans-page .node-card.is-active,
+html.dark .plans-page .template-card--highlighted {
+  border-color: rgba(74, 222, 128, 0.48) !important;
+  box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.14) !important;
 }
 </style>

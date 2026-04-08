@@ -39,11 +39,11 @@ export function useAssets() {
     }
   }
 
-  const uploadAsset = async (file: File, folderId?: number | null) => {
+  const uploadAsset = async (file: File, folderId?: number | null, silent = false) => {
     const validation = validateAssetUpload(file, 'all')
     if (!validation.valid) {
-      ElMessage.warning(validation.message)
-      return
+      if (!silent) ElMessage.warning(validation.message)
+      throw new Error(validation.message)
     }
     const formData = new FormData()
     formData.append('file', file)
@@ -51,7 +51,7 @@ export function useAssets() {
     await request.post('/v1/assets', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
-    ElMessage.success('上传成功')
+    if (!silent) ElMessage.success('上传成功')
   }
 
   const deleteAsset = async (id: number) => {

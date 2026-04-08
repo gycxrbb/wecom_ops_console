@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 import json
 import shutil
 from datetime import datetime
@@ -183,6 +184,7 @@ def serialize_schedule(schedule: models.Schedule):
         'last_error': schedule.last_error or '',
         'created_by_id': schedule.owner_id,
         'last_sent_at': schedule.last_sent_at.isoformat() if schedule.last_sent_at else None,
+        'last_error': schedule.last_error or '',
         'created_at': schedule.created_at.isoformat(),
     }
 
@@ -245,7 +247,7 @@ def render_message_content(msg_type: str, content_json: dict, variables_json: di
 
 
 def attach_asset_paths(db: Session, msg_type: str, content: dict):
-    if msg_type not in {'image', 'file'}:
+    if msg_type not in {'image', 'file', 'video'}:
         return content
     content = dict(content)
     asset_id = content.get('asset_id')
@@ -255,6 +257,7 @@ def attach_asset_paths(db: Session, msg_type: str, content: dict):
     if not asset:
         raise HTTPException(400, '引用的资产不存在')
     content['file_path'] = asset.storage_path
+    content['file_name'] = asset.name
     if msg_type == 'image':
         content['image_path'] = asset.storage_path
     return content
@@ -291,15 +294,18 @@ def validate_outbound_content(msg_type: str, content: dict) -> None:
 
 
 
+MAX_SEND_RETRIES = 3
+RETRY_DELAY_SECONDS = 1.0
+
+
 async def do_send_to_groups(db: Session, groups: list[models.Group], msg_type: str, content_json: dict, variables_json: dict, user: models.User, schedule: models.Schedule | None = None, run_mode: str = 'immediate'):
     results = []
-    from ..tasks import send_message_task
-    
+
     for group in groups:
         rendered_content = render_message_content(msg_type, content_json, variables_json, user, group)
         rendered_content = attach_asset_paths(db, msg_type, rendered_content)
         validate_outbound_content(msg_type, rendered_content)
-        
+
         msg = models.Message(
             source_type='schedule' if schedule else 'manual',
             source_id=schedule.id if schedule else None,
@@ -314,7 +320,8 @@ async def do_send_to_groups(db: Session, groups: list[models.Group], msg_type: s
         db.add(msg)
         db.commit()
 
-        if run_mode == 'test':
+        last_error = None
+        for attempt in range(1, MAX_SEND_RETRIES + 1):
             try:
                 webhook = resolve_group_webhook(group)
                 payload, response = await WeComService.send(webhook, msg_type, rendered_content, group_key=str(group.id))
@@ -322,7 +329,7 @@ async def do_send_to_groups(db: Session, groups: list[models.Group], msg_type: s
                 msg.request_payload = json_dumps(stored_payload)
                 msg.status = 'sent'
                 msg.sent_at = datetime.utcnow()
-                msg.retry_count += 1
+                msg.retry_count = attempt
                 db.add(
                     models.MessageLog(
                         message_id=msg.id,
@@ -331,75 +338,40 @@ async def do_send_to_groups(db: Session, groups: list[models.Group], msg_type: s
                         http_status=200,
                         success=1,
                         latency_ms=0,
-                        attempt_no=msg.retry_count,
+                        attempt_no=attempt,
                     )
                 )
                 db.commit()
-                results.append({'group_id': group.id, 'group_name': group.name, 'success': True, 'response': response})
+                if attempt > 1:
+                    results.append({'group_id': group.id, 'group_name': group.name, 'success': True, 'response': response, 'retries': attempt})
+                else:
+                    results.append({'group_id': group.id, 'group_name': group.name, 'success': True, 'response': response})
+                last_error = None
+                break
             except Exception as exc:
-                msg.status = 'failed'
-                msg.sent_at = datetime.utcnow()
-                msg.retry_count += 1
-                db.add(
-                    models.MessageLog(
-                        message_id=msg.id,
-                        request_payload=json_dumps(rendered_content),
-                        response_payload='{}',
-                        http_status=500,
-                        success=0,
-                        latency_ms=0,
-                        error_message=str(exc),
-                        attempt_no=msg.retry_count,
-                    )
-                )
-                db.commit()
-                results.append({'group_id': group.id, 'group_name': group.name, 'success': False, 'response': str(exc)})
-            continue
+                last_error = exc
+                if attempt < MAX_SEND_RETRIES:
+                    await asyncio.sleep(RETRY_DELAY_SECONDS)
 
-        try:
-            send_message_task.delay(msg.id)
-            results.append({'group_id': group.id, 'group_name': group.name, 'success': True, 'response': 'Queued'})
-        except Exception as exc:
-            try:
-                webhook = resolve_group_webhook(group)
-                payload, response = await WeComService.send(webhook, msg_type, rendered_content, group_key=str(group.id))
-                stored_payload = WeComService.payload_for_storage(payload)
-                msg.request_payload = json_dumps(stored_payload)
-                msg.status = 'sent'
-                msg.sent_at = datetime.utcnow()
-                msg.retry_count += 1
-                db.add(
-                    models.MessageLog(
-                        message_id=msg.id,
-                        request_payload=json_dumps(stored_payload),
-                        response_payload=json_dumps(response),
-                        http_status=200,
-                        success=1,
-                        latency_ms=0,
-                        attempt_no=msg.retry_count,
-                    )
+        if last_error is not None:
+            msg.status = 'failed'
+            msg.sent_at = datetime.utcnow()
+            msg.retry_count = MAX_SEND_RETRIES
+            db.add(
+                models.MessageLog(
+                    message_id=msg.id,
+                    request_payload=json_dumps(rendered_content),
+                    response_payload='{}',
+                    http_status=500,
+                    success=0,
+                    latency_ms=0,
+                    error_message=f'{last_error} (已重试{MAX_SEND_RETRIES}次)',
+                    attempt_no=MAX_SEND_RETRIES,
                 )
-                db.commit()
-                results.append({'group_id': group.id, 'group_name': group.name, 'success': True, 'response': 'Sent directly (queue unavailable)'})
-            except Exception as send_exc:
-                msg.status = 'failed'
-                msg.sent_at = datetime.utcnow()
-                msg.retry_count += 1
-                db.add(
-                    models.MessageLog(
-                        message_id=msg.id,
-                        request_payload=json_dumps(rendered_content),
-                        response_payload='{}',
-                        http_status=500,
-                        success=0,
-                        latency_ms=0,
-                        error_message=f'Queue error: {exc}; Send error: {send_exc}',
-                        attempt_no=msg.retry_count,
-                    )
-                )
-                db.commit()
-                results.append({'group_id': group.id, 'group_name': group.name, 'success': False, 'response': str(send_exc)})
-        
+            )
+            db.commit()
+            results.append({'group_id': group.id, 'group_name': group.name, 'success': False, 'response': f'{last_error} (已重试{MAX_SEND_RETRIES}次)'})
+
     return results
 
 async def perform_job_send(db: Session, schedule: models.Schedule, run_mode: str = 'scheduled'):
@@ -420,7 +392,7 @@ async def perform_job_send(db: Session, schedule: models.Schedule, run_mode: str
         run_mode=run_mode,
     )
     schedule.last_error = ''
-    schedule.last_sent_at = datetime.utcnow()
+    schedule.last_sent_at = datetime.now(ZoneInfo('Asia/Shanghai')).replace(tzinfo=None)
     db.commit()
     
     return results
@@ -789,6 +761,8 @@ def delete_schedule(job_id: int, request: Request, db: Session = Depends(get_db)
 
 @router.post('/schedules/{job_id}/run-now')
 async def run_schedule_now(job_id: int, request: Request, db: Session = Depends(get_db)):
+    import logging
+    _log = logging.getLogger(__name__)
     user = get_user_or_401(request, db)
     job = db.query(models.Schedule).filter(models.Schedule.id == job_id).first()
     if not job:
@@ -797,6 +771,7 @@ async def run_schedule_now(job_id: int, request: Request, db: Session = Depends(
         raise HTTPException(403, '不能执行其他人的任务')
     if job.approval_required and job.status != 'approved' and user.role != 'admin':
         raise HTTPException(403, '该任务尚未审批')
+    _log.info(f'Manual run triggered: job {job_id} ({job.title}) by user {user.username}')
     results = await perform_job_send(db, job, run_mode='manual-run')
     return {'results': results}
 

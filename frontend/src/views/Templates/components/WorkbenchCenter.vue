@@ -64,7 +64,10 @@
     <div class="wb-center__timeline-section">
       <div class="wb-center__timeline-header">
         <h4>流程节点</h4>
-        <span v-if="pendingCount" class="wb-center__pending-badge">还差 {{ pendingCount }} 个</span>
+        <div class="wb-center__timeline-actions">
+          <span v-if="pendingCount" class="wb-center__pending-badge">还差 {{ pendingCount }} 个</span>
+          <el-button size="small" @click="$emit('add-node')">+ 新增节点</el-button>
+        </div>
       </div>
       <el-timeline v-if="nodes.length">
         <el-timeline-item
@@ -81,7 +84,14 @@
           >
             <div class="wb-node-item__head">
               <strong>{{ node.title }}</strong>
-              <span class="wb-node-item__type">{{ msgTypeLabel(node.msg_type) }}</span>
+              <div class="wb-node-item__head-right">
+                <span class="wb-node-item__type">{{ msgTypeLabel(node.msg_type) }}</span>
+                <el-icon
+                  class="wb-node-item__delete"
+                  :size="14"
+                  @click.stop="$emit('remove-node', node.id)"
+                ><Close /></el-icon>
+              </div>
             </div>
             <div v-if="node.description" class="wb-node-item__desc">{{ node.description }}</div>
           </button>
@@ -94,7 +104,7 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { FullScreen } from '@element-plus/icons-vue'
+import { FullScreen, Close } from '@element-plus/icons-vue'
 import { msgTypeLabel } from '../composables/useTemplates'
 
 interface Day {
@@ -129,6 +139,8 @@ const emit = defineEmits<{
   'patch-day': [patch: Record<string, any>]
   'save-day': []
   'reset-day': []
+  'add-node': []
+  'remove-node': [nodeId: number]
 }>()
 
 const focusDialogVisible = ref(false)
@@ -253,6 +265,12 @@ const confirmFocusDialog = () => {
   font-size: 15px;
 }
 
+.wb-center__timeline-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .wb-center__pending-badge {
   display: inline-flex;
   padding: 3px 10px;
@@ -297,6 +315,13 @@ const confirmFocusDialog = () => {
   font-size: 14px;
 }
 
+.wb-node-item__head-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
 .wb-node-item__type {
   display: inline-flex;
   padding: 2px 8px;
@@ -311,6 +336,19 @@ const confirmFocusDialog = () => {
   color: var(--text-muted);
   font-size: 12px;
   line-height: 1.5;
+}
+
+.wb-node-item__delete {
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+  cursor: pointer;
+}
+.wb-node-item:hover .wb-node-item__delete {
+  opacity: 1;
+}
+.wb-node-item__delete:hover {
+  color: #f56c6c;
 }
 
 .wb-status-dot {
@@ -357,6 +395,41 @@ const confirmFocusDialog = () => {
 }
 
 :global(html.dark) .wb-center__pending-badge {
+  background: rgba(251, 191, 36, 0.14);
+  color: #fbbf24;
+}
+</style>
+
+<style>
+html.dark .wb-day-overview__badge {
+  background: rgba(74, 222, 128, 0.14);
+}
+
+html.dark .wb-node-item:hover {
+  background: rgba(74, 222, 128, 0.06);
+  border-color: rgba(74, 222, 128, 0.18);
+}
+
+html.dark .wb-node-item.is-active {
+  background: rgba(74, 222, 128, 0.1);
+  border-color: rgba(74, 222, 128, 0.28);
+}
+
+html.dark .wb-node-item__type {
+  background: rgba(96, 165, 250, 0.18);
+  color: #93c5fd;
+}
+
+html.dark .wb-status-dot {
+  background: rgba(148, 163, 184, 0.06);
+}
+
+html.dark .wb-status-dot.is-dirty {
+  background: rgba(74, 222, 128, 0.14);
+  color: #4ade80;
+}
+
+html.dark .wb-center__pending-badge {
   background: rgba(251, 191, 36, 0.14);
   color: #fbbf24;
 }
