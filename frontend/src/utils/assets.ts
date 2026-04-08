@@ -9,6 +9,7 @@ const isImageFile = (file: File) => (file.type || '').startsWith('image/')
 
 export const buildAssetAuthUrl = (url?: string) => {
   if (!url) return ''
+  if (/^https?:\/\//i.test(url)) return url
   const token = localStorage.getItem('access_token')
   if (!token) return url
   const separator = url.includes('?') ? '&' : '?'
@@ -18,6 +19,26 @@ export const buildAssetAuthUrl = (url?: string) => {
 export const buildAssetDownloadHeaders = () => {
   const token = localStorage.getItem('access_token')
   return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
+export const copyAssetPublicUrl = async (url?: string) => {
+  if (!url) throw new Error('素材还没有可用的公网地址')
+  await navigator.clipboard.writeText(url)
+}
+
+export const formatAssetDateTime = (dateStr?: string) => {
+  if (!dateStr) return '-'
+  const date = new Date(dateStr)
+  if (Number.isNaN(date.getTime())) return dateStr
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date)
 }
 
 export const validateAssetUpload = (file: File, acceptType: 'image' | 'file' | 'all' = 'all') => {

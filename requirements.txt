@@ -16,3 +16,4 @@ redis
 pymysql
 celery
 openpyxl==3.1.5
+qiniu>=7.14.0

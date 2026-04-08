@@ -13,7 +13,7 @@
       <el-tab-pane label="模板库" name="templates">
         <el-input
           v-model="templateSearch"
-          placeholder="搜索模板名称..."
+          placeholder="搜索模板名称、分类、描述..."
           clearable
           prefix-icon="Search"
           class="content-selector__search"
@@ -44,15 +44,25 @@
           <!-- 左栏：计划列表 -->
           <div class="plan-sidebar">
             <div class="plan-sidebar__header">运营计划</div>
+            <el-input
+              v-model="planSearch"
+              placeholder="搜索计划..."
+              clearable
+              size="small"
+              class="plan-sidebar__search"
+            />
             <div v-if="plansLoading" class="content-selector__loading">
               <el-icon class="is-loading"><Loading /></el-icon>
             </div>
             <div v-else-if="plans.length === 0" class="content-selector__empty" style="padding: 30px 10px">
               <span>暂无运营编排</span>
             </div>
+            <div v-else-if="filteredPlans.length === 0" class="content-selector__empty" style="padding: 20px 10px">
+              <span>无匹配计划</span>
+            </div>
             <div v-else class="plan-sidebar__list">
               <div
-                v-for="plan in plans"
+                v-for="plan in filteredPlans"
                 :key="plan.id"
                 class="plan-sidebar__item"
                 :class="{ 'is-active': selectedPlanId === plan.id }"
@@ -70,7 +80,7 @@
               <!-- 搜索 -->
               <el-input
                 v-model="nodeSearch"
-                placeholder="搜索节点标题..."
+                placeholder="搜索节点（跨全部计划）..."
                 clearable
                 prefix-icon="Search"
                 size="default"
@@ -88,23 +98,35 @@
                 >{{ day.day_number }}</button>
               </div>
 
+              <!-- 批量选择工具栏 -->
+              <div v-if="!nodeSearch.trim() && selectedDayNodes.length > 0" class="batch-toolbar">
+                <el-checkbox
+                  :model-value="currentDayCheckedAll"
+                  :indeterminate="currentDayIndeterminate"
+                  @change="toggleDayAll"
+                >全选当天</el-checkbox>
+                <span v-if="checkedCount > 0" class="batch-toolbar__count">已选 {{ checkedCount }} 项</span>
+              </div>
+
               <!-- 节点列表 -->
               <div class="node-list">
                 <template v-if="nodeSearch.trim()">
                   <div v-if="searchResults.length === 0" class="content-selector__empty" style="padding: 30px 10px">
                     <span>未找到匹配节点</span>
                   </div>
-                  <template v-for="group in searchResults" :key="group.day.id">
+                  <template v-for="group in searchResults" :key="`${group.plan.id}-${group.day.id}`">
                     <div class="node-list__day-label">
-                      第{{ group.day.day_number }}天
-                      <span v-if="group.day.title && group.day.title !== `第${group.day.day_number}天`"> · {{ group.day.title }}</span>
+                      {{ group.plan.name }}
+                      <span class="node-list__day-sub"> · 第{{ group.day.day_number }}天
+                        <template v-if="group.day.title && group.day.title !== `第${group.day.day_number}天`"> · {{ group.day.title }}</template>
+                      </span>
                     </div>
                     <div
                       v-for="node in group.nodes"
                       :key="node.id"
                       class="content-selector__item"
                       :class="{ 'is-selected': isSelected('plan_node', node.id) }"
-                      @click="selectNode(selectedPlan!, group.day, node)"
+                      @click="selectNode(group.plan, group.day, node)"
                     >
                       <div class="content-selector__item-main">
                         <span class="content-selector__item-name">{{ node.title }}</span>
@@ -124,11 +146,15 @@
                   <div
                     v-for="node in selectedDayNodes"
                     :key="node.id"
-                    class="content-selector__item"
-                    :class="{ 'is-selected': isSelected('plan_node', node.id) }"
-                    @click="selectNode(selectedPlan!, selectedDay!, node)"
+                    class="content-selector__item content-selector__item--checkable"
+                    :class="{ 'is-checked': checkedNodeIds.has(node.id) }"
                   >
-                    <div class="content-selector__item-main">
+                    <el-checkbox
+                      :model-value="checkedNodeIds.has(node.id)"
+                      @change="toggleNodeCheck(node.id)"
+                      @click.stop
+                    />
+                    <div class="content-selector__item-main" @click="selectNode(selectedPlan!, selectedDay!, node)">
                       <span class="content-selector__item-name">{{ node.title }}</span>
                       <span v-if="node.description" class="content-selector__item-desc">{{ node.description }}</span>
                     </div>
@@ -152,7 +178,14 @@
     </el-tabs>
 
     <template #footer>
-      <el-button @click="visible = false">取消</el-button>
+      <div class="dialog-footer">
+        <div v-if="checkedCount > 0 && activeTab === 'plans'" class="dialog-footer__batch">
+          <el-button type="primary" @click="confirmBatchSelect">
+            确认选择 ({{ checkedCount }} 项)
+          </el-button>
+        </div>
+        <el-button @click="visible = false">取消</el-button>
+      </div>
     </template>
   </el-dialog>
 </template>
@@ -171,7 +204,7 @@ const props = defineProps({
   selectedId: { type: Number as PropType<number | null>, default: null }
 })
 
-const emit = defineEmits(['update:modelValue', 'select'])
+const emit = defineEmits(['update:modelValue', 'select', 'select-batch'])
 
 const visible = computed({
   get: () => props.modelValue,
@@ -187,6 +220,8 @@ const loadingPlanDetail = ref(false)
 const selectedPlanId = ref<number | null>(null)
 const selectedDayNumber = ref<number | null>(null)
 const nodeSearch = ref('')
+const planSearch = ref('')
+const checkedNodeIds = ref<Set<number>>(new Set())
 
 // ---------- computed ----------
 
@@ -195,13 +230,25 @@ const filteredTemplates = computed(() => {
   if (!kw) return props.templates
   return props.templates.filter((t: any) =>
     t.name?.toLowerCase().includes(kw) ||
-    t.category?.toLowerCase().includes(kw)
+    t.category?.toLowerCase().includes(kw) ||
+    t.description?.toLowerCase().includes(kw) ||
+    msgTypeLabel(t.msg_type)?.toLowerCase().includes(kw)
   )
 })
 
 const selectedPlan = computed(() =>
   plans.value.find((p: any) => p.id === selectedPlanId.value) || null
 )
+
+const filteredPlans = computed(() => {
+  const kw = planSearch.value.trim().toLowerCase()
+  if (!kw) return plans.value
+  return plans.value.filter((p: any) =>
+    p.name?.toLowerCase().includes(kw) ||
+    p.topic?.toLowerCase().includes(kw) ||
+    p.stage?.toLowerCase().includes(kw)
+  )
+})
 
 const selectedPlanDetail = computed(() =>
   selectedPlanId.value != null ? planDetailMap.value[selectedPlanId.value] : null
@@ -224,17 +271,29 @@ const selectedDayNodes = computed(() => {
   return [...day.nodes].sort((a: any, b: any) => a.sort_order - b.sort_order)
 })
 
+const nodeMatches = (n: any, kw: string): boolean => {
+  if (n.title?.toLowerCase().includes(kw)) return true
+  if (n.description?.toLowerCase().includes(kw)) return true
+  if (msgTypeLabel(n.msg_type)?.toLowerCase().includes(kw)) return true
+  // Search inside content_json (the actual message body text)
+  const contentStr = typeof n.content_json === 'string' ? n.content_json : JSON.stringify(n.content_json || {})
+  if (contentStr.toLowerCase().includes(kw)) return true
+  return false
+}
+
 const searchResults = computed(() => {
   const kw = nodeSearch.value.trim().toLowerCase()
   if (!kw) return []
-  const results: { day: any; nodes: any[] }[] = []
-  for (const day of currentDays.value) {
-    const matched = (day.nodes || []).filter((n: any) =>
-      n.title?.toLowerCase().includes(kw) ||
-      n.description?.toLowerCase().includes(kw)
-    )
-    if (matched.length) {
-      results.push({ day, nodes: matched.sort((a: any, b: any) => a.sort_order - b.sort_order) })
+  const results: { plan: any; day: any; nodes: any[] }[] = []
+  // Search across ALL loaded plans
+  for (const plan of plans.value) {
+    const detail = planDetailMap.value[plan.id]
+    if (!detail?.days) continue
+    for (const day of detail.days) {
+      const matched = (day.nodes || []).filter((n: any) => nodeMatches(n, kw))
+      if (matched.length) {
+        results.push({ plan, day, nodes: matched.sort((a: any, b: any) => a.sort_order - b.sort_order) })
+      }
     }
   }
   return results
@@ -242,6 +301,68 @@ const searchResults = computed(() => {
 
 const isSelected = (source: string, id: number) =>
   props.selectedSource === source && props.selectedId === id
+
+// When user types in node search, load all plan details for cross-plan search
+watch(nodeSearch, async (kw) => {
+  if (!kw.trim()) return
+  const unloaded = plans.value.filter(p => !planDetailMap.value[p.id])
+  if (unloaded.length === 0) return
+  await Promise.all(unloaded.map(p => fetchPlanDetail(p.id)))
+})
+
+// ---------- 批量选择 ----------
+
+const currentDayCheckedAll = computed(() => {
+  const nodes = selectedDayNodes.value
+  if (!nodes.length) return false
+  return nodes.every((n: any) => checkedNodeIds.value.has(n.id))
+})
+
+const currentDayIndeterminate = computed(() => {
+  const nodes = selectedDayNodes.value
+  if (!nodes.length) return false
+  const cnt = nodes.filter((n: any) => checkedNodeIds.value.has(n.id)).length
+  return cnt > 0 && cnt < nodes.length
+})
+
+const checkedCount = computed(() => checkedNodeIds.value.size)
+
+const toggleDayAll = () => {
+  const nodes = selectedDayNodes.value
+  if (currentDayCheckedAll.value) {
+    for (const n of nodes) checkedNodeIds.value.delete(n.id)
+  } else {
+    for (const n of nodes) checkedNodeIds.value.add(n.id)
+  }
+}
+
+const toggleNodeCheck = (nodeId: number) => {
+  if (checkedNodeIds.value.has(nodeId)) {
+    checkedNodeIds.value.delete(nodeId)
+  } else {
+    checkedNodeIds.value.add(nodeId)
+  }
+}
+
+const confirmBatchSelect = () => {
+  const items: Array<{ id: number; title: string; msg_type: string; contentJson: Record<string, any>; variablesJson: Record<string, any> }> = []
+  for (const day of currentDays.value) {
+    for (const node of (day.nodes || [])) {
+      if (checkedNodeIds.value.has(node.id)) {
+        items.push({
+          id: node.id,
+          title: `${node.title} (第${day.day_number}天)`,
+          msg_type: node.msg_type,
+          contentJson: node.content_json || {},
+          variablesJson: node.variables_json || {},
+        })
+      }
+    }
+  }
+  if (items.length === 0) return
+  emit('select-batch', items)
+  visible.value = false
+}
 
 // ---------- helpers ----------
 
@@ -289,8 +410,8 @@ const selectNode = (plan: any, day: any, node: any) => {
 const selectPlan = (plan: any) => {
   selectedPlanId.value = plan.id
   nodeSearch.value = ''
+  checkedNodeIds.value.clear()
   fetchPlanDetail(plan.id)
-  // 默认选中第一天
   const detail = planDetailMap.value[plan.id]
   if (detail?.days?.length) {
     const sorted = [...detail.days].sort((a: any, b: any) => a.day_number - b.day_number)
@@ -306,8 +427,10 @@ const onOpen = () => {
   activeTab.value = 'templates'
   templateSearch.value = ''
   nodeSearch.value = ''
+  planSearch.value = ''
   selectedPlanId.value = null
   selectedDayNumber.value = null
+  checkedNodeIds.value.clear()
   fetchPlans()
 }
 
@@ -325,7 +448,6 @@ const fetchPlans = async () => {
 
 const fetchPlanDetail = async (planId: number) => {
   if (planDetailMap.value[planId]) {
-    // 已有数据时只更新默认天数
     const detail = planDetailMap.value[planId]
     if (detail?.days?.length && selectedDayNumber.value == null) {
       const sorted = [...detail.days].sort((a: any, b: any) => a.day_number - b.day_number)
@@ -378,6 +500,17 @@ html.dark .content-selector__item:hover {
   background: rgba(var(--el-color-primary-rgb), 0.08);
   outline: 2px solid var(--el-color-primary);
 }
+.content-selector__item--checkable {
+  cursor: default;
+}
+.content-selector__item--checkable .content-selector__item-main {
+  cursor: pointer;
+  flex: 1;
+  min-width: 0;
+}
+.content-selector__item.is-checked {
+  background: rgba(var(--el-color-primary-rgb), 0.06);
+}
 
 .content-selector__item-main {
   display: flex;
@@ -414,6 +547,20 @@ html.dark .content-selector__item:hover {
   font-size: 13px;
 }
 
+/* ---- 批量选择工具栏 ---- */
+.batch-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0 10px;
+  flex-shrink: 0;
+}
+.batch-toolbar__count {
+  font-size: 12px;
+  color: var(--el-color-primary);
+  font-weight: 600;
+}
+
 /* ---- 运营编排：左右分栏 ---- */
 .plan-layout {
   display: flex;
@@ -442,6 +589,10 @@ html.dark .plan-sidebar {
   color: var(--text-muted);
   letter-spacing: 0.03em;
   text-transform: uppercase;
+}
+.plan-sidebar__search {
+  margin: 0 1px 8px 0.5px;
+  flex-shrink: 0;
 }
 .plan-sidebar__list {
   flex: 1;
@@ -541,6 +692,10 @@ html.dark .plan-sidebar__item:hover {
   color: var(--el-color-primary);
   padding: 8px 14px 4px;
 }
+.node-list__day-sub {
+  font-weight: 400;
+  color: var(--text-muted);
+}
 .node-list__day-title {
   font-size: 13px;
   font-weight: 600;
@@ -548,6 +703,17 @@ html.dark .plan-sidebar__item:hover {
   padding: 6px 0 8px;
   border-bottom: 1px solid var(--border-color);
   margin-bottom: 6px;
+}
+
+/* Dialog footer */
+.dialog-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.dialog-footer__batch {
+  margin-right: auto;
 }
 
 /* Dialog tweaks */

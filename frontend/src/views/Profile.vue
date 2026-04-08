@@ -734,6 +734,19 @@ onMounted(fetchProfile)
     align-items: stretch;
   }
 }
+
+@media (max-width: 480px) {
+  .profile-hero {
+    padding: 16px 12px;
+    border-radius: 16px;
+  }
+  .profile-card {
+    padding: 14px;
+  }
+  .profile-page {
+    gap: 12px;
+  }
+}
 </style>
 
 <style>

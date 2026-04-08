@@ -1,15 +1,24 @@
 <template>
   <div class="text-editor">
-    <div class="intro-card">
+    <!-- <div class="intro-card">
       <div class="intro-card__title">发送给群成员的正文</div>
       <div class="intro-card__desc">适合通知、提醒、简单公告。直接输入用户最终会在企微里看到的内容即可。</div>
-    </div>
+    </div> -->
 
     <el-form-item label="文本内容" class="text-editor__form-item">
       <div class="text-editor__surface">
         <div class="text-editor__surface-bar">
           <span class="text-editor__surface-label">消息正文</span>
-          <span class="text-editor__surface-tip">群成员收到的就是这里的内容</span>
+          <div class="text-editor__surface-actions">
+            <button type="button" class="text-editor__insert-btn" @click="insertCurrentTime" title="插入当前时间">
+              <el-icon :size="13"><Clock /></el-icon>
+              <span>插入时间</span>
+            </button>
+            <button type="button" class="text-editor__insert-btn text-editor__insert-btn--ai" @click="openAiDialog" title="AI 润色">
+              <el-icon :size="13"><MagicStick /></el-icon>
+              <span>AI 润色</span>
+            </button>
+          </div>
         </div>
         <el-input
           type="textarea"
@@ -85,13 +94,29 @@
         </el-tag>
       </div>
     </div>
+
+    <el-dialog v-model="aiDialogVisible" title="AI 润色" width="500px" append-to-body destroy-on-close>
+      <el-input
+        v-model="aiInstruction"
+        type="textarea"
+        :rows="3"
+        placeholder="输入修改指令，例如：语气更正式一些 / 缩短到两句话 / 从零写一个早安问候"
+      />
+      <template #footer>
+        <el-button @click="aiDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="aiLoading" @click="handleAiPolish">
+          {{ (modelValue.content || '').trim() ? '润色' : '从零撰写' }}
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, toRefs } from 'vue'
 import { ElMessage } from 'element-plus'
-import { User, Phone } from '@element-plus/icons-vue'
+import { User, Phone, Clock, MagicStick } from '@element-plus/icons-vue'
+import { useAiPolish } from './useAiPolish'
 
 const props = defineProps<{ modelValue: Record<string, any> }>()
 const emit = defineEmits<{ (e: 'update:modelValue', val: Record<string, any>): void }>()
@@ -156,6 +181,23 @@ const removePhone = (idx: string | number) => {
   list.splice(Number(idx), 1)
   emit('update:modelValue', { ...modelValue.value, mentioned_mobile_list: list })
 }
+
+const insertCurrentTime = () => {
+  const now = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const timeStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`
+  const current = modelValue.value.content || ''
+  emit('update:modelValue', { ...modelValue.value, content: current + timeStr })
+}
+
+const { aiDialogVisible, aiInstruction, aiLoading, openAiDialog, doPolish } = useAiPolish()
+
+const handleAiPolish = async () => {
+  const result = await doPolish(modelValue.value.content || '', 'text')
+  if (result !== null) {
+    emit('update:modelValue', { ...modelValue.value, content: result })
+  }
+}
 </script>
 
 <style scoped>
@@ -211,9 +253,32 @@ const removePhone = (idx: string | number) => {
   color: var(--text-muted);
   letter-spacing: 0.02em;
 }
-.text-editor__surface-tip {
-  font-size: 12px;
+.text-editor__surface-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.text-editor__insert-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  appearance: none;
+  border: none;
+  border-radius: 6px;
+  padding: 3px 8px;
+  background: transparent;
   color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.text-editor__insert-btn:hover {
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--primary-color);
+}
+.text-editor__insert-btn--ai:hover {
+  background: rgba(139, 92, 246, 0.1);
+  color: #7c3aed;
 }
 .text-editor__textarea :deep(.el-textarea__inner) {
   border: none;

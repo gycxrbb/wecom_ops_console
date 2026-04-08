@@ -166,3 +166,84 @@
   3. 为 `sync_from_db`、`add_or_update_job`、`execute_job` 增加详细诊断日志。
   4. `misfire_grace_time` 从 60 秒增加到 300 秒，避免 uvicorn 热重载短暂中断导致 misfire 跳过。
 - **关联文件**: app/routers/api.py, app/services/scheduler_service.py, app/tasks.py, app/celery_app.py
+
+## Bug #19: 素材存储记录表在 MySQL 下使用 TEXT 默认值，导致应用启动失败
+
+- **日期**: 2026-04-08
+- **现象**: 接入七牛素材存储记录表后，后端启动在 `ensure_asset_folders_schema -> _ensure_material_storage_schema` 阶段失败，MySQL 报错 `BLOB, TEXT, GEOMETRY or JSON column 'extra_json' can't have a default value`。
+- **根因**: `schema_migrations.py` 手写建表 SQL 为 `material_storage_records.extra_json` 声明了 `TEXT DEFAULT '{}'`，该写法在 MySQL 方言下不兼容。
+- **复现条件**: 使用 MySQL 作为主数据库，启动包含素材存储记录表迁移逻辑的应用。
+- **解决方案**: 去掉 `extra_json` 的数据库默认值，保持为纯 `TEXT` 列，并由应用层在写入记录时显式传入 `{}`。
+- **关联文件**: app/schema_migrations.py
+
+## Bug #20: 素材迁移脚本从仓库根目录直接运行时拿不到 app 包
+
+- **日期**: 2026-04-08
+- **现象**: 执行 `python scripts/migrate_materials_storage.py --help` 时，脚本在导入阶段直接报 `ModuleNotFoundError: No module named 'app'`。
+- **根因**: 脚本位于 `scripts/` 目录，直接执行时 Python 的模块搜索路径不包含仓库根目录，导致 `from app...` 的绝对导入失效。
+- **复现条件**: 从项目根目录直接运行迁移脚本。
+- **解决方案**: 在脚本入口显式把仓库根目录注入 `sys.path`，保证 CLI 模式下也能稳定导入 `app` 包。
+- **关联文件**: scripts/migrate_materials_storage.py
+
+## Bug #21: 七牛上传 token 去掉 Base64 padding 且 region 配错时会直接触发 BadToken / region mismatch
+
+- **日期**: 2026-04-08
+- **现象**: `.env` 已补齐七牛配置后，最小上传探针先返回 `401 BadToken`，修掉签名后又返回 `incorrect region, please use up-z0.qiniup.com`。
+- **根因**: 自写的七牛上传 token 把 URL-safe Base64 的 `=` padding 去掉了，导致 token 非法；同时当前 bucket 实际在 `z0`，而配置写成了 `z2`。
+- **复现条件**: 用错误 region 或错误 token 编码方式调用七牛表单上传接口。
+- **解决方案**: 保留 Base64 padding，不再 `rstrip('=')`；并在上传返回 region mismatch 提示时自动提取推荐 upload host 重试一次。
+- **关联文件**: app/services/storage/qiniu.py
+
+## Bug #22: 素材迁移 dry-run 写审计记录时直接塞 dict，导致 MySQL 提交失败
+
+- **日期**: 2026-04-08
+- **现象**: 执行 `scripts/migrate_materials_storage.py --dry-run` 时，扫描流程完成但提交数据库阶段报 `TypeError: dict can not be used as parameter`。
+- **根因**: `material_storage_records.extra_json` 在模型中是 `TEXT` 列，迁移脚本却直接把 Python `dict` 作为参数写入。
+- **复现条件**: 运行素材迁移脚本并让其写入 `migrate` 审计记录。
+- **解决方案**: 在迁移脚本写审计记录前显式用 `json_dumps` 序列化 `extra_json`。
+- **关联文件**: app/services/material_storage_migration.py
+
+## Bug #23: 七牛对象 key 只基于文件名生成时，同名素材迁移会互相覆盖
+
+- **日期**: 2026-04-08
+- **现象**: 两条不同素材 `ID 1 / ID 2` 在迁移到七牛后，落成了同一个 `public_url` 和 `storage_key`，后迁移的对象会覆盖先迁移的对象。
+- **根因**: 七牛对象 key 生成规则只依赖文件名 slug，没有引入素材级唯一因子，导致同名文件在同一天迁移时生成相同 key。
+- **复现条件**: 迁移两条名字相同或标准化后相同的素材到七牛。
+- **解决方案**: 对象 key 改为 `slug + 随机唯一后缀`，保证同名素材也能得到不同对象路径；对已受影响素材执行强制重迁。
+- **关联文件**: app/services/storage/qiniu.py, scripts/migrate_materials_storage.py
+
+## Bug #24: 素材上传接口在切对象存储后漏导入 Path，导致上传直接 500
+
+- **日期**: 2026-04-08
+- **现象**: 素材库上传新资源时后端直接 500，日志报 `NameError: name 'Path' is not defined`。
+- **根因**: `upload_asset` 重构为对象存储上传后，代码里使用了 `Path(file.filename).name`，但 `app/routers/api.py` 顶部没有同步导入 `Path`。
+- **复现条件**: 在素材库上传任意新图片或文件。
+- **解决方案**: 在 `app/routers/api.py` 顶部补 `from pathlib import Path`。
+- **关联文件**: app/routers/api.py
+
+## Bug #25: 素材库上传时间显示偏差，原因是后端把 UTC naive 时间直接下发给前端
+
+- **日期**: 2026-04-08
+- **现象**: 素材库里新上传资源的“上传时间”显示不对，和实际本地时间存在偏差。
+- **根因**: `materials.created_at` 由 `datetime.utcnow` 生成，后端序列化时直接 `isoformat()` 下发为无时区字符串，前端按浏览器本地方式解释，造成时区歧义。
+- **复现条件**: 上传素材后查看素材库中的时间显示。
+- **解决方案**: 后端在 `serialize_material` 中把素材时间显式转换到 `Asia/Shanghai` 后再返回，前端再按统一格式展示。
+- **关联文件**: app/routers/api.py, frontend/src/utils/assets.ts, frontend/src/views/Assets/components/AssetGrid.vue
+
+## Bug #26: 坏素材未在发送链路和素材选择器中设门禁，容易混进正常发送
+
+- **日期**: 2026-04-08
+- **现象**: 已经缺失源文件或已删除的素材，如果仍残留在引用链路中，前端选择和后端发送阶段可能出现行为不一致。
+- **根因**: `attach_asset_paths` 之前只校验素材是否存在，没有显式拦截 `source_missing/deleted`；素材选择器也没有过滤坏素材。
+- **复现条件**: 选择或引用一条已损坏的素材进行发送。
+- **解决方案**: 后端在 `attach_asset_paths` 中拦截不可用素材；前端素材选择器过滤 `source_missing`，素材库页面对不可用素材禁用预览/下载。
+- **关联文件**: app/routers/api.py, frontend/src/components/message-editor/AssetPicker.vue, frontend/src/views/Assets/components/AssetGrid.vue
+
+## Bug #27: 图片消息预览在对象存储接入后被静态方法/类方法漂移击穿
+
+- **日期**: 2026-04-08
+- **现象**: 素材上传、列表、预览、下载都正常，但发送中心对 `image` 类型做消息预览时后端直接抛 `NameError: name 'cls' is not defined`。
+- **根因**: `WeComService.build_payload` 仍被声明成 `@staticmethod`，但图片分支已经改成调用 `cls._read_asset_bytes(...)` 以兼容对象存储素材，导致运行时找不到 `cls`。
+- **复现条件**: 上传图片素材后，在发送中心选择图片消息并调用 `/api/v1/preview`。
+- **解决方案**: 将 `build_payload` 调整为 `@classmethod`，让图片分支和后续可能复用存储读取能力的消息类型都能合法访问类级辅助方法。
+- **关联文件**: app/services/wecom.py

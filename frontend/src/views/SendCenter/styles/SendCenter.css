@@ -142,3 +142,25 @@ html.dark .card-header {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* ---- Mobile / Tablet ---- */
+@media (max-width: 767px) {
+  .send-center-container .page-title {
+    font-size: 22px;
+  }
+  .card-body {
+    padding: 16px;
+  }
+  .action-footer {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .action-footer .el-button {
+    width: 100%;
+  }
+}
+@media (max-width: 480px) {
+  .card-body {
+    padding: 12px;
+  }
+}

@@ -243,8 +243,8 @@ const handleDropToRoot = () => {
 
 <style scoped>
 .folder-sidebar {
-  width: 260px;
-  min-width: 260px;
+  width: 200px;
+  min-width: 200px;
   border-right: 1px solid var(--border-color);
   background: var(--card-bg);
   display: flex;

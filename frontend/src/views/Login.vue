@@ -108,6 +108,7 @@ const handleLogin = async () => {
 }
 .login-card {
   width: 400px;
+  max-width: calc(100vw - 32px);
 }
 .card-header {
   text-align: center;

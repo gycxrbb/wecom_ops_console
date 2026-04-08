@@ -113,6 +113,7 @@
           :image-assets="imageAssets"
           :file-assets="fileAssets"
           :folders="folders"
+          :deleting-ids="deletingIds"
           @download="handleDownload"
           @delete="handleDelete"
           @move="handleMove"
@@ -219,10 +220,11 @@ const handleFolderSelect = (id: string) => {
   }
 }
 
-const handleFileChange = async (uploadFile: any, uploadFiles: any[]) => {
+const handleFileChange = async (uploadFile: any) => {
   if (uploading.value) return
-  const files = uploadFiles.map((f: any) => f.raw).filter(Boolean)
-  if (!files.length) return
+  // 只取本次变更的单个文件
+  const file = uploadFile?.raw
+  if (!file) return
 
   let folderId: number | null = null
   if (activeFolderId.value !== 'all' && activeFolderId.value !== 'uncategorized') {
@@ -230,39 +232,31 @@ const handleFileChange = async (uploadFile: any, uploadFiles: any[]) => {
   }
 
   uploading.value = true
-  uploadProgress.value = { done: 0, total: files.length }
-  let failed = 0
-
-  for (const file of files) {
-    try {
-      await uploadAsset(file, folderId, true)
-    } catch {
-      failed++
-    }
-    uploadProgress.value.done++
-  }
-
-  uploading.value = false
-  uploadProgress.value = { done: 0, total: 0 }
-
-  await Promise.all([refreshCurrentAssets(), fetchFolders()])
-  if (failed === 0) {
-    ElMessage.success(`${files.length} 个文件上传成功`)
-  } else if (failed < files.length) {
-    ElMessage.warning(`${files.length - failed} 个上传成功，${failed} 个失败`)
-  } else {
-    ElMessage.error('全部上传失败')
+  try {
+    await uploadAsset(file, folderId, true)
+    await Promise.all([refreshCurrentAssets(), fetchFolders()])
+    ElMessage.success('上传成功')
+  } catch {
+    ElMessage.error('上传失败')
+  } finally {
+    uploading.value = false
   }
 }
 
 const handleDownload = (item: any) => downloadAsset(item)
 
+const deletingIds = ref<Set<number>>(new Set())
+
 const handleDelete = async (item: any) => {
+  if (deletingIds.value.has(item.id)) return
+  deletingIds.value.add(item.id)
   try {
     await deleteAsset(item.id)
     await Promise.all([refreshCurrentAssets(), fetchFolders()])
   } catch (e) {
     console.error(e)
+  } finally {
+    deletingIds.value.delete(item.id)
   }
 }
 
@@ -501,5 +495,28 @@ onMounted(async () => {
 .child-folder-card__meta {
   color: var(--text-muted);
   font-size: 12px;
+}
+
+/* ---- Mobile / Tablet ---- */
+@media (max-width: 767px) {
+  .assets-layout {
+    flex-direction: column;
+    min-height: auto;
+  }
+  .assets-main {
+    padding: 16px;
+  }
+  .assets-header {
+    flex-direction: column;
+    gap: 12px;
+  }
+  .assets-header__right {
+    flex-wrap: wrap;
+  }
+}
+@media (max-width: 480px) {
+  .assets-main {
+    padding: 12px;
+  }
 }
 </style>

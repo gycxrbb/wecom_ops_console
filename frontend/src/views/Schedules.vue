@@ -74,11 +74,11 @@
             <el-switch v-model="scope.row.enabled" @change="toggleEnable(scope.row)" />
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="220" fixed="right">
+        <el-table-column label="操作" width="260" fixed="right">
           <template #default="scope">
             <el-button link type="primary" @click="handleEdit(scope.row)">编辑</el-button>
+            <el-button link type="primary" @click="openContentDialog(scope.row)">内容</el-button>
             <el-button link type="primary" :loading="runNowLoading" @click="handleRunNow(scope.row)">立即执行</el-button>
-            <el-button link type="primary" @click="handleClone(scope.row)">克隆</el-button>
             <el-popconfirm title="确定要删除该任务吗？" @confirm="handleDelete(scope.row)">
               <template #reference>
                 <el-button link type="danger">删除</el-button>
@@ -166,6 +166,28 @@
         <el-button v-else type="primary" :loading="saving" @click="handleSaveEdit">保存修改</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="contentDialogVisible" title="消息内容" width="760px" top="5vh">
+      <div v-if="contentForm.id" class="content-dialog">
+        <div class="content-dialog__meta">
+          <span class="content-dialog__tag">
+            {{ msgTypeLabel(contentForm.msg_type) }}
+          </span>
+          <strong>{{ contentForm.title }}</strong>
+        </div>
+        <MessageEditor
+          v-model="contentForm.content_json"
+          :msg-type="contentForm.msg_type"
+          v-model:variables="contentForm.variables_json"
+          :show-variables="true"
+          style="width: 100%"
+        />
+      </div>
+      <template #footer>
+        <el-button @click="contentDialogVisible = false">关闭</el-button>
+        <el-button type="primary" :loading="contentSaving" @click="handleSaveContent">保存内容</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -176,6 +198,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
 import request from '@/utils/request'
 import CronBuilder from '@/components/CronBuilder.vue'
+import MessageEditor from '@/components/message-editor/index.vue'
 
 const router = useRouter()
 const schedules = ref<any[]>([])
@@ -385,6 +408,85 @@ const handleClone = async (row: any) => {
   }
 }
 
+const contentDialogVisible = ref(false)
+const contentSaving = ref(false)
+const contentForm = ref<any>({
+  id: null,
+  title: '',
+  msg_type: 'text',
+  content_json: {},
+  variables_json: {},
+  schedule_type: 'once',
+  run_at: '',
+  cron_expr: '',
+  timezone: 'Asia/Shanghai',
+  enabled: true,
+  group_ids: [],
+  template_id: null,
+  approval_required: false,
+  skip_weekends: false,
+  skip_dates: [],
+})
+
+const msgTypeLabel = (type: string) => {
+  const map: Record<string, string> = {
+    text: '文本', markdown: 'Markdown', news: '图文',
+    image: '图片', file: '文件', template_card: '模板卡片', raw_json: '原始JSON'
+  }
+  return map[type] || type
+}
+
+const openContentDialog = (row: any) => {
+  contentForm.value = {
+    id: row.id,
+    title: row.title || '',
+    msg_type: row.msg_type || 'text',
+    content_json: typeof row.content_json === 'string' ? JSON.parse(row.content_json) : { ...(row.content_json || {}) },
+    variables_json: typeof row.variables_json === 'string' ? JSON.parse(row.variables_json) : { ...(row.variables_json || {}) },
+    schedule_type: row.schedule_type || 'once',
+    run_at: row.run_at || '',
+    cron_expr: row.cron_expr || '',
+    timezone: row.timezone || 'Asia/Shanghai',
+    enabled: !!row.enabled,
+    group_ids: [...(row.group_ids || [])],
+    template_id: row.template_id ?? null,
+    approval_required: !!row.approval_required,
+    skip_weekends: !!row.skip_weekends,
+    skip_dates: [...(row.skip_dates || [])],
+  }
+  contentDialogVisible.value = true
+}
+
+const handleSaveContent = async () => {
+  contentSaving.value = true
+  try {
+    await request.post('/v1/schedules', {
+      id: contentForm.value.id,
+      title: contentForm.value.title,
+      group_ids: contentForm.value.group_ids,
+      template_id: contentForm.value.template_id,
+      msg_type: contentForm.value.msg_type,
+      content_json: contentForm.value.content_json,
+      variables_json: contentForm.value.variables_json,
+      schedule_type: contentForm.value.schedule_type,
+      run_at: contentForm.value.schedule_type === 'once' ? contentForm.value.run_at : null,
+      cron_expr: contentForm.value.schedule_type === 'cron' ? contentForm.value.cron_expr : '',
+      timezone: contentForm.value.timezone,
+      approval_required: contentForm.value.approval_required,
+      skip_weekends: contentForm.value.skip_weekends,
+      skip_dates: contentForm.value.skip_dates,
+      enabled: contentForm.value.enabled
+    })
+    ElMessage.success('消息内容已更新')
+    contentDialogVisible.value = false
+    fetchSchedules()
+  } catch (error: any) {
+    ElMessage.error('保存失败: ' + (error?.message || String(error)))
+  } finally {
+    contentSaving.value = false
+  }
+}
+
 const handleDelete = async (row: any) => {
   try {
     await request.delete(`/v1/schedules/${row.id}`)
@@ -560,5 +662,39 @@ onBeforeUnmount(() => {
 }
 .error-text {
   color: var(--text-secondary);
+}
+.content-dialog__meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+.content-dialog__meta strong {
+  font-size: 16px;
+  color: var(--text-primary);
+}
+.content-dialog__tag {
+  display: inline-flex;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.1);
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* ---- Mobile / Tablet ---- */
+@media (max-width: 767px) {
+  .page-container {
+    padding: 0 4px;
+  }
+  .rule-editor {
+    flex-direction: column;
+  }
+  .dialog-tip {
+    margin-left: 0;
+  }
 }
 </style>

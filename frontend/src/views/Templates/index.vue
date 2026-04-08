@@ -15,44 +15,43 @@
       </div>
     </div>
 
-    <div class="view-switch">
-      <button
-        type="button"
-        class="view-switch__item"
-        :class="{ 'is-active': activeView === 'plans' }"
-        @click="handleSwitchView('plans')"
-      >
-        运营编排
-      </button>
-      <button
-        type="button"
-        class="view-switch__item"
-        :class="{ 'is-active': activeView === 'templates' }"
-        @click="handleSwitchView('templates')"
-      >
-        模板库
-      </button>
+    <div class="view-switch-bar">
+      <div class="view-switch">
+        <button
+          type="button"
+          class="view-switch__item"
+          :class="{ 'is-active': activeView === 'plans' }"
+          @click="handleSwitchView('plans')"
+        >
+          运营编排
+        </button>
+        <button
+          type="button"
+          class="view-switch__item"
+          :class="{ 'is-active': activeView === 'templates' }"
+          @click="handleSwitchView('templates')"
+        >
+          模板库
+        </button>
+      </div>
+      <div v-if="activeView === 'plans'" class="summary-strip">
+        <div class="summary-strip__item">
+          <span>{{ plans.length }}</span> 主题
+        </div>
+        <div class="summary-strip__sep" />
+        <div class="summary-strip__item">
+          <span>{{ completionSummary.total }}</span> 天
+        </div>
+        <div class="summary-strip__item">
+          <span>{{ completionSummary.completed }}</span> 已完成
+        </div>
+        <div class="summary-strip__item summary-strip__item--accent">
+          <span>{{ currentPlanPendingDays }}</span> 待完善
+        </div>
+      </div>
     </div>
 
     <template v-if="activeView === 'plans'">
-      <div class="plan-summary">
-        <div class="summary-card">
-          <span class="summary-card__label">主题数</span>
-          <strong>{{ plans.length }}</strong>
-        </div>
-        <div class="summary-card">
-          <span class="summary-card__label">当前主题天数</span>
-          <strong>{{ completionSummary.total }}</strong>
-        </div>
-        <div class="summary-card">
-          <span class="summary-card__label">已完成天数</span>
-          <strong>{{ completionSummary.completed }}</strong>
-        </div>
-        <div class="summary-card summary-card--accent">
-          <span class="summary-card__label">待完善天数</span>
-          <strong>{{ currentPlanPendingDays }}</strong>
-        </div>
-      </div>
 
       <div class="plans-workbench">
         <WorkbenchLeftNav
@@ -185,14 +184,14 @@
 
         <div class="template-library__grid">
           <section v-if="showMineSection" class="planner-panel">
-            <div class="planner-panel__header">
+            <div class="planner-panel__header planner-panel__header--collapsible" @click="mineSectionCollapsed = !mineSectionCollapsed">
               <div>
-                <h3>我的模板</h3>
+                <h3>我的模板 <el-icon class="collapse-icon" :class="{ 'is-collapsed': mineSectionCollapsed }"><ArrowDown /></el-icon></h3>
                 <p>适合作为运营计划节点的起点。</p>
               </div>
-              <el-button type="primary" @click="handleOpenCreateTemplate">新增模板</el-button>
+              <el-button type="primary" @click.stop="handleOpenCreateTemplate">新增模板</el-button>
             </div>
-            <div v-if="visibleMineTemplates.length" class="template-grid">
+            <div v-show="!mineSectionCollapsed" v-if="visibleMineTemplates.length" class="template-grid">
               <div
                 v-for="tpl in visibleMineTemplates"
                 :key="tpl.id"
@@ -215,17 +214,17 @@
                 </div>
               </div>
             </div>
-            <el-empty v-else :image-size="60" description="暂无符合条件的我的模板" />
+            <el-empty v-show="!mineSectionCollapsed" v-else :image-size="60" description="暂无符合条件的我的模板" />
           </section>
 
           <section v-if="showSystemSection" class="planner-panel">
-            <div class="planner-panel__header">
+            <div class="planner-panel__header planner-panel__header--collapsible" @click="systemSectionCollapsed = !systemSectionCollapsed">
               <div>
-                <h3>系统模板库</h3>
+                <h3>系统模板库 <el-icon class="collapse-icon" :class="{ 'is-collapsed': systemSectionCollapsed }"><ArrowDown /></el-icon></h3>
                 <p>作为节点内容的复用母版。</p>
               </div>
             </div>
-            <div v-if="visibleSystemTemplates.length" class="template-grid">
+            <div v-show="!systemSectionCollapsed" v-if="visibleSystemTemplates.length" class="template-grid">
               <div v-for="tpl in visibleSystemTemplates" :key="tpl.id" class="template-card template-card--system">
                 <div class="template-card__head">
                   <span class="template-card__badge template-card__badge--system">系统母版</span>
@@ -241,7 +240,7 @@
                 </div>
               </div>
             </div>
-            <el-empty v-else :image-size="60" description="暂无系统模板" />
+            <el-empty v-show="!systemSectionCollapsed" v-else :image-size="60" description="暂无系统模板" />
           </section>
         </div>
       </div>
@@ -504,12 +503,12 @@
               <strong>{{ previewTemplate.category || '未分类' }}</strong>
             </div>
           </div>
-          <div class="template-preview-dialog__desc">
+          <!-- <div class="template-preview-dialog__desc">
             {{ previewTemplate.description || '暂无补充描述，这里主要展示模板最终会被运营如何看到和复用。' }}
           </div>
           <div class="template-preview-dialog__tip">
             这是模板的只读模拟预览，用来帮助运营快速判断是否可复用，不会直接修改模板内容。
-          </div>
+          </div> -->
         </div>
         <div class="template-preview-dialog__content">
           <PreviewCard
@@ -525,7 +524,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { Search } from '@element-plus/icons-vue'
+import { Search, ArrowDown } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import MessageEditor from '@/components/message-editor/index.vue'
 import PreviewCard from '@/views/SendCenter/components/PreviewCard.vue'
@@ -602,6 +601,8 @@ const selectedTemplateId = ref<number | null>(null)
 const templateDraftBaseline = ref('')
 const activeCategory = ref('all')
 const activeSource = ref<'all' | 'mine' | 'system'>('all')
+const mineSectionCollapsed = ref(true)
+const systemSectionCollapsed = ref(true)
 const previewDialogVisible = ref(false)
 const previewTemplate = ref<TemplateItem | null>(null)
 const sopImportDialogVisible = ref(false)
@@ -1091,8 +1092,7 @@ onBeforeRouteLeave(async () => {
 }
 
 .plans-hero,
-.view-switch,
-.plan-summary,
+.view-switch-bar,
 .planner-panel,
 .toolbar-panel {
   border: 1px solid var(--border-color);
@@ -1105,9 +1105,19 @@ onBeforeRouteLeave(async () => {
   justify-content: space-between;
   gap: 20px;
   padding: 24px 28px;
-  background:
-    radial-gradient(circle at top left, var(--tpl-accent-soft), transparent 34%),
-    linear-gradient(135deg, var(--tpl-surface-top), var(--tpl-surface-bottom));
+  background: var(--card-bg);
+  position: relative;
+  overflow: hidden;
+}
+
+.plans-hero::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--primary-color), rgba(59, 130, 246, 0.6));
 }
 
 .plans-hero__eyebrow {
@@ -1137,21 +1147,32 @@ onBeforeRouteLeave(async () => {
   align-items: flex-start;
 }
 
+.view-switch-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 16px;
+  gap: 16px;
+}
+
 .view-switch {
   display: inline-flex;
   width: fit-content;
-  padding: 6px;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--bg-color);
 }
 
 .view-switch__item {
-  min-width: 120px;
-  padding: 10px 16px;
+  min-width: 100px;
+  padding: 8px 16px;
   appearance: none;
   -webkit-appearance: none;
   border: none;
-  border-radius: 14px;
+  border-radius: 10px;
   background: transparent;
   color: var(--text-secondary);
+  font-size: 13px;
   cursor: pointer;
 }
 
@@ -1161,32 +1182,28 @@ onBeforeRouteLeave(async () => {
   font-weight: 700;
 }
 
-.plan-summary {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0;
-  overflow: hidden;
-}
-
-.summary-card {
-  padding: 18px 20px;
-  border-right: 1px solid var(--border-color);
-}
-
-.summary-card:last-child {
-  border-right: none;
-}
-
-.summary-card__label {
-  display: block;
-  margin-bottom: 8px;
+.summary-strip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
   color: var(--text-muted);
-  font-size: 12px;
 }
 
-.summary-card strong {
-  font-size: 28px;
+.summary-strip__item span {
+  font-weight: 700;
   color: var(--text-primary);
+  margin-right: 2px;
+}
+
+.summary-strip__item--accent span {
+  color: var(--primary-color);
+}
+
+.summary-strip__sep {
+  width: 1px;
+  height: 14px;
+  background: var(--border-color);
 }
 
 .planner-layout {
@@ -1244,6 +1261,31 @@ onBeforeRouteLeave(async () => {
   color: var(--text-muted);
   font-size: 13px;
   line-height: 1.6;
+}
+
+.planner-panel__header--collapsible {
+  cursor: pointer;
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin: -20px -20px 16px;
+  transition: background 0.15s;
+}
+.planner-panel__header--collapsible:hover {
+  background: rgba(0, 0, 0, 0.02);
+}
+html.dark .planner-panel__header--collapsible:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.collapse-icon {
+  font-size: 14px;
+  color: var(--text-muted);
+  transition: transform 0.2s;
+  vertical-align: middle;
+  margin-left: 4px;
+}
+.collapse-icon.is-collapsed {
+  transform: rotate(-90deg);
 }
 
 .header-actions {
@@ -1532,7 +1574,9 @@ onBeforeRouteLeave(async () => {
 }
 
 .summary-card--accent {
-  background: linear-gradient(135deg, var(--tpl-accent-soft), rgba(255, 255, 255, 0.82));
+  position: relative;
+  background: transparent;
+  border-left: 3px solid var(--primary-color);
 }
 
 .category-filter {
@@ -1885,17 +1929,25 @@ onBeforeRouteLeave(async () => {
     width: 100%;
   }
 
-  .plan-summary {
-    grid-template-columns: 1fr;
+  .view-switch-bar {
+    flex-direction: column;
+    gap: 8px;
   }
 
-  .summary-card {
-    border-right: none;
-    border-bottom: 1px solid var(--border-color);
+  .summary-strip {
+    flex-wrap: wrap;
   }
+}
 
-  .summary-card:last-child {
-    border-bottom: none;
+@media (max-width: 480px) {
+  .plans-hero {
+    padding: 16px 14px;
+  }
+  .plans-page {
+    gap: 12px;
+  }
+  .wb-node-item__body {
+    padding: 12px;
   }
 }
 </style>
@@ -1903,8 +1955,7 @@ onBeforeRouteLeave(async () => {
 <style>
 /* ===== 暗黑模式 — 容器级覆盖（非 scoped，确保命中） ===== */
 html.dark .plans-page .plans-hero,
-html.dark .plans-page .view-switch,
-html.dark .plans-page .plan-summary,
+html.dark .plans-page .view-switch-bar,
 html.dark .plans-page .planner-panel,
 html.dark .plans-page .toolbar-panel {
   background: #1d1e1f !important;
@@ -1912,17 +1963,15 @@ html.dark .plans-page .toolbar-panel {
 }
 
 html.dark .plans-page .plans-hero {
-  background:
-    radial-gradient(circle at top left, rgba(34, 197, 94, 0.18), transparent 34%),
-    linear-gradient(135deg, rgba(33, 34, 36, 0.96), rgba(26, 27, 29, 0.96)) !important;
+  background: #1d1e1f !important;
 }
 
-html.dark .plans-page .summary-card {
-  background: transparent;
+html.dark .plans-page .plans-hero::after {
+  background: linear-gradient(90deg, #4ade80, #60a5fa) !important;
 }
 
-html.dark .plans-page .summary-card--accent {
-  background: rgba(34, 197, 94, 0.14) !important;
+html.dark .plans-page .summary-strip__item--accent span {
+  color: #4ade80 !important;
 }
 
 html.dark .plans-page .recent-template-card {

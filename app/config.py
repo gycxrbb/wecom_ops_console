@@ -29,7 +29,22 @@ class Settings(BaseSettings):
     crm_admin_table_name: str = 'admins'
     database_url: str = 'sqlite:///./data/app.db'
     redis_url: str = 'redis://127.0.0.1:6379/0'
+    asset_storage_provider: str = 'local'
+    asset_storage_fallback_provider: str = 'local'
+    qiniu_enabled: bool = False
+    qiniu_access_key: str = ''
+    qiniu_secret_key: str = ''
+    qiniu_bucket: str = ''
+    qiniu_region: str = 'z2'
+    qiniu_public_domain: str = ''
+    qiniu_use_https: bool = True
+    qiniu_prefix: str = 'materials/'
+    qiniu_private_bucket: bool = False
+    qiniu_signed_url_expire_seconds: int = 3600
     default_timezone: str = 'Asia/Shanghai'
+    ai_api_key: str = ''
+    ai_base_url: str = 'https://aihubmix.com/v1'
+    ai_model: str = 'gpt-4o-mini'
     host: str = '0.0.0.0'
     port: int = 8000
 

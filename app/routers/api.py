@@ -1,20 +1,22 @@
 from __future__ import annotations
 import asyncio
+import hashlib
 import json
-import shutil
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
-from uuid import uuid4
 from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from sqlalchemy.orm import Session
 from .. import models
-from ..config import UPLOAD_DIR
+from ..config import settings
 from ..database import get_db
 from ..security import decrypt_webhook, encrypt_webhook, get_current_user, json_dumps, json_loads, require_role, hash_password
+from ..services.material_storage_service import build_storage_result_from_material, log_material_storage_event
+from ..services.storage import UploadPayload, storage_facade
 from ..services.template_engine import default_context, render_value
 from ..services.wecom import WeComService
 from ..services.scheduler_service import schedule_service
@@ -105,8 +107,15 @@ def serialize_template(tpl: models.Template):
 
 
 def serialize_material(material: models.Material):
-    preview_url = f'/api/v1/assets/{material.id}/preview' if material.material_type == 'image' else ''
+    created_at = material.created_at
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=ZoneInfo('UTC'))
+    created_at = created_at.astimezone(ZoneInfo(settings.default_timezone))
+    preview_url = material.public_url if material.material_type == 'image' and material.public_url else (
+        f'/api/v1/assets/{material.id}/preview' if material.material_type == 'image' else ''
+    )
     download_url = f'/api/v1/assets/{material.id}/download'
+    public_url = material.public_url or material.url or ''
     return {
         'id': material.id,
         'name': material.name,
@@ -114,11 +123,22 @@ def serialize_material(material: models.Material):
         'mime_type': material.mime_type,
         'file_size': material.file_size,
         'folder_id': material.folder_id,
-        'url': download_url,
+        'storage_provider': material.storage_provider or 'local',
+        'storage_status': material.storage_status or 'ready',
+        'bucket_name': material.bucket_name or '',
+        'storage_key': material.storage_key or '',
+        'public_url': public_url,
+        'url': public_url or download_url,
         'preview_url': preview_url,
         'download_url': download_url,
-        'created_at': material.created_at.isoformat(),
+        'created_at': created_at.isoformat(),
     }
+
+def get_request_ip(request: Request) -> str:
+    forwarded = request.headers.get('x-forwarded-for', '')
+    if forwarded:
+        return forwarded.split(',')[0].strip()
+    return request.client.host if request.client else ''
 
 
 def get_schedule_status(schedule: models.Schedule) -> str:
@@ -254,12 +274,27 @@ def attach_asset_paths(db: Session, msg_type: str, content: dict):
     if not asset_id:
         return content
     asset = db.query(models.Material).filter(models.Material.id == int(asset_id)).first()
-    if not asset:
+    if not asset or asset.enabled != 1:
         raise HTTPException(400, '引用的资产不存在')
+    if (asset.storage_status or 'ready') in {'source_missing', 'deleted'}:
+        raise HTTPException(400, f'素材“{asset.name}”当前不可用，请重新上传后再发送')
+    content['asset_meta'] = {
+        'provider': asset.storage_provider or 'local',
+        'storage_key': asset.storage_key or '',
+        'public_url': asset.public_url or asset.url or '',
+        'bucket': asset.bucket_name or '',
+        'local_path': asset.storage_path or '',
+        'mime_type': asset.mime_type or 'application/octet-stream',
+        'file_size': asset.file_size or 0,
+        'stored_filename': Path(asset.storage_key or asset.storage_path or asset.name).name,
+        'original_filename': asset.source_filename or asset.name,
+    }
     content['file_path'] = asset.storage_path
     content['file_name'] = asset.name
+    content['file_url'] = asset.public_url or asset.url or ''
     if msg_type == 'image':
         content['image_path'] = asset.storage_path
+        content['image_url'] = asset.public_url or asset.url or ''
     return content
 
 
@@ -517,7 +552,7 @@ def delete_template(template_id: int, request: Request, db: Session = Depends(ge
 @router.get('/assets')
 def list_assets(request: Request, folder_id: str = None, db: Session = Depends(get_db)):
     get_user_or_401(request, db)
-    query = db.query(models.Material).order_by(models.Material.id.desc())
+    query = db.query(models.Material).filter(models.Material.enabled == 1).order_by(models.Material.id.desc())
     if folder_id == 'uncategorized':
         query = query.filter(models.Material.folder_id == None)
     elif folder_id is not None and folder_id.isdigit():
@@ -528,37 +563,69 @@ def list_assets(request: Request, folder_id: str = None, db: Session = Depends(g
 @router.post('/assets')
 async def upload_asset(request: Request, file: UploadFile = File(...), folder_id: str = Form(None), db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
-    ext = Path(file.filename).suffix
-    unique_name = f'{uuid4().hex}{ext}'
-    stored_path = UPLOAD_DIR / unique_name
-    with stored_path.open('wb') as fh:
-        shutil.copyfileobj(file.file, fh)
+    raw = await file.read()
     asset_type = 'image' if (file.content_type or '').startswith('image/') else 'file'
     fid = int(folder_id) if folder_id and folder_id.isdigit() else None
-    asset = models.Material(name=Path(file.filename).name, material_type=asset_type, storage_path=str(stored_path), mime_type=file.content_type or 'application/octet-stream', file_size=stored_path.stat().st_size, folder_id=fid, owner_id=user.id)
+    storage_result = storage_facade.upload(
+        UploadPayload(
+            content=raw,
+            filename=Path(file.filename).name,
+            mime_type=file.content_type or 'application/octet-stream',
+        )
+    )
+    asset = models.Material(
+        name=Path(file.filename).name,
+        source_filename=Path(file.filename).name,
+        material_type=asset_type,
+        storage_path=storage_result.local_path,
+        url=storage_result.public_url,
+        public_url=storage_result.public_url,
+        storage_provider=storage_result.provider,
+        storage_key=storage_result.object_key,
+        bucket_name=storage_result.bucket,
+        domain=urlparse(storage_result.public_url).netloc if storage_result.public_url else '',
+        storage_status='ready',
+        provider_etag=storage_result.extra.get('hash', ''),
+        mime_type=file.content_type or 'application/octet-stream',
+        file_size=storage_result.file_size,
+        file_hash=hashlib.sha256(raw).hexdigest(),
+        folder_id=fid,
+        owner_id=user.id,
+    )
     db.add(asset)
+    db.commit()
+    log_material_storage_event(
+        db,
+        asset,
+        operation_type='upload',
+        operation_status='success',
+        user_id=user.id,
+        operator_ip=get_request_ip(request),
+        extra={'provider_extra': storage_result.extra},
+    )
     db.commit()
     return serialize_material(asset)
 
 @router.get('/assets/{asset_id}/download')
 def download_asset(asset_id: int, request: Request, db: Session = Depends(get_db)):
-    from fastapi.responses import FileResponse
     get_user_or_401(request, db)
     asset = db.query(models.Material).filter(models.Material.id == asset_id).first()
     if not asset:
         raise HTTPException(404, '资产不存在')
-    return FileResponse(asset.storage_path, media_type=asset.mime_type, filename=asset.name)
+    payload = storage_facade.download_bytes(build_storage_result_from_material(asset))
+    headers = {'Content-Disposition': f'attachment; filename="{asset.name}"'}
+    return StreamingResponse(BytesIO(payload), media_type=asset.mime_type, headers=headers)
 
 @router.get('/assets/{asset_id}/preview')
 def preview_asset(asset_id: int, request: Request, db: Session = Depends(get_db)):
-    from fastapi.responses import FileResponse
     get_user_or_401(request, db)
     asset = db.query(models.Material).filter(models.Material.id == asset_id).first()
     if not asset:
         raise HTTPException(404, '资产不存在')
     if asset.material_type != 'image':
         raise HTTPException(400, '当前素材不支持图片预览')
-    return FileResponse(asset.storage_path, media_type=asset.mime_type)
+    payload = storage_facade.download_bytes(build_storage_result_from_material(asset))
+    return Response(content=payload, media_type=asset.mime_type)
 
 @router.delete('/assets/{asset_id}')
 def delete_asset(asset_id: int, request: Request, db: Session = Depends(get_db)):
@@ -568,10 +635,31 @@ def delete_asset(asset_id: int, request: Request, db: Session = Depends(get_db))
     if not asset:
         raise HTTPException(404, '资产不存在')
     try:
-        Path(asset.storage_path).unlink(missing_ok=True)
-    except Exception:
-        pass
-    db.delete(asset)
+        storage_facade.delete(build_storage_result_from_material(asset))
+        asset.deleted_from_storage_at = datetime.utcnow()
+        log_material_storage_event(
+            db,
+            asset,
+            operation_type='delete',
+            operation_status='success',
+            user_id=user.id,
+            operator_ip=get_request_ip(request),
+        )
+    except Exception as exc:
+        log_material_storage_event(
+            db,
+            asset,
+            operation_type='delete',
+            operation_status='failed',
+            user_id=user.id,
+            operator_ip=get_request_ip(request),
+            error_message=str(exc),
+        )
+        db.commit()
+        raise HTTPException(500, f'删除存储资源失败: {exc}') from exc
+    asset.enabled = 0
+    asset.storage_status = 'deleted'
+    asset.deleted_at = datetime.utcnow()
     db.commit()
     return {'ok': True}
 
@@ -1013,6 +1101,20 @@ async def reject_request(approval_id: int, request: Request, db: Session = Depen
             job.status = 'rejected'
             sync_schedule_legacy_fields(job)
             schedule_service.add_or_update_job(job)
-            
+
     db.commit()
     return {"id": appr.id, "status": appr.status}
+
+
+@router.post('/ai/polish')
+async def ai_polish(request: Request, db: Session = Depends(get_db)):
+    get_user_or_401(request, db)
+    from ..services.ai_polish import polish_text
+    body = parse_body(await request.body())
+    content = body.get('content', '')
+    instruction = body.get('instruction', '')
+    msg_type = body.get('msg_type', 'text')
+    if not instruction and not content:
+        raise HTTPException(400, '请输入修改指令或原始内容')
+    result = await polish_text(content, instruction or '润色优化这段文字', msg_type)
+    return {'content': result}

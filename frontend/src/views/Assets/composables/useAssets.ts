@@ -11,6 +11,11 @@ export interface Asset {
   mime_type: string
   file_size: number
   folder_id: number | null
+  storage_provider: string
+  storage_status: string
+  bucket_name: string
+  storage_key: string
+  public_url: string
   url: string
   preview_url: string
   download_url: string

@@ -5,10 +5,12 @@ import copy
 import hashlib
 import json
 from collections import defaultdict, deque
+from io import BytesIO
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 import httpx
 from ..security import json_dumps
+from .storage import StorageResult, storage_facade
 
 RATE_LIMIT = 20
 RATE_WINDOW_SECONDS = 60
@@ -16,6 +18,34 @@ _timestamps: dict[str, deque] = defaultdict(deque)
 _locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
 class WeComService:
+    @staticmethod
+    def _storage_result_from_content(content: dict) -> StorageResult | None:
+        meta = content.get('asset_meta')
+        if not isinstance(meta, dict):
+            return None
+        return StorageResult(
+            provider=meta.get('provider', 'local'),
+            object_key=meta.get('storage_key', ''),
+            public_url=meta.get('public_url', ''),
+            original_filename=meta.get('original_filename', content.get('file_name', 'asset')),
+            stored_filename=meta.get('stored_filename', content.get('file_name', 'asset')),
+            mime_type=meta.get('mime_type', 'application/octet-stream'),
+            file_size=int(meta.get('file_size', 0) or 0),
+            bucket=meta.get('bucket', ''),
+            local_path=meta.get('local_path', ''),
+            extra={},
+        )
+
+    @classmethod
+    def _read_asset_bytes(cls, content: dict, *, image: bool = False) -> bytes:
+        handle = cls._storage_result_from_content(content)
+        if handle:
+            return storage_facade.download_bytes(handle)
+        fallback_path = content.get('image_path' if image else 'file_path')
+        if not fallback_path:
+            raise ValueError(f"{'image' if image else 'file'} 消息缺少可读取的素材引用")
+        return Path(fallback_path).read_bytes()
+
     @staticmethod
     def payload_for_storage(payload: dict | None) -> dict:
         if not payload:
@@ -38,8 +68,8 @@ class WeComService:
                 raise RuntimeError('该群机器人触发了 20 条/分钟 的保护限制，请稍后重试。')
             bucket.append(now)
 
-    @staticmethod
-    def build_payload(msg_type: str, content: dict):
+    @classmethod
+    def build_payload(cls, msg_type: str, content: dict):
         if msg_type == 'raw_json':
             return content
         if msg_type == 'text':
@@ -57,10 +87,7 @@ class WeComService:
         if msg_type == 'news':
             return {'msgtype': 'news', 'news': {'articles': content.get('articles', [])}}
         if msg_type == 'image':
-            image_path = content.get('image_path')
-            if not image_path:
-                raise ValueError('image 消息缺少 image_path')
-            raw = Path(image_path).read_bytes()
+            raw = cls._read_asset_bytes(content, image=True)
             return {
                 'msgtype': 'image',
                 'image': {
@@ -84,26 +111,38 @@ class WeComService:
         return values[0]
 
     @classmethod
-    async def upload_file(cls, webhook: str, file_path: str, file_name: str | None = None):
+    async def upload_file(cls, webhook: str, file_path: str | None = None, file_name: str | None = None, file_bytes: bytes | None = None):
         key = cls.extract_key(webhook)
         url = f'https://qyapi.weixin.qq.com/cgi-bin/webhook/upload_media?key={key}&type=file'
-        display_name = file_name or Path(file_path).name
+        display_name = file_name or (Path(file_path).name if file_path else 'asset')
         async with httpx.AsyncClient(timeout=30) as client:
-            with open(file_path, 'rb') as fh:
-                files = {'media': (display_name, fh)}
+            if file_bytes is None:
+                if not file_path:
+                    raise ValueError('upload_file 缺少文件来源')
+                with open(file_path, 'rb') as fh:
+                    files = {'media': (display_name, fh)}
+                    resp = await client.post(url, files=files)
+            else:
+                files = {'media': (display_name, BytesIO(file_bytes))}
                 resp = await client.post(url, files=files)
-                resp.raise_for_status()
-                data = resp.json()
-                if data.get('errcode') != 0:
-                    raise RuntimeError(f'上传文件失败: {json_dumps(data)}')
-                return data['media_id'], data
+            resp.raise_for_status()
+            data = resp.json()
+            if data.get('errcode') != 0:
+                raise RuntimeError(f'上传文件失败: {json_dumps(data)}')
+            return data['media_id'], data
 
     @classmethod
     async def send(cls, webhook: str, msg_type: str, content: dict, group_key: str = 'default'):
         await cls._check_rate_limit(group_key)
         rendered_content = dict(content)
         if msg_type == 'file' and not rendered_content.get('media_id'):
-            media_id, upload_resp = await cls.upload_file(webhook, rendered_content['file_path'], rendered_content.get('file_name'))
+            file_bytes = cls._read_asset_bytes(rendered_content, image=False)
+            media_id, upload_resp = await cls.upload_file(
+                webhook,
+                rendered_content.get('file_path'),
+                rendered_content.get('file_name'),
+                file_bytes=file_bytes,
+            )
             rendered_content['media_id'] = media_id
             rendered_content['_upload_response'] = upload_resp
         payload = cls.build_payload(msg_type, rendered_content)

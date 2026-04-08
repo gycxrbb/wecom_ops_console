@@ -19,6 +19,19 @@ SCHEDULE_COLUMN_SPECS = {
     "last_sent_at": "DATETIME",
 }
 
+MATERIAL_COLUMN_SPECS = {
+    "storage_provider": "VARCHAR(32) DEFAULT 'local'",
+    "storage_key": "VARCHAR(255) DEFAULT ''",
+    "bucket_name": "VARCHAR(128) DEFAULT ''",
+    "domain": "VARCHAR(255) DEFAULT ''",
+    "public_url": "VARCHAR(255) DEFAULT ''",
+    "source_filename": "VARCHAR(255) DEFAULT ''",
+    "storage_status": "VARCHAR(32) DEFAULT 'ready'",
+    "provider_etag": "VARCHAR(128) DEFAULT ''",
+    "last_migrated_at": "DATETIME",
+    "deleted_from_storage_at": "DATETIME",
+}
+
 
 def _has_named_index(inspector, table_name: str, index_name: str) -> bool:
     indexes = inspector.get_indexes(table_name)
@@ -125,6 +138,57 @@ def ensure_asset_folders_schema(engine: Engine) -> None:
         if "parent_id" not in existing_columns:
             with engine.begin() as conn:
                 conn.execute(text("ALTER TABLE asset_folders ADD COLUMN parent_id INTEGER NULL"))
+
+    _ensure_material_storage_schema(engine)
+
+
+def _ensure_material_storage_schema(engine: Engine) -> None:
+    inspector = inspect(engine)
+    if "materials" in inspector.get_table_names():
+        existing_columns = {column["name"] for column in inspector.get_columns("materials")}
+        missing_columns = [name for name in MATERIAL_COLUMN_SPECS if name not in existing_columns]
+        if missing_columns:
+            with engine.begin() as conn:
+                for column_name in missing_columns:
+                    conn.execute(text(f"ALTER TABLE materials ADD COLUMN {column_name} {MATERIAL_COLUMN_SPECS[column_name]}"))
+
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS material_storage_records (
+                    id INTEGER PRIMARY KEY,
+                    material_id INTEGER NOT NULL,
+                    provider VARCHAR(32) DEFAULT 'local',
+                    bucket_name VARCHAR(128) DEFAULT '',
+                    storage_key VARCHAR(255) DEFAULT '',
+                    public_url VARCHAR(255) DEFAULT '',
+                    operation_type VARCHAR(32) DEFAULT 'upload',
+                    operation_status VARCHAR(32) DEFAULT 'success',
+                    operator_user_id INTEGER NULL,
+                    operator_ip VARCHAR(64) DEFAULT '',
+                    provider_request_id VARCHAR(128) DEFAULT '',
+                    provider_etag VARCHAR(128) DEFAULT '',
+                    file_size INTEGER DEFAULT 0,
+                    mime_type VARCHAR(128) DEFAULT 'application/octet-stream',
+                    error_message VARCHAR(255) DEFAULT '',
+                    extra_json TEXT,
+                    created_at DATETIME,
+                    updated_at DATETIME,
+                    deleted_at DATETIME,
+                    FOREIGN KEY(material_id) REFERENCES materials (id),
+                    FOREIGN KEY(operator_user_id) REFERENCES users (id)
+                )
+                """
+            )
+        )
+        inspector = inspect(conn)
+        if not _has_named_index(inspector, "material_storage_records", "ix_material_storage_records_material_id"):
+            conn.execute(text("CREATE INDEX ix_material_storage_records_material_id ON material_storage_records (material_id)"))
+        if not _has_named_index(inspector, "material_storage_records", "ix_material_storage_records_provider"):
+            conn.execute(text("CREATE INDEX ix_material_storage_records_provider ON material_storage_records (provider)"))
+        if not _has_named_index(inspector, "material_storage_records", "ix_material_storage_records_created_at"):
+            conn.execute(text("CREATE INDEX ix_material_storage_records_created_at ON material_storage_records (created_at)"))
 
 
 def ensure_user_profile_schema(engine: Engine) -> None:

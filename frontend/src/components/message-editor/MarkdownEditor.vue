@@ -28,6 +28,16 @@
           <el-icon><List /></el-icon>
         </el-button>
       </el-button-group>
+      <el-button-group style="margin-left: 8px">
+        <el-button size="small" @click="insert('time')" title="插入当前时间">
+          <el-icon><Clock /></el-icon>
+          <span style="margin-left: 2px">时间</span>
+        </el-button>
+        <el-button size="small" @click="openAiDialog" title="AI 润色" style="color: #7c3aed">
+          <el-icon><MagicStick /></el-icon>
+          <span style="margin-left: 2px">AI</span>
+        </el-button>
+      </el-button-group>
     </div>
     <el-input
       ref="textareaRef"
@@ -77,12 +87,28 @@
     accept-type="image"
     @select="handleAssetSelect"
   />
+
+  <el-dialog v-model="aiDialogVisible" title="AI 润色" width="500px" append-to-body destroy-on-close>
+    <el-input
+      v-model="aiInstruction"
+      type="textarea"
+      :rows="3"
+      placeholder="输入修改指令，例如：语气更正式一些 / 缩短到两句话 / 从零写一个早安问候"
+    />
+    <template #footer>
+      <el-button @click="aiDialogVisible = false">取消</el-button>
+      <el-button type="primary" :loading="aiLoading" @click="handleAiPolish">
+        {{ (modelValue.content || '').trim() ? '润色' : '从零撰写' }}
+      </el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <script setup lang="ts">
 import { ref, nextTick } from 'vue'
-import { Link, Picture, ChatLineSquare, Document, List } from '@element-plus/icons-vue'
+import { Link, Picture, ChatLineSquare, Document, List, Clock, MagicStick } from '@element-plus/icons-vue'
 import AssetPicker from './AssetPicker.vue'
+import { useAiPolish } from './useAiPolish'
 
 const props = defineProps<{ modelValue: Record<string, any> }>()
 const emit = defineEmits<{ (e: 'update:modelValue', val: Record<string, any>): void }>()
@@ -143,6 +169,12 @@ const insert = (type: string) => {
     case 'list':
       insertion = `\n- ${selected || '列表项'}\n- 列表项\n`
       break
+    case 'time': {
+      const now = new Date()
+      const pad = (n: number) => String(n).padStart(2, '0')
+      insertion = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`
+      break
+    }
   }
   replaceSelection(textarea, insertion)
 }
@@ -164,7 +196,7 @@ const confirmInsertImage = () => {
 }
 
 const handleAssetSelect = (asset: any) => {
-  imageUrl.value = asset.url || ''
+  imageUrl.value = asset.preview_url || asset.url || ''
   confirmInsertImage()
 }
 
@@ -184,6 +216,15 @@ const replaceSelection = (textarea: HTMLTextAreaElement | undefined, text: strin
     const pos = start + text.length
     textarea.setSelectionRange(pos, pos)
   })
+}
+
+const { aiDialogVisible, aiInstruction, aiLoading, openAiDialog, doPolish } = useAiPolish()
+
+const handleAiPolish = async () => {
+  const result = await doPolish(props.modelValue.content || '', 'markdown')
+  if (result !== null) {
+    emit('update:modelValue', { ...props.modelValue, content: result })
+  }
 }
 </script>
 

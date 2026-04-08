@@ -135,6 +135,55 @@ npm run dev
 
 > 首次使用前，请先在"群管理"中把测试群/正式群的 Webhook 改为你自己的企业微信群机器人地址。
 
+### 对象存储配置（七牛云可选）
+
+系统默认把素材存到本地 `data/uploads`。如果要切到七牛云，请在 `.env` 中补齐以下配置：
+
+```env
+ASSET_STORAGE_PROVIDER=qiniu
+ASSET_STORAGE_FALLBACK_PROVIDER=local
+QINIU_ACCESS_KEY=your-ak
+QINIU_SECRET_KEY=your-sk
+QINIU_BUCKET=your-bucket
+QINIU_REGION=z2
+QINIU_PUBLIC_DOMAIN=https://cdn.example.com
+QINIU_USE_HTTPS=true
+QINIU_PREFIX=materials/
+QINIU_PRIVATE_BUCKET=false
+QINIU_SIGNED_URL_EXPIRE_SECONDS=3600
+```
+
+说明：
+
+- `ASSET_STORAGE_PROVIDER=qiniu`：新上传素材优先写入七牛
+- `ASSET_STORAGE_FALLBACK_PROVIDER=local`：七牛异常时自动回退到本地
+- 前端仍显示中文文件名，但七牛对象 key 会自动转换成英文安全命名
+- 第一阶段建议使用公有桶或已绑定 CDN 的公开域名，降低接入复杂度
+
+### 历史素材迁移到七牛
+
+如果已经有本地素材，希望统一迁到七牛，可以执行：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\migrate_materials_storage.py --target qiniu --dry-run
+.\.venv\Scripts\python.exe scripts\migrate_materials_storage.py --target qiniu
+```
+
+可选参数：
+
+- `--material-id 12 --material-id 15`：只迁移指定素材
+- `--limit 50`：限制本次处理数量
+- `--force`：即使素材已经在目标 provider 上，也强制重新迁移
+- `--delete-local-copy`：迁移成功后删除本地源文件。默认不删，保留本地副本作为 fallback
+
+迁移脚本会：
+
+- 读取当前素材记录
+- 从原存储读取字节
+- 上传到目标 provider
+- 更新 `materials` 表中的正式存储字段
+- 在 `material_storage_records` 中记录 `migrate` 审计日志
+
 ### Docker 部署
 
 ```bash
@@ -192,7 +241,7 @@ wecom_ops_console/
 │  └─ package.json
 ├─ data/
 │  ├─ app.db                     # SQLite 数据库
-│  └─ uploads/                   # 上传文件存储
+│  └─ uploads/                   # 本地素材存储 / 七牛失败时的 fallback
 ├─ docs/
 │  ├─ PRD.md                     # 产品需求文档
 │  ├─ SYSTEM_DESIGN.md           # 系统设计文档
@@ -249,6 +298,64 @@ render_message_content → attach_asset_paths → WeComService.send
 - Webhook 是密钥，加密存储，不返回前端明文
 - 默认使用 SQLite，适合单机/轻量场景；生产环境可通过 `database_url` 配置切换 MySQL/PostgreSQL
 - APScheduler 适合单实例调度；多实例生产环境建议使用 Celery + Redis
+
+## 素材存储配置
+
+系统当前支持两种素材存储后端：
+
+- `local`：默认本地存储，文件落在 `data/uploads`
+- `qiniu`：七牛云对象存储，适合正式上线环境
+
+推荐配置方式：
+
+- 开发环境：`ASSET_STORAGE_PROVIDER=local`
+- 生产环境：`ASSET_STORAGE_PROVIDER=qiniu`
+- 降级兜底：`ASSET_STORAGE_FALLBACK_PROVIDER=local`
+
+### 七牛云环境变量
+
+```env
+ASSET_STORAGE_PROVIDER=qiniu
+ASSET_STORAGE_FALLBACK_PROVIDER=local
+QINIU_ACCESS_KEY=your-ak
+QINIU_SECRET_KEY=your-sk
+QINIU_BUCKET=your-bucket
+QINIU_REGION=z2
+QINIU_PUBLIC_DOMAIN=cdn.example.com
+QINIU_USE_HTTPS=true
+QINIU_PREFIX=materials/
+QINIU_PRIVATE_BUCKET=false
+QINIU_SIGNED_URL_EXPIRE_SECONDS=3600
+```
+
+说明：
+
+- `QINIU_PUBLIC_DOMAIN` 填已经绑定到 bucket 的公网访问域名
+- `QINIU_REGION` 按 bucket 所在区域填写，默认 `z2`
+- `QINIU_PRIVATE_BUCKET=false` 时，素材预览和图文 `picurl` 直接使用公网 URL
+- `QINIU_PRIVATE_BUCKET=true` 时，系统会为下载链路生成签名 URL
+
+### 历史本地素材迁移
+
+七牛接入后，历史素材不会自动迁移。系统提供了独立迁移脚本，默认保留本地文件作为降级副本：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\migrate_materials_to_qiniu.py --dry-run
+.\.venv\Scripts\python.exe scripts\migrate_materials_to_qiniu.py
+```
+
+常用参数：
+
+- `--material-id 12`：只迁移单条素材
+- `--limit 50`：只迁移前 50 条
+- `--include-disabled`：包含已禁用素材
+- `--dry-run`：只预演，不真正写入
+
+迁移完成后：
+
+- `materials` 主表会更新为七牛存储元数据
+- `material_storage_records` 会记录迁移操作
+- 原本地文件默认保留，作为读取降级方案
 
 ## 演进规划
 

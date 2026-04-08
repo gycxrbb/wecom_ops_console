@@ -95,8 +95,9 @@ const selectedAsset = ref<any>(null)
 const uploadHint = ASSET_UPLOAD_HINT
 
 const filteredList = computed(() => {
-  if (listFilter.value === 'all') return assets.value
-  return assets.value.filter((a: any) => a.material_type === listFilter.value)
+  const available = assets.value.filter((a: any) => a.storage_status !== 'source_missing')
+  if (listFilter.value === 'all') return available
+  return available.filter((a: any) => a.material_type === listFilter.value)
 })
 
 const isImage = (item: any) => item.material_type === 'image' || (item.mime_type || '').startsWith('image/')

@@ -63,6 +63,16 @@ class Material(Base, TimestampMixin):
     material_type: Mapped[str] = mapped_column(String(32))
     storage_path: Mapped[str] = mapped_column(String(255))
     url: Mapped[str] = mapped_column(String(255), default='')
+    storage_provider: Mapped[str] = mapped_column(String(32), default='local')
+    storage_key: Mapped[str] = mapped_column(String(255), default='')
+    bucket_name: Mapped[str] = mapped_column(String(128), default='')
+    domain: Mapped[str] = mapped_column(String(255), default='')
+    public_url: Mapped[str] = mapped_column(String(255), default='')
+    source_filename: Mapped[str] = mapped_column(String(255), default='')
+    storage_status: Mapped[str] = mapped_column(String(32), default='ready')
+    provider_etag: Mapped[str] = mapped_column(String(128), default='')
+    last_migrated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    deleted_from_storage_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     mime_type: Mapped[str] = mapped_column(String(128), default='application/octet-stream')
     file_size: Mapped[int] = mapped_column(Integer, default=0)
     file_hash: Mapped[str] = mapped_column(String(64), default='')
@@ -72,10 +82,38 @@ class Material(Base, TimestampMixin):
     enabled: Mapped[int] = mapped_column(Integer, default=1)
     folder = relationship('AssetFolder')
     owner = relationship('User')
+    storage_records: Mapped[list['MaterialStorageRecord']] = relationship(
+        'MaterialStorageRecord',
+        back_populates='material',
+        cascade='all, delete-orphan',
+        order_by='MaterialStorageRecord.id',
+    )
 
     @property
     def file_name(self) -> str:
         return self.name
+
+
+class MaterialStorageRecord(Base, TimestampMixin):
+    __tablename__ = 'material_storage_records'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    material_id: Mapped[int] = mapped_column(ForeignKey('materials.id'), index=True)
+    provider: Mapped[str] = mapped_column(String(32), default='local')
+    bucket_name: Mapped[str] = mapped_column(String(128), default='')
+    storage_key: Mapped[str] = mapped_column(String(255), default='')
+    public_url: Mapped[str] = mapped_column(String(255), default='')
+    operation_type: Mapped[str] = mapped_column(String(32), default='upload')
+    operation_status: Mapped[str] = mapped_column(String(32), default='success')
+    operator_user_id: Mapped[int | None] = mapped_column(ForeignKey('users.id'), nullable=True)
+    operator_ip: Mapped[str] = mapped_column(String(64), default='')
+    provider_request_id: Mapped[str] = mapped_column(String(128), default='')
+    provider_etag: Mapped[str] = mapped_column(String(128), default='')
+    file_size: Mapped[int] = mapped_column(Integer, default=0)
+    mime_type: Mapped[str] = mapped_column(String(128), default='application/octet-stream')
+    error_message: Mapped[str] = mapped_column(String(255), default='')
+    extra_json: Mapped[str] = mapped_column(Text, default='{}')
+    material: Mapped['Material'] = relationship('Material', back_populates='storage_records')
+    operator = relationship('User')
 
 
 class Plan(Base, TimestampMixin):
