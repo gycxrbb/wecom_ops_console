@@ -67,18 +67,30 @@ def authenticate(db: Session, username: str, password: str):
             return None
         if not verify_password(password, local_user.password_hash):
             return None
+        local_user.last_login_at = datetime.utcnow()
+        local_user.auth_source = local_user.auth_source or 'local'
+        db.commit()
+        db.refresh(local_user)
         return local_user
 
     if crm_admin_auth_enabled():
         crm_admin = authenticate_crm_admin(username, password)
         if not crm_admin:
             return None
-        return sync_crm_admin_to_local(db, crm_admin)
+        user = sync_crm_admin_to_local(db, crm_admin)
+        user.last_login_at = datetime.utcnow()
+        db.commit()
+        db.refresh(user)
+        return user
 
     if not local_user:
         return None
     if not verify_password(password, local_user.password_hash):
         return None
+    local_user.last_login_at = datetime.utcnow()
+    local_user.auth_source = local_user.auth_source or 'local'
+    db.commit()
+    db.refresh(local_user)
     return local_user
 
 

@@ -111,6 +111,8 @@ def sync_crm_admin_to_local(db: Session, admin: dict[str, Any]) -> models.User:
         user = models.User(
             username=username,
             display_name=display_name,
+            avatar_url="",
+            auth_source="crm",
             role="coach",
             password_hash=pwd_context.hash(secrets.token_hex(16)),
             status=1,
@@ -123,6 +125,9 @@ def sync_crm_admin_to_local(db: Session, admin: dict[str, Any]) -> models.User:
     changed = False
     if user.display_name != display_name:
         user.display_name = display_name
+        changed = True
+    if (user.auth_source or "local") != "crm":
+        user.auth_source = "crm"
         changed = True
     if user.role != "coach":
         user.role = "coach"

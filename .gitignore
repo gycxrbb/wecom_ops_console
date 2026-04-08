@@ -84,6 +84,8 @@ desktop.ini
 # --- 日志 ---
 logs/
 *.log
+*.out
+*.err
 npm-debug.log*
 
 # --- 前端依赖 ---
@@ -96,6 +98,7 @@ frontend/.next/
 *.bak
 *.tmp
 *.temp
+*.tsbuildinfo
 
 .venv/
 

@@ -12,11 +12,14 @@
           :form="form"
           :groups="groups"
           :templates="templates"
-          v-model:selectedTemplate="selectedTemplate"
+          :selectedContentSource="selectedContentSource"
+          :selectedContentId="selectedContentId"
+          :selectedContentLabel="selectedContentLabel"
           :isPreviewing="isPreviewing"
           :isSending="isSending"
           :isTestSending="isTestSending"
-          @templateChange="handleTemplateChange"
+          @contentSelect="handleContentSelect"
+          @clearContent="handleClearContent"
           @msgTypeChange="handleMsgTypeChange"
           @contentUpdate="handleContentUpdate"
           @variablesUpdate="handleVariablesUpdate"
@@ -56,7 +59,9 @@ import './styles/SendCenter.css'
 const {
   groups,
   templates,
-  selectedTemplate,
+  selectedContentSource,
+  selectedContentId,
+  selectedContentLabel,
   previewData,
   previewError,
   form,
@@ -66,7 +71,8 @@ const {
   isTestSending,
   isScheduling,
   handleMsgTypeChange,
-  handleTemplateChange,
+  handleContentSelect,
+  handleClearContent,
   handlePreview,
   handleSend,
   handleTestSend,

@@ -4,9 +4,9 @@
       <div>
         <div class="plans-hero__eyebrow">Operation Studio</div>
         <h1 class="plans-hero__title">运营编排中心</h1>
-        <p class="plans-hero__desc">
+        <!-- <p class="plans-hero__desc">
           按“主题 / 天数 / 流程节点”组织运营内容。先看主题阶段，再进入每天的固定流程节点去配置实际发送内容。
-        </p>
+        </p> -->
       </div>
       <div class="plans-hero__actions">
         <el-button plain size="large" @click="handleSwitchView('templates')">查看模板库</el-button>
@@ -54,242 +54,56 @@
         </div>
       </div>
 
-      <div class="planner-layout">
-        <section class="planner-panel planner-panel--topics">
-          <div class="planner-panel__header">
-            <div>
-              <h3>主题 / 阶段</h3>
-              <p>每个主题对应一整段运营周期，例如 30 天编排。</p>
-            </div>
-          </div>
-          <div v-if="plans.length" class="topic-list">
-            <button
-              v-for="plan in plans"
-              :key="plan.id"
-              type="button"
-              class="topic-card"
-              :class="{ 'is-active': currentPlan?.id === plan.id }"
-              @click="handleSelectPlan(plan.id)"
-            >
-              <div class="topic-card__head">
-                <span class="topic-card__stage">{{ plan.stage || '未分阶段' }}</span>
-                <el-button
-                  text
-                  type="danger"
-                  size="small"
-                  @click.stop="removePlan(plan)"
-                >
-                  删除
-                </el-button>
-              </div>
-              <div class="topic-card__name">{{ plan.name }}</div>
-              <div class="topic-card__meta">{{ plan.topic || '未设置主题标签' }}</div>
-              <div class="topic-card__meta">{{ plan.day_count }} 天 · {{ plan.node_count }} 个节点</div>
-            </button>
-          </div>
-          <el-empty v-else description="还没有运营主题，先创建一个 30 天运营主题。" :image-size="60" />
-        </section>
+      <div class="plans-workbench">
+        <WorkbenchLeftNav
+          :plans="plans"
+          :current-plan-id="currentPlan?.id ?? null"
+          :days="days"
+          :current-day-id="currentDay?.id ?? null"
+          :completed-count="workbench.completedCount"
+          :completion-percent="workbench.completionPercent"
+          @select-plan="handleSelectPlan"
+          @select-day="handleSelectDay"
+          @create-plan="openCreatePlan"
+          @remove-plan="(plan: any) => removePlan(plan)"
+          @rename-plan="renamePlan"
+          @jump-pending="jumpToFirstPending"
+        />
 
-        <section class="planner-panel planner-panel--days">
-          <div class="planner-panel__header">
-            <div>
-              <h3>天数展开</h3>
-              <p>查看每天的固定流程节点，确认是否已经编排完成。</p>
-            </div>
-            <div class="header-actions">
-              <el-button plain size="small" :disabled="!firstPendingDay" @click="jumpToFirstPending">
-                回到待完善
-              </el-button>
-              <el-button plain size="small" :disabled="days.length < 2 || !currentDay" @click="confirmAndOpenCopyDay">
-                从某天复制
-              </el-button>
-              <el-button plain size="small" :disabled="days.length < 2 || !currentDay" @click="confirmAndOpenBatchCopyDay">
-                复制到多天
-              </el-button>
-            </div>
-          </div>
-          <div v-if="days.length" class="day-list">
-            <button
-              v-for="day in days"
-              :key="day.id"
-              type="button"
-              class="day-item"
-              :class="{ 'is-active': currentDay?.id === day.id }"
-              @click="handleSelectDay(day.id)"
-            >
-              <div class="day-item__left">
-                <strong>Day {{ day.day_number }}</strong>
-                <span>{{ day.title }}</span>
-              </div>
-              <div class="day-item__meta">
-                <span v-if="pendingNodeCount(day)" class="day-item__pending">
-                  待完善 {{ pendingNodeCount(day) }}
-                </span>
-                <span class="day-item__status" :class="`status-${day.status}`">
-                  {{ day.status === 'draft' ? '待完善' : day.status }}
-                </span>
-              </div>
-            </button>
-          </div>
-          <el-empty v-else description="请选择一个运营主题" :image-size="60" />
-        </section>
+        <WorkbenchCenter
+          :current-day="currentDay"
+          :nodes="nodes"
+          :current-node-id="currentNode?.id ?? null"
+          :pending-count="currentDayPendingCount"
+          :day-draft="dayDraft"
+          :day-dirty="dayDirty"
+          :day-saving="daySaving"
+          @select-node="handleSelectNode"
+          @patch-day="patchDayDraft"
+          @save-day="saveDayDraft"
+          @reset-day="resetDayDraft"
+        />
 
-        <section class="planner-panel planner-panel--nodes">
-          <div class="planner-panel__header">
-            <div>
-              <h3>流程节点</h3>
-              <p>沿着当天固定流程逐条完善，运营同学不需要自己思考顺序。当前还差 {{ currentDayPendingCount }} 个节点。</p>
-            </div>
-          </div>
-          <div v-if="nodes.length" class="node-list">
-            <button
-              v-for="node in nodes"
-              :key="node.id"
-              type="button"
-              class="node-card"
-              :class="{ 'is-active': currentNode?.id === node.id }"
-              @click="handleSelectNode(node.id)"
-            >
-              <div class="node-card__head">
-                <span class="node-card__order">{{ node.sort_order }}</span>
-                <div class="node-card__badges">
-                  <span class="node-card__type">{{ msgTypeLabel(node.msg_type) }}</span>
-                  <span class="node-card__state" :class="{ 'is-draft': node.status === 'draft' }">
-                    {{ node.status === 'draft' ? '待完善' : '已配置' }}
-                  </span>
-                </div>
-              </div>
-              <div class="node-card__title">{{ node.title }}</div>
-              <div class="node-card__desc">{{ node.description }}</div>
-            </button>
-          </div>
-          <el-empty v-else description="当前天还没有流程节点" :image-size="60" />
-        </section>
-      </div>
-
-      <div class="editor-layout" v-if="currentNode">
-        <section class="planner-panel planner-panel--editor">
-          <div class="planner-panel__header">
-              <div>
-                <h3>节点编辑</h3>
-                <p>当前编辑：{{ currentNode.title }}</p>
-              </div>
-            <div class="editor-quick-actions">
-              <span class="editor-status" :class="{ 'is-dirty': nodeDirty }">
-                {{ nodeDirty ? '节点草稿待保存' : '节点已同步' }}
-              </span>
-              <el-select
-                v-model="selectedTemplateId"
-                placeholder="从模板库快速套用"
-                clearable
-                filterable
-                style="min-width: 220px"
-              >
-                <el-option
-                  v-for="item in templateApplyOptions"
-                  :key="item.id"
-                  :label="item.label"
-                  :value="item.id"
-                />
-              </el-select>
-              <el-button plain :disabled="!selectedTemplateId" @click="handleApplyTemplate">
-                套用模板
-              </el-button>
-              <el-button plain :disabled="!currentNode || days.length < 2" @click="confirmAndOpenSyncNode">
-                同步同类节点
-              </el-button>
-              <el-button plain :disabled="!nodeDirty" @click="resetNodeDraft">
-                重置
-              </el-button>
-              <el-button type="primary" :loading="nodeSaving" :disabled="!nodeDirty" @click="saveNodeDraft">
-                保存节点
-              </el-button>
-            </div>
-          </div>
-
-          <el-form label-width="96px" class="node-form">
-            <el-row :gutter="16">
-              <el-col :span="12">
-                <el-form-item label="节点标题">
-                  <el-input :model-value="nodeDraft?.title" @update:model-value="patchNodeDraft({ title: $event })" />
-                </el-form-item>
-              </el-col>
-              <el-col :span="12">
-                <el-form-item label="消息类型">
-                  <el-select :model-value="nodeDraft?.msg_type" @update:model-value="patchNodeDraft({ msg_type: $event })">
-                    <el-option v-for="item in msgTypeOptions" :key="item.value" :label="item.label" :value="item.value" />
-                  </el-select>
-                </el-form-item>
-              </el-col>
-            </el-row>
-
-            <el-form-item label="节点说明">
-              <el-input
-                :model-value="nodeDraft?.description"
-                @update:model-value="patchNodeDraft({ description: $event })"
-                type="textarea"
-                :rows="2"
-              />
-            </el-form-item>
-
-            <el-form-item label="发送内容">
-              <MessageEditor
-                :model-value="nodeDraft?.content_json || {}"
-                @update:model-value="patchNodeDraft({ content_json: $event })"
-                :msg-type="nodeDraft?.msg_type || currentNode.msg_type"
-                :variables="nodeDraft?.variables_json || {}"
-                @update:variables="patchNodeDraft({ variables_json: $event })"
-                :show-variables="supportsVariables(nodeDraft?.msg_type || currentNode.msg_type)"
-                style="width: 100%"
-              />
-            </el-form-item>
-          </el-form>
-        </section>
-
-        <section class="planner-panel planner-panel--context">
-          <div class="planner-panel__header">
-            <div>
-              <h3>当天上下文</h3>
-              <p>帮助运营同学确认今天的主题和重点。</p>
-            </div>
-            <div class="context-actions">
-              <span class="editor-status" :class="{ 'is-dirty': dayDirty }">
-                {{ dayDirty ? '当天上下文待保存' : '当天上下文已同步' }}
-              </span>
-              <el-button plain :disabled="!dayDirty" @click="resetDayDraft">
-                重置
-              </el-button>
-              <el-button type="primary" :loading="daySaving" :disabled="!dayDirty" @click="saveDayDraft">
-                保存上下文
-              </el-button>
-            </div>
-          </div>
-
-          <el-form label-width="88px">
-            <el-form-item label="天标题">
-              <el-input :model-value="dayDraft?.title" @update:model-value="patchDayDraft({ title: $event })" />
-            </el-form-item>
-            <el-form-item label="当天重点">
-              <el-input
-                :model-value="dayDraft?.focus"
-                @update:model-value="patchDayDraft({ focus: $event })"
-                type="textarea"
-                :rows="4"
-                placeholder="例如：今天聚焦早餐结构与餐后反馈记录"
-              />
-            </el-form-item>
-          </el-form>
-
-          <div class="preset-list">
-            <div class="preset-list__title">系统预置流程</div>
-            <div v-for="preset in presets" :key="preset.node_type" class="preset-item">
-              <strong>{{ preset.title }}</strong>
-              <span>{{ preset.description }}</span>
-            </div>
-          </div>
-        </section>
-      </div>
-    </template>
+        <WorkbenchEditor
+          :current-node="currentNode"
+          :node-draft="nodeDraft"
+          :node-dirty="nodeDirty"
+          :node-saving="nodeSaving"
+          :template-options="templateApplyOptions"
+          :selected-template-id="selectedTemplateId"
+          :has-prev="workbench.hasPrevNode.value"
+          :has-next="workbench.hasNextNode.value"
+          @patch-draft="patchNodeDraft"
+          @save="saveNodeDraft"
+          @save-and-next="workbench.saveAndNext"
+          @reset="resetNodeDraft"
+          @apply-template="handleApplyTemplate"
+          @sync-node="confirmAndOpenSyncNode"
+          @prev-node="workbench.goToPrevNode"
+          @next-node="workbench.goToNextNode"
+          @update:selected-template-id="(id: number) => selectedTemplateId = id"
+        />
+      </div>    </template>
 
     <template v-else>
       <div class="template-library">
@@ -716,6 +530,10 @@ import { useTemplates, msgTypeLabel, msgTypeOptions, supportsVariables } from '.
 import type { TemplateItem } from './composables/useTemplates'
 import { useOperationPlans } from './composables/useOperationPlans'
 import type { PlanDay, PlanNode } from './composables/useOperationPlans'
+import { useWorkbenchActions } from './composables/useWorkbenchActions'
+import WorkbenchLeftNav from './components/WorkbenchLeftNav.vue'
+import WorkbenchCenter from './components/WorkbenchCenter.vue'
+import WorkbenchEditor from './components/WorkbenchEditor.vue'
 import request from '@/utils/request'
 
 const storedView = typeof window !== 'undefined'
@@ -755,6 +573,7 @@ const {
   updateNode,
   updateDayMeta,
   removePlan,
+  renamePlan,
   copyDayContent,
   batchCopyDayContent,
   syncNodeToPeerDays
@@ -911,8 +730,8 @@ const templateApplyOptions = computed(() =>
   }))
 )
 
-const saveNodeDraft = async () => {
-  if (!currentNode.value || !nodeDraft.value || !nodeDirty.value) return
+async function saveNodeDraft() {
+  if (!currentNode.value || !nodeDraft.value || !nodeDirty.value) return true
   nodeSaving.value = true
   try {
     const saved = await updateNode(nodeDraft.value)
@@ -956,7 +775,7 @@ const saveCurrentDrafts = async () => {
   return true
 }
 
-const confirmDiscardDraft = async () => {
+async function confirmDiscardDraft() {
   if (!hasUnsavedChanges.value) return true
   let action: 'confirm' | 'cancel' | 'close'
   try {
@@ -984,6 +803,19 @@ const confirmDiscardDraft = async () => {
 
   return await saveCurrentDrafts()
 }
+
+const workbench = useWorkbenchActions({
+  nodes,
+  days,
+  currentNode,
+  currentDay,
+  nodeDirty,
+  nodeSaving,
+  selectNode,
+  selectDay,
+  saveNodeDraft,
+  confirmDiscardDraft,
+})
 
 const handleSwitchView = async (view: 'plans' | 'templates') => {
   if (activeView.value === view) return
@@ -1354,6 +1186,26 @@ onBeforeRouteLeave(async () => {
   gap: 16px;
 }
 
+/* ===== 三栏工作台布局 ===== */
+.plans-workbench {
+  display: grid;
+  grid-template-columns: 260px 280px minmax(0, 1fr);
+  gap: 16px;
+  min-height: calc(100vh - 320px);
+}
+
+@media (max-width: 1400px) {
+  .plans-workbench {
+    grid-template-columns: 220px 240px minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 1200px) {
+  .plans-workbench {
+    grid-template-columns: 1fr;
+  }
+}
+
 .editor-layout {
   display: grid;
   grid-template-columns: 1.4fr 0.8fr;
@@ -1421,7 +1273,7 @@ onBeforeRouteLeave(async () => {
 .editor-status.is-dirty {
   border-color: var(--tpl-accent-border);
   background: var(--tpl-accent-soft);
-  color: var(--color-primary);
+  color: var(--primary-color);
 }
 
 .topic-list,
@@ -1785,7 +1637,7 @@ onBeforeRouteLeave(async () => {
 .source-filter__chip--active {
   border-color: var(--tpl-accent-border);
   background: var(--tpl-accent-soft);
-  color: var(--color-primary);
+  color: var(--primary-color);
 }
 
 .category-filter__chip {
@@ -1802,7 +1654,7 @@ onBeforeRouteLeave(async () => {
 .category-filter__chip--active {
   border-color: var(--tpl-accent-border);
   background: var(--tpl-accent-soft);
-  color: var(--color-primary);
+  color: var(--primary-color);
 }
 
 .recent-template-row {
@@ -1831,7 +1683,7 @@ onBeforeRouteLeave(async () => {
 }
 
 .recent-template-card__type {
-  color: var(--color-primary);
+  color: var(--primary-color);
   font-size: 12px;
   font-weight: 600;
 }
@@ -1850,7 +1702,7 @@ onBeforeRouteLeave(async () => {
   padding: 5px 10px;
   border-radius: 999px;
   background: var(--tpl-accent-soft);
-  color: var(--color-primary);
+  color: var(--primary-color);
   font-size: 12px;
   font-weight: 600;
 }
@@ -1893,7 +1745,7 @@ onBeforeRouteLeave(async () => {
 }
 
 .template-preview-dialog__eyebrow {
-  color: var(--color-primary);
+  color: var(--primary-color);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -2040,7 +1892,7 @@ onBeforeRouteLeave(async () => {
   padding: 5px 10px;
   border-radius: 999px;
   background: var(--tpl-accent-soft);
-  color: var(--color-primary);
+  color: var(--primary-color);
   font-size: 12px;
 }
 
@@ -2120,9 +1972,25 @@ onBeforeRouteLeave(async () => {
   border-color: rgba(248, 113, 113, 0.22) !important;
 }
 
+:global(html.dark) .plans-page .editor-status {
+  border-color: rgba(148, 163, 184, 0.18) !important;
+  background: rgba(148, 163, 184, 0.06) !important;
+}
+
+:global(html.dark) .plans-page .node-card__state {
+  background: rgba(148, 163, 184, 0.1) !important;
+}
+
+:global(html.dark) .plans-page .node-card__state.is-draft {
+  background: rgba(245, 158, 11, 0.16) !important;
+}
+
+:global(html.dark) .plans-page .day-item__pending {
+  background: rgba(245, 158, 11, 0.16) !important;
+}
+
 @media (max-width: 1200px) {
-  .planner-layout,
-  .editor-layout,
+  .plans-workbench,
   .template-library__grid {
     grid-template-columns: 1fr;
   }

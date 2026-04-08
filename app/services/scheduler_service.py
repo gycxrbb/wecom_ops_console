@@ -28,8 +28,69 @@ class ScheduleService:
             jobs = db.query(models.Schedule).filter(models.Schedule.enabled == 1, models.Schedule.schedule_type.in_(['once', 'cron'])).all()
             for job in jobs:
                 self.add_or_update_job(job)
+                job.next_run_at = self.compute_next_run_at(job)
+            db.commit()
         finally:
             db.close()
+
+    def _build_trigger(self, job: models.Schedule):
+        if not job.enabled:
+            return None
+        if job.approval_required and job.status != 'approved':
+            return None
+        if job.schedule_type == 'cron' and job.cron_expr:
+            parts = job.cron_expr.strip().split()
+            if len(parts) < 5:
+                return None
+            minute, hour, day, month, day_of_week = parts[:5]
+            timezone = ZoneInfo(job.timezone or 'Asia/Shanghai')
+            return CronTrigger(minute=minute, hour=hour, day=day, month=month, day_of_week=day_of_week, timezone=timezone)
+        return None
+
+    def _is_valid_fire_time(self, job: models.Schedule, fire_time: datetime) -> bool:
+        skip_dates = set(json_loads(job.skip_dates_json, []))
+        local_time = fire_time.astimezone(ZoneInfo(job.timezone or 'Asia/Shanghai'))
+        if job.skip_weekends and local_time.weekday() >= 5:
+            return False
+        if local_time.strftime('%Y-%m-%d') in skip_dates:
+            return False
+        return True
+
+    def compute_next_runs(self, job: models.Schedule, count: int = 5) -> list[datetime]:
+        if not job.enabled:
+            return []
+        if job.approval_required and job.status != 'approved':
+            return []
+        if job.schedule_type == 'once':
+            if not job.run_at or job.run_at < datetime.utcnow():
+                return []
+            return [job.run_at] if self._is_valid_fire_time(job, job.run_at.replace(tzinfo=ZoneInfo(job.timezone or 'Asia/Shanghai'))) else []
+
+        trigger = self._build_trigger(job)
+        if not trigger:
+            return []
+
+        timezone = ZoneInfo(job.timezone or 'Asia/Shanghai')
+        cursor = datetime.now(timezone)
+        previous = None
+        results: list[datetime] = []
+        attempts = 0
+
+        while len(results) < count and attempts < count * 20:
+            next_fire = trigger.get_next_fire_time(previous, cursor)
+            if not next_fire:
+                break
+            previous = next_fire
+            cursor = next_fire
+            attempts += 1
+            if self._is_valid_fire_time(job, next_fire):
+                results.append(next_fire)
+
+        return results
+
+    def compute_next_run_at(self, job: models.Schedule) -> datetime | None:
+        runs = self.compute_next_runs(job, count=1)
+        return runs[0] if runs else None
 
     def add_or_update_job(self, job: models.Schedule):
         aps_id = f'job-{job.id}'
@@ -38,17 +99,20 @@ class ScheduleService:
         except Exception:
             pass
         if not job.enabled:
+            job.next_run_at = None
             return
         if job.approval_required and job.status != 'approved':
+            job.next_run_at = None
             return
         if job.schedule_type == 'once' and job.run_at:
             trigger = DateTrigger(run_date=job.run_at)
         elif job.schedule_type == 'cron' and job.cron_expr:
-            minute, hour, day, month, day_of_week = job.cron_expr.strip().split()[:5]
-            trigger = CronTrigger(minute=minute, hour=hour, day=day, month=month, day_of_week=day_of_week, timezone=job.timezone)
+            trigger = self._build_trigger(job)
         else:
+            job.next_run_at = None
             return
-        self.scheduler.add_job(execute_job, trigger=trigger, id=aps_id, args=[job.id], replace_existing=True, misfire_grace_time=60)
+        scheduled_job = self.scheduler.add_job(execute_job, trigger=trigger, id=aps_id, args=[job.id], replace_existing=True, misfire_grace_time=60)
+        job.next_run_at = scheduled_job.next_run_time
 
 schedule_service = ScheduleService()
 
@@ -69,6 +133,7 @@ async def execute_job(job_id: int):
         if job.schedule_type == 'once':
             job.enabled = False
             job.status = 'completed'
-            db.commit()
+        job.next_run_at = schedule_service.compute_next_run_at(job)
+        db.commit()
     finally:
         db.close()

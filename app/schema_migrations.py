@@ -127,6 +127,19 @@ def ensure_asset_folders_schema(engine: Engine) -> None:
                 conn.execute(text("ALTER TABLE asset_folders ADD COLUMN parent_id INTEGER NULL"))
 
 
+def ensure_user_profile_schema(engine: Engine) -> None:
+    inspector = inspect(engine)
+    if "users" not in inspector.get_table_names():
+        return
+
+    existing_columns = {column["name"] for column in inspector.get_columns("users")}
+    with engine.begin() as conn:
+        if "avatar_url" not in existing_columns:
+            conn.execute(text("ALTER TABLE users ADD COLUMN avatar_url VARCHAR(255) DEFAULT ''"))
+        if "auth_source" not in existing_columns:
+            conn.execute(text("ALTER TABLE users ADD COLUMN auth_source VARCHAR(32) DEFAULT 'local'"))
+
+
 def ensure_plan_schema(engine: Engine) -> None:
     with engine.begin() as conn:
         conn.execute(

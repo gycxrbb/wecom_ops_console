@@ -48,6 +48,8 @@ async def api_login(request: Request, db: Session = Depends(get_db)):
                 'id': user.id,
                 'username': user.username,
                 'display_name': user.display_name,
+                'avatar_url': user.avatar_url or '',
+                'auth_source': user.auth_source or 'local',
                 'role': user.role
             }
         }
@@ -63,6 +65,8 @@ def api_get_me(request: Request, db: Session = Depends(get_db)):
             'id': user.id,
             'username': user.username,
             'display_name': user.display_name,
+            'avatar_url': user.avatar_url or '',
+            'auth_source': user.auth_source or 'local',
             'role': user.role
         }
     }
@@ -154,16 +158,20 @@ def resolve_schedule_status(schedule_type: str, enabled: bool, approval_required
 
 
 def serialize_schedule(schedule: models.Schedule):
+    next_runs = schedule_service.compute_next_runs(schedule, count=5)
     return {
         'id': schedule.id,
         'title': schedule.title,
         'group_ids': json_loads(schedule.group_ids_json, []),
+        'group_count': len(json_loads(schedule.group_ids_json, [])),
         'template_id': schedule.template_id,
         'msg_type': schedule.msg_type,
         'content_json': json_loads(schedule.content, {}),
         'variables_json': json_loads(schedule.variables, {}),
         'schedule_type': schedule.schedule_type,
         'run_at': schedule.run_at.isoformat() if schedule.run_at else None,
+        'next_run_at': schedule.next_run_at.isoformat() if schedule.next_run_at else None,
+        'next_runs': [item.isoformat() for item in next_runs],
         'cron_expr': schedule.cron_expr,
         'timezone': schedule.timezone,
         'enabled': bool(schedule.enabled),
@@ -688,6 +696,7 @@ async def create_or_update_schedule(request: Request, db: Session = Depends(get_
         job.approved_at = datetime.utcnow()
         job.approved_by_id = user.id
     sync_schedule_legacy_fields(job)
+    job.next_run_at = schedule_service.compute_next_run_at(job)
     db.commit()
     if job.approval_required and job.status == 'pending_approval':
         req = db.query(models.ApprovalRequest).filter(models.ApprovalRequest.target_type == 'schedule', models.ApprovalRequest.target_id == job.id, models.ApprovalRequest.status == 'pending').first()
@@ -728,6 +737,7 @@ def clone_schedule(job_id: int, request: Request, db: Session = Depends(get_db))
         owner_id=user.id,
     )
     db.add(cloned)
+    cloned.next_run_at = schedule_service.compute_next_run_at(cloned)
     db.commit()
     return serialize_schedule(cloned)
 
@@ -742,6 +752,7 @@ def toggle_schedule(job_id: int, request: Request, db: Session = Depends(get_db)
     job.enabled = not job.enabled
     job.status = resolve_schedule_status(job.schedule_type, bool(job.enabled), bool(job.approval_required), job.approval_status)
     sync_schedule_legacy_fields(job)
+    job.next_run_at = schedule_service.compute_next_run_at(job)
     db.commit()
     schedule_service.add_or_update_job(job)
     return serialize_schedule(job)
@@ -758,6 +769,7 @@ def approve_schedule(job_id: int, request: Request, db: Session = Depends(get_db
     job.approved_at = datetime.utcnow()
     job.approved_by_id = user.id
     sync_schedule_legacy_fields(job)
+    job.next_run_at = schedule_service.compute_next_run_at(job)
     db.commit()
     schedule_service.add_or_update_job(job)
     return serialize_schedule(job)

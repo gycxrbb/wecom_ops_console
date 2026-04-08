@@ -132,3 +132,21 @@
 - **复现条件**: 使用 CRM `admins` 表中的任意运营成员账号尝试登录当前系统。
 - **解决方案**: 保留本地 `admin` 账号为正式管理员入口；其余账号接入 CRM `admins` 表认证，并在登录成功后自动同步到本地 `users` 表作为镜像账号，继续复用现有 JWT、权限和 owner_id 体系。
 - **关联文件**: app/config.py, app/security.py, app/services/crm_admin_auth.py, app/routers/api.py, app/routers/auth.py, frontend/src/views/Login.vue, .env
+
+## Bug #16: 个人中心长期停留在占位页，导致账号安全和头像管理没有正式入口
+
+- **日期**: 2026-04-07
+- **现象**: 个人中心只有“账号信息 / 权限说明 / 账户安全”三块静态展示，其中“账户安全”仍提示开发中，用户无法修改本地密码，也不能上传个人头像。
+- **根因**: 系统缺少独立的 profile 资源层，`users` 表也没有头像来源字段；前端个人中心页只是说明性 UI，没有与后端正式账户能力打通。
+- **复现条件**: 登录系统后进入个人中心，尝试修改密码或更换头像。
+- **解决方案**: 为 `users` 增加 `avatar_url` / `auth_source` 字段并补迁移；新增 `/api/v1/profile` 资源支持资料更新、头像上传和本地账号改密；前端个人中心重构为正式工作台，并在 CRM 账号下明确显示“密码由外部系统统一管理”。
+- **关联文件**: app/models.py, app/schema_migrations.py, app/main.py, app/routers/api_profile.py, app/security.py, app/services/crm_admin_auth.py, app/services/seed.py, frontend/src/views/Profile.vue, frontend/src/stores/user.ts, frontend/src/layout/index.vue
+
+## Bug #17: 定时任务可创建但应用启动时未拉起调度器，导致“到点自动发送”不生效
+
+- **日期**: 2026-04-08
+- **现象**: 发送中心和定时任务页都可以创建、查看、克隆、手动运行任务，但服务重启后没有自动恢复和执行数据库里的定时任务。
+- **根因**: `ScheduleService` 已实现 APScheduler 调度与 `sync_from_db()`，但 `app.main` 的生命周期里没有调用 `schedule_service.start()` 和 `schedule_service.sync_from_db()`，调度器从未正式接入应用启动流程。
+- **复现条件**: 创建一个一次性或 cron 定时任务，保持应用运行并等待触发时间，或重启应用后观察任务是否自动恢复执行。
+- **解决方案**: 在应用 lifespan 启动阶段拉起调度器并从数据库同步任务，在关闭阶段优雅 shutdown，让定时任务从“仅能管理”升级为“真正随服务运行自动执行”。
+- **关联文件**: app/main.py, app/services/scheduler_service.py, app/routers/api.py, frontend/src/views/SendCenter/composables/useSendLogic.ts, frontend/src/views/Schedules.vue

@@ -61,7 +61,7 @@
           <span class="user-dropdown">
             <el-avatar 
               :size="32" 
-              :src="userStore.user?.role === 'admin' ? '/images/admain.jpg' : ''"
+              :src="userStore.user?.avatar_url || (userStore.user?.role === 'admin' ? '/images/admain.jpg' : '')"
               style="background-color: #22C55E">
               {{ userStore.user?.role === 'admin' ? '' : (userStore.user?.display_name?.charAt(0) || 'U') }}
             </el-avatar>

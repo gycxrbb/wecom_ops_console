@@ -161,6 +161,29 @@ export function useOperationPlans() {
     activeNodeId.value = nodeId
   }
 
+  const renamePlan = async (planId: number, newName: string) => {
+    if (!newName.trim()) {
+      ElMessage.warning('主题名称不能为空')
+      return
+    }
+    const plan = plans.value.find(p => p.id === planId)
+    if (!plan) return
+    try {
+      await request.put(`/v1/operation-plans/${planId}`, {
+        name: newName.trim(),
+        topic: plan.topic,
+        stage: plan.stage,
+        description: plan.description,
+        status: plan.status
+      })
+      plan.name = newName.trim()
+      ElMessage.success('主题已重命名')
+    } catch (error) {
+      console.error(error)
+      ElMessage.error('重命名失败')
+    }
+  }
+
   const openCreatePlan = () => {
     planForm.id = null
     planForm.name = ''
@@ -441,6 +464,7 @@ export function useOperationPlans() {
     applyTemplateToNode,
     updateDayMeta,
     removePlan,
+    renamePlan,
     copyDayContent,
     batchCopyDayContent,
     syncNodeToPeerDays

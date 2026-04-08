@@ -1,0 +1,363 @@
+<template>
+  <div class="wb-center">
+    <!-- 当天概览卡 -->
+    <div v-if="currentDay" class="wb-day-overview">
+      <div class="wb-day-overview__header">
+        <div>
+          <div class="wb-day-overview__badge">Day {{ currentDay.day_number }}</div>
+          <h3>{{ currentDay.title }}</h3>
+        </div>
+        <div class="wb-day-overview__actions">
+          <span class="wb-status-dot" :class="{ 'is-dirty': dayDirty }">
+            {{ dayDirty ? '待保存' : '已同步' }}
+          </span>
+          <el-button text size="small" :disabled="!dayDirty" @click="$emit('reset-day')">重置</el-button>
+          <el-button type="primary" size="small" :disabled="!dayDirty" :loading="daySaving" @click="$emit('save-day')">保存</el-button>
+        </div>
+      </div>
+      <div class="wb-day-overview__fields">
+        <el-input
+          :model-value="dayDraft?.title"
+          @update:model-value="$emit('patch-day', { title: $event })"
+          placeholder="天标题"
+          size="small"
+        />
+        <div class="wb-expandable-field" @click="openFocusDialog">
+          <el-input
+            :model-value="dayDraft?.focus"
+            type="textarea"
+            :rows="2"
+            placeholder="今日重点，例如：今天聚焦早餐结构与餐后反馈记录"
+            size="small"
+            readonly
+            class="wb-expandable-field__input"
+          />
+          <div class="wb-expandable-field__hint">
+            <el-icon :size="14"><FullScreen /></el-icon>
+          </div>
+        </div>
+      </div>
+
+      <!-- 运营焦点展开编辑弹窗 -->
+      <el-dialog
+        v-model="focusDialogVisible"
+        title="运营焦点"
+        width="600px"
+        :close-on-click-modal="false"
+        append-to-body
+        destroy-on-close
+      >
+        <el-input
+          v-model="focusDialogValue"
+          type="textarea"
+          :rows="8"
+          placeholder="今日重点，例如：今天聚焦早餐结构与餐后反馈记录"
+        />
+        <template #footer>
+          <el-button @click="focusDialogVisible = false">取消</el-button>
+          <el-button type="primary" @click="confirmFocusDialog">确定</el-button>
+        </template>
+      </el-dialog>
+    </div>
+
+    <!-- 节点时间线 -->
+    <div class="wb-center__timeline-section">
+      <div class="wb-center__timeline-header">
+        <h4>流程节点</h4>
+        <span v-if="pendingCount" class="wb-center__pending-badge">还差 {{ pendingCount }} 个</span>
+      </div>
+      <el-timeline v-if="nodes.length">
+        <el-timeline-item
+          v-for="node in nodes"
+          :key="node.id"
+          :type="node.status === 'draft' ? 'warning' : 'success'"
+          :hollow="node.status === 'draft'"
+          :timestamp="`Step ${node.sort_order}`"
+        >
+          <button
+            class="wb-node-item"
+            :class="{ 'is-active': currentNodeId === node.id }"
+            @click="$emit('select-node', node.id)"
+          >
+            <div class="wb-node-item__head">
+              <strong>{{ node.title }}</strong>
+              <span class="wb-node-item__type">{{ msgTypeLabel(node.msg_type) }}</span>
+            </div>
+            <div v-if="node.description" class="wb-node-item__desc">{{ node.description }}</div>
+          </button>
+        </el-timeline-item>
+      </el-timeline>
+      <el-empty v-else description="当前天没有流程节点" :image-size="48" />
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, watch } from 'vue'
+import { FullScreen } from '@element-plus/icons-vue'
+import { msgTypeLabel } from '../composables/useTemplates'
+
+interface Day {
+  id: number
+  day_number: number
+  title: string
+  focus?: string
+  status: string
+}
+
+interface Node {
+  id: number
+  sort_order: number
+  title: string
+  description?: string
+  msg_type: string
+  status: string
+}
+
+const props = defineProps<{
+  currentDay: Day | null
+  nodes: Node[]
+  currentNodeId: number | null
+  pendingCount: number
+  dayDraft: { title?: string; focus?: string } | null
+  dayDirty: boolean
+  daySaving: boolean
+}>()
+
+const emit = defineEmits<{
+  'select-node': [nodeId: number]
+  'patch-day': [patch: Record<string, any>]
+  'save-day': []
+  'reset-day': []
+}>()
+
+const focusDialogVisible = ref(false)
+const focusDialogValue = ref('')
+
+watch(
+  () => props.dayDraft?.focus,
+  value => {
+    focusDialogValue.value = value || ''
+  },
+  { immediate: true }
+)
+
+const openFocusDialog = () => {
+  focusDialogValue.value = props.dayDraft?.focus || ''
+  focusDialogVisible.value = true
+}
+
+const confirmFocusDialog = () => {
+  emit('patch-day', { focus: focusDialogValue.value })
+  focusDialogVisible.value = false
+}
+</script>
+
+<style scoped>
+.wb-center {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+  border-radius: 20px;
+  border: 1px solid var(--border-color);
+  background: var(--card-bg);
+}
+
+.wb-day-overview {
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.wb-day-overview__badge {
+  display: inline-flex;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--primary-color);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.wb-day-overview__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.wb-day-overview__header h3 {
+  margin: 8px 0 0;
+  color: var(--text-primary);
+  font-size: 18px;
+}
+
+.wb-day-overview__actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.wb-day-overview__fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wb-expandable-field {
+  position: relative;
+  cursor: pointer;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.wb-expandable-field:hover {
+  box-shadow: 0 0 0 1px var(--el-color-primary-light-5);
+}
+
+.wb-expandable-field__input :deep(.el-textarea__inner) {
+  cursor: pointer;
+  padding-right: 28px;
+}
+
+.wb-expandable-field__hint {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+
+.wb-expandable-field:hover .wb-expandable-field__hint {
+  opacity: 1;
+}
+
+.wb-center__timeline-section {
+  flex: 1;
+}
+
+.wb-center__timeline-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.wb-center__timeline-header h4 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 15px;
+}
+
+.wb-center__pending-badge {
+  display: inline-flex;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.1);
+  color: #f59e0b;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.wb-node-item {
+  appearance: none;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 8px 10px;
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+  width: 100%;
+  transition: all 0.15s ease;
+}
+
+.wb-node-item:hover {
+  background: rgba(34, 197, 94, 0.04);
+  border-color: rgba(34, 197, 94, 0.12);
+}
+
+.wb-node-item.is-active {
+  background: rgba(34, 197, 94, 0.08);
+  border-color: rgba(34, 197, 94, 0.24);
+}
+
+.wb-node-item__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+
+.wb-node-item__head strong {
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.wb-node-item__type {
+  display: inline-flex;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.1);
+  color: #2563eb;
+  font-size: 11px;
+}
+
+.wb-node-item__desc {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.wb-status-dot {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.08);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.wb-status-dot.is-dirty {
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--primary-color);
+}
+
+:global(html.dark) .wb-day-overview__badge {
+  background: rgba(74, 222, 128, 0.14);
+}
+
+:global(html.dark) .wb-node-item:hover {
+  background: rgba(74, 222, 128, 0.06);
+  border-color: rgba(74, 222, 128, 0.18);
+}
+
+:global(html.dark) .wb-node-item.is-active {
+  background: rgba(74, 222, 128, 0.1);
+  border-color: rgba(74, 222, 128, 0.28);
+}
+
+:global(html.dark) .wb-node-item__type {
+  background: rgba(96, 165, 250, 0.18);
+  color: #93c5fd;
+}
+
+:global(html.dark) .wb-status-dot {
+  background: rgba(148, 163, 184, 0.06);
+}
+
+:global(html.dark) .wb-status-dot.is-dirty {
+  background: rgba(74, 222, 128, 0.14);
+  color: #4ade80;
+}
+
+:global(html.dark) .wb-center__pending-badge {
+  background: rgba(251, 191, 36, 0.14);
+  color: #fbbf24;
+}
+</style>

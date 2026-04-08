@@ -16,7 +16,9 @@ const defaultContentByType: Record<string, any> = {
 export function useSendLogic() {
   const groups = ref<any[]>([])
   const templates = ref<any[]>([])
-  const selectedTemplate = ref<any>(null)
+  const selectedContentSource = ref<'template' | 'plan_node' | null>(null)
+  const selectedContentId = ref<number | null>(null)
+  const selectedContentLabel = ref<string | null>(null)
   const previewData = ref<any | null>(null)
   const previewError = ref('')
   const isPreviewing = ref(false)
@@ -36,7 +38,11 @@ export function useSendLogic() {
     title: '',
     schedule_type: 'once',
     run_at: '',
-    cron_expr: ''
+    cron_expr: '',
+    timezone: 'Asia/Shanghai',
+    approval_required: false,
+    skip_weekends: false,
+    skip_dates: [] as string[]
   })
 
   const fetchBaseData = async () => {
@@ -57,34 +63,23 @@ export function useSendLogic() {
     form.contentJson = { ...(defaultContentByType[type] || {}) }
   }
 
-  const handleTemplateChange = (val: any) => {
-    const t = templates.value.find(x => x.id === val)
-    if (t) {
-      form.msg_type = t.msg_type
-      form.template_id = t.id
-      // 解析模板 content JSON — 后端返回 content_json
-      const rawContent = t.content_json ?? t.content
-      try {
-        form.contentJson = typeof rawContent === 'string'
-          ? JSON.parse(rawContent)
-          : (rawContent || {})
-      } catch {
-        form.contentJson = { ...(defaultContentByType[t.msg_type] || {}) }
-      }
-      // 解析变量 — 后端返回 variables_json
-      const rawVars = t.variables_json ?? t.variable_schema
-      try {
-        form.variables = typeof rawVars === 'string'
-          ? JSON.parse(rawVars)
-          : (rawVars || {})
-      } catch {
-        form.variables = {}
-      }
-    } else {
-      form.template_id = null
-      form.variables = {}
-      handleMsgTypeChange(form.msg_type)
-    }
+  const handleContentSelect = (data: { source: string; id: number; label: string; msg_type: string; contentJson: any; variablesJson: any }) => {
+    selectedContentSource.value = data.source as 'template' | 'plan_node'
+    selectedContentId.value = data.id
+    selectedContentLabel.value = data.label
+    form.msg_type = data.msg_type
+    form.template_id = data.source === 'template' ? data.id : null
+    form.contentJson = data.contentJson || { ...(defaultContentByType[data.msg_type] || {}) }
+    form.variables = data.variablesJson || {}
+  }
+
+  const handleClearContent = () => {
+    selectedContentSource.value = null
+    selectedContentId.value = null
+    selectedContentLabel.value = null
+    form.template_id = null
+    form.variables = {}
+    handleMsgTypeChange(form.msg_type)
   }
 
   const handlePreview = async () => {
@@ -95,7 +90,7 @@ export function useSendLogic() {
         msg_type: form.msg_type,
         content_json: form.contentJson,
         variables_json: form.variables,
-        group_ids: form.groups.length > 0 ? [form.groups[0]] : undefined
+        group_ids: form.groups.length > 0 ? [...form.groups] : undefined
       })
       const nextPreview = { ...res }
       if (form.msg_type === 'image') {
@@ -172,6 +167,10 @@ export function useSendLogic() {
         schedule_type: scheduleForm.schedule_type,
         run_at: scheduleForm.run_at || null,
         cron_expr: scheduleForm.cron_expr || null,
+        timezone: scheduleForm.timezone || 'Asia/Shanghai',
+        approval_required: scheduleForm.approval_required,
+        skip_weekends: scheduleForm.skip_weekends,
+        skip_dates: [...scheduleForm.skip_dates],
         msg_type: form.msg_type,
         content_json: form.contentJson,
         variables_json: form.variables
@@ -191,7 +190,9 @@ export function useSendLogic() {
   return {
     groups,
     templates,
-    selectedTemplate,
+    selectedContentSource,
+    selectedContentId,
+    selectedContentLabel,
     previewData,
     previewError,
     form,
@@ -201,7 +202,8 @@ export function useSendLogic() {
     isTestSending,
     isScheduling,
     handleMsgTypeChange,
-    handleTemplateChange,
+    handleContentSelect,
+    handleClearContent,
     handlePreview,
     handleSend,
     handleTestSend,

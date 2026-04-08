@@ -166,8 +166,8 @@ def _should_be_test_group(group: models.Group) -> bool:
 def seed_all(db: Session):
     if db.query(models.User).count() == 0:
         db.add_all([
-            models.User(username=settings.admin_username, display_name='系统管理员', role='admin', password_hash=hash_password(settings.admin_password)),
-            models.User(username=settings.coach_username, display_name='教练示例账号', role='coach', password_hash=hash_password(settings.coach_password)),
+            models.User(username=settings.admin_username, display_name='系统管理员', role='admin', auth_source='local', password_hash=hash_password(settings.admin_password)),
+            models.User(username=settings.coach_username, display_name='教练示例账号', role='coach', auth_source='local', password_hash=hash_password(settings.coach_password)),
         ])
         db.commit()
 

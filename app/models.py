@@ -14,6 +14,8 @@ class User(Base, TimestampMixin):
     username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     display_name: Mapped[str] = mapped_column(String(64), default='')
+    avatar_url: Mapped[str] = mapped_column(String(255), default='')
+    auth_source: Mapped[str] = mapped_column(String(32), default='local')
     role: Mapped[str] = mapped_column(String(32), default='coach')
     status: Mapped[int] = mapped_column(Integer, default=1)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
