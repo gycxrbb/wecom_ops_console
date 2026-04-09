@@ -23,65 +23,74 @@
         <pre v-if="mode === 'json'" class="preview-box">{{ previewJson }}</pre>
 
         <div v-else class="wechat-shell">
-          <div class="wechat-bubble">
-            <template v-if="msgType === 'text'">
-              <div class="message-text">{{ stringContent }}</div>
-              <div v-if="mentionSummary" class="mention-info">
-                <el-icon :size="12"><UserFilled /></el-icon>
-                <span>将通知：{{ mentionSummary }}</span>
-              </div>
-            </template>
-
-            <template v-else-if="msgType === 'markdown'">
-              <div class="markdown-body" v-html="markdownHtml"></div>
-            </template>
-
-            <template v-else-if="msgType === 'image'">
-              <div class="image-mock">
-                <img v-if="imageUrl" :src="imageUrl" alt="image preview" class="image-mock__img" />
-                <div v-else class="image-mock__placeholder">图片素材预览</div>
-              </div>
-            </template>
-
-            <template v-else-if="msgType === 'file'">
-              <div class="file-mock">
-                <el-icon :size="20"><Document /></el-icon>
-                <div>
-                  <div class="file-mock__name">{{ renderedContent.asset_name || '文件素材' }}</div>
-                  <div class="file-mock__desc">发送后用户会在企微里看到文件卡片</div>
-                </div>
-              </div>
-            </template>
-
-            <template v-else-if="msgType === 'news'">
-              <div class="news-list">
-                <div v-for="(article, index) in articles" :key="index" class="news-item">
-                  <div class="news-item__cover">
-                    <img v-if="article.picurl" :src="article.picurl" alt="cover" class="news-item__cover-img" />
-                    <div v-else class="news-item__cover-placeholder">图文封面</div>
+          <div class="wechat-msg">
+            <div class="wechat-avatar">
+              <img v-if="userAvatar" :src="userAvatar" alt="avatar" class="wechat-avatar__img" />
+              <div v-else class="wechat-avatar__fallback">{{ userInitial }}</div>
+            </div>
+            <div class="wechat-body">
+              <div class="wechat-name">{{ userName }}</div>
+              <div class="wechat-bubble">
+                <template v-if="msgType === 'text'">
+                  <div class="message-text">{{ stringContent }}</div>
+                  <div v-if="mentionSummary" class="mention-info">
+                    <el-icon :size="12"><UserFilled /></el-icon>
+                    <span>将通知：{{ mentionSummary }}</span>
                   </div>
-                  <div class="news-item__content">
-                    <div class="news-item__title">{{ article.title || '未填写标题' }}</div>
-                    <div class="news-item__desc">{{ article.description || '未填写描述' }}</div>
-                    <div class="news-item__url">{{ article.url || '未填写链接' }}</div>
+                </template>
+
+                <template v-else-if="msgType === 'markdown'">
+                  <div class="markdown-body" v-html="markdownHtml"></div>
+                </template>
+
+                <template v-else-if="msgType === 'image'">
+                  <div class="image-mock">
+                    <img v-if="imageUrl" :src="imageUrl" alt="image preview" class="image-mock__img" />
+                    <div v-else class="image-mock__placeholder">图片素材预览</div>
                   </div>
-                </div>
-              </div>
-            </template>
+                </template>
 
-            <template v-else-if="msgType === 'template_card'">
-              <div class="card-mock">
-                <div class="card-mock__title">{{ templateCardTitle }}</div>
-                <div class="card-mock__desc">{{ templateCardDesc }}</div>
-                <div v-if="templateCardButtonText" class="card-mock__button">{{ templateCardButtonText }}</div>
-              </div>
-            </template>
+                <template v-else-if="msgType === 'file'">
+                  <div class="file-mock">
+                    <el-icon :size="20"><Document /></el-icon>
+                    <div>
+                      <div class="file-mock__name">{{ renderedContent.asset_name || '文件素材' }}</div>
+                      <div class="file-mock__desc">发送后用户会在企微里看到文件卡片</div>
+                    </div>
+                  </div>
+                </template>
 
-            <template v-else>
-              <div class="message-text">
-                {{ stringContent || '当前消息类型暂不支持可视化模拟，请切到 JSON 查看。' }}
+                <template v-else-if="msgType === 'news'">
+                  <div class="news-list">
+                    <div v-for="(article, index) in articles" :key="index" class="news-item">
+                      <div class="news-item__cover">
+                        <img v-if="article.picurl" :src="article.picurl" alt="cover" class="news-item__cover-img" />
+                        <div v-else class="news-item__cover-placeholder">图文封面</div>
+                      </div>
+                      <div class="news-item__content">
+                        <div class="news-item__title">{{ article.title || '未填写标题' }}</div>
+                        <div class="news-item__desc">{{ article.description || '未填写描述' }}</div>
+                        <div class="news-item__url">{{ article.url || '未填写链接' }}</div>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+
+                <template v-else-if="msgType === 'template_card'">
+                  <div class="card-mock">
+                    <div class="card-mock__title">{{ templateCardTitle }}</div>
+                    <div class="card-mock__desc">{{ templateCardDesc }}</div>
+                    <div v-if="templateCardButtonText" class="card-mock__button">{{ templateCardButtonText }}</div>
+                  </div>
+                </template>
+
+                <template v-else>
+                  <div class="message-text">
+                    {{ stringContent || '当前消息类型暂不支持可视化模拟，请切到 JSON 查看。' }}
+                  </div>
+                </template>
               </div>
-            </template>
+            </div>
           </div>
         </div>
       </div>
@@ -97,6 +106,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { Document, Loading, Monitor, UserFilled } from '@element-plus/icons-vue'
+import { useUserStore } from '@/stores/user'
 
 const props = defineProps({
   previewData: { type: Object, default: null },
@@ -104,6 +114,18 @@ const props = defineProps({
   msgType: { type: String, default: 'text' },
   isPreviewing: { type: Boolean, default: false },
   contentJson: { type: Object, default: () => ({}) }
+})
+
+const userStore = useUserStore()
+const userName = computed(() => userStore.user?.display_name || userStore.user?.username || '机器人')
+const userAvatar = computed(() => {
+  if (userStore.user?.avatar_url) return userStore.user.avatar_url
+  if (userStore.user?.role === 'admin') return '/images/admain.jpg'
+  return ''
+})
+const userInitial = computed(() => {
+  const name = userName.value
+  return name ? name.charAt(0).toUpperCase() : '机'
 })
 
 const mode = ref<'mock' | 'json'>('mock')
@@ -237,24 +259,85 @@ const templateCardButtonText = computed(() => templateCard.value?.jump_list?.[0]
 
 .wechat-shell {
   min-height: 220px;
-  padding: 14px;
+  padding: 16px;
   border-radius: 16px;
-  background: var(--bg-color);
+  background: #ededed;
   border: 1px solid var(--border-color);
+}
+:global(html.dark) .wechat-shell {
+  background: #1a1a1a;
+}
+.wechat-msg {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.wechat-avatar {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.wechat-avatar__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.wechat-avatar__fallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #4a90d9;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+}
+.wechat-body {
+  min-width: 0;
+  max-width: calc(100% - 54px);
+}
+.wechat-name {
+  font-size: 12px;
+  color: #999;
+  margin-bottom: 4px;
+  line-height: 1;
 }
 
 .wechat-bubble {
-  max-width: 100%;
-  padding: 14px;
-  border-radius: 14px;
-  background: var(--card-bg);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.06);
+  position: relative;
+  padding: 10px 14px;
+  border-radius: 0 10px 10px 10px;
+  background: #fff;
+  word-break: break-word;
+}
+:global(html.dark) .wechat-bubble {
+  background: #2a2a2a;
+}
+.wechat-bubble::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -8px;
+  width: 0;
+  height: 0;
+  border-top: 0 solid transparent;
+  border-bottom: 10px solid transparent;
+  border-right: 8px solid #fff;
+}
+:global(html.dark) .wechat-bubble::before {
+  border-right-color: #2a2a2a;
 }
 
 .message-text {
   white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.7;
+  color: #333;
+}
+:global(html.dark) .message-text {
   color: var(--text-primary);
 }
 
@@ -265,23 +348,35 @@ const templateCardButtonText = computed(() => templateCard.value?.jump_list?.[0]
   margin-top: 10px;
   padding: 8px 12px;
   border-radius: 8px;
-  background: var(--bg-color);
-  color: var(--text-muted);
+  background: #f5f5f5;
+  color: #888;
   font-size: 12px;
   line-height: 1.5;
 }
+:global(html.dark) .mention-info {
+  background: rgba(255,255,255,0.06);
+  color: var(--text-muted);
+}
 
 .markdown-body {
-  color: var(--text-primary);
+  color: #333;
   line-height: 1.75;
+}
+:global(html.dark) .markdown-body {
+  color: var(--text-primary);
 }
 
 .markdown-body :deep(h1),
 .markdown-body :deep(h2),
 .markdown-body :deep(h3) {
   margin: 0 0 10px;
-  color: var(--text-primary);
+  color: #333;
   font-weight: 700;
+}
+:global(html.dark) .markdown-body :deep(h1),
+:global(html.dark) .markdown-body :deep(h2),
+:global(html.dark) .markdown-body :deep(h3) {
+  color: var(--text-primary);
 }
 
 .markdown-body :deep(h1) {
@@ -313,17 +408,27 @@ const templateCardButtonText = computed(() => templateCard.value?.jump_list?.[0]
   margin: 0 0 10px;
   padding: 8px 12px;
   border-left: 3px solid #93c5fd;
-  background: var(--bg-color);
-  color: var(--text-secondary);
+  background: #f5f5f5;
+  color: #666;
   border-radius: 0 8px 8px 0;
 }
 
 .markdown-body :deep(code) {
   padding: 2px 6px;
   border-radius: 6px;
-  background: var(--bg-color);
-  color: var(--text-primary);
+  background: #f0f0f0;
+  color: #333;
   font-size: 12px;
+}
+
+:global(html.dark) .markdown-body :deep(blockquote) {
+  background: rgba(255,255,255,0.06);
+  color: var(--text-secondary);
+}
+
+:global(html.dark) .markdown-body :deep(code) {
+  background: rgba(255,255,255,0.08);
+  color: var(--text-primary);
 }
 
 .markdown-body :deep(a) {
@@ -370,7 +475,7 @@ const templateCardButtonText = computed(() => templateCard.value?.jump_list?.[0]
 
 .file-mock__name {
   font-weight: 600;
-  color: var(--text-primary);
+  color: #333;
 }
 
 .file-mock__desc,
@@ -378,6 +483,15 @@ const templateCardButtonText = computed(() => templateCard.value?.jump_list?.[0]
 .news-item__url,
 .card-mock__desc {
   font-size: 12px;
+  color: #888;
+}
+:global(html.dark) .file-mock__name {
+  color: var(--text-primary);
+}
+:global(html.dark) .file-mock__desc,
+:global(html.dark) .news-item__desc,
+:global(html.dark) .news-item__url,
+:global(html.dark) .card-mock__desc {
   color: var(--text-muted);
 }
 
@@ -426,6 +540,10 @@ const templateCardButtonText = computed(() => templateCard.value?.jump_list?.[0]
 .card-mock__title {
   margin-bottom: 6px;
   font-weight: 700;
+  color: #333;
+}
+:global(html.dark) .news-item__title,
+:global(html.dark) .card-mock__title {
   color: var(--text-primary);
 }
 

@@ -45,6 +45,12 @@ class Settings(BaseSettings):
     ai_api_key: str = ''
     ai_base_url: str = 'https://aihubmix.com/v1'
     ai_model: str = 'gpt-4o-mini'
+    send_timeout_seconds: int = 30
+    file_upload_timeout_seconds: int = 120
+    send_max_retries: int = 3
+    send_retry_delay_seconds: float = 1.0
+    file_send_max_retries: int = 3
+    file_send_retry_delay_seconds: float = 3.0
     host: str = '0.0.0.0'
     port: int = 8000
 

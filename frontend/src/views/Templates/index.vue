@@ -69,6 +69,7 @@
           @jump-pending="jumpToFirstPending"
           @add-day="addDay"
           @remove-day="removeDay"
+          @export-plan="exportPlan"
         />
 
         <WorkbenchCenter
@@ -522,6 +523,9 @@
   </div>
 </template>
 
+<script lang="ts">
+defineOptions({ name: 'Templates' })
+</script>
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { Search, ArrowDown } from '@element-plus/icons-vue'
@@ -583,7 +587,8 @@ const {
   renamePlan,
   copyDayContent,
   batchCopyDayContent,
-  syncNodeToPeerDays
+  syncNodeToPeerDays,
+  exportPlan
 } = useOperationPlans()
 
 const {

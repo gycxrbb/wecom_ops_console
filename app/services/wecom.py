@@ -4,13 +4,17 @@ import base64
 import copy
 import hashlib
 import json
+import logging
 from collections import defaultdict, deque
 from io import BytesIO
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 import httpx
+from ..config import settings
 from ..security import json_dumps
 from .storage import StorageResult, storage_facade
+
+logger = logging.getLogger(__name__)
 
 RATE_LIMIT = 20
 RATE_WINDOW_SECONDS = 60
@@ -115,7 +119,10 @@ class WeComService:
         key = cls.extract_key(webhook)
         url = f'https://qyapi.weixin.qq.com/cgi-bin/webhook/upload_media?key={key}&type=file'
         display_name = file_name or (Path(file_path).name if file_path else 'asset')
-        async with httpx.AsyncClient(timeout=30) as client:
+        file_size = len(file_bytes) if file_bytes else (Path(file_path).stat().st_size if file_path else 0)
+        timeout = cls._compute_upload_timeout(file_size)
+        logger.info(f'Uploading file "{display_name}" ({file_size} bytes, timeout={timeout}s)')
+        async with httpx.AsyncClient(timeout=timeout) as client:
             if file_bytes is None:
                 if not file_path:
                     raise ValueError('upload_file 缺少文件来源')
@@ -129,7 +136,18 @@ class WeComService:
             data = resp.json()
             if data.get('errcode') != 0:
                 raise RuntimeError(f'上传文件失败: {json_dumps(data)}')
+            logger.info(f'File "{display_name}" uploaded successfully, media_id={data.get("media_id")}')
             return data['media_id'], data
+
+    @staticmethod
+    def _compute_upload_timeout(file_size: int) -> int:
+        """根据文件大小动态计算上传超时时间"""
+        base = settings.file_upload_timeout_seconds
+        if file_size <= 5 * 1024 * 1024:  # <= 5MB
+            return base
+        if file_size <= 20 * 1024 * 1024:  # <= 20MB
+            return int(base * 1.5)
+        return base * 2  # > 20MB
 
     @classmethod
     async def send(cls, webhook: str, msg_type: str, content: dict, group_key: str = 'default'):
@@ -146,7 +164,8 @@ class WeComService:
             rendered_content['media_id'] = media_id
             rendered_content['_upload_response'] = upload_resp
         payload = cls.build_payload(msg_type, rendered_content)
-        async with httpx.AsyncClient(timeout=30) as client:
+        timeout = settings.send_timeout_seconds
+        async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.post(webhook, json=payload)
             resp.raise_for_status()
             data = resp.json()

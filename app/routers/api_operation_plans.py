@@ -3,11 +3,13 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from .. import models
 from ..database import get_db
+from ..services.operation_plan_export import export_plan_to_excel_bytes, export_plan_to_json_bytes
 from ..services.operation_plan_import import parse_operation_plan_file
 from ..security import get_current_user, json_dumps, json_loads, require_role
 
@@ -460,6 +462,31 @@ def create_plan(body: PlanCreate, request: Request, db: Session = Depends(get_db
     db.commit()
     db.refresh(plan)
     return serialize_plan(get_plan_or_404(db, plan.id), include_days=True)
+
+
+@router.get('/{plan_id}/export')
+def export_plan(plan_id: int, format: str = 'json', request: Request = None, db: Session = Depends(get_db)):
+    user = get_user_or_401(request, db)
+    plan = get_plan_or_404(db, plan_id)
+    ensure_plan_access(user, plan)
+    plan_name = plan.name or 'operation-plan'
+
+    if format == 'excel':
+        data = export_plan_to_excel_bytes(plan)
+        safe_name = plan_name.replace(' ', '_').replace('/', '_')[:50]
+        return Response(
+            content=data,
+            media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            headers={'Content-Disposition': f'attachment; filename="{safe_name}.xlsx"'},
+        )
+
+    data = export_plan_to_json_bytes(plan)
+    safe_name = plan_name.replace(' ', '_').replace('/', '_')[:50]
+    return Response(
+        content=data,
+        media_type='application/json; charset=utf-8',
+        headers={'Content-Disposition': f'attachment; filename="{safe_name}.json"'},
+    )
 
 
 @router.get('/{plan_id}')

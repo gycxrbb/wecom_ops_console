@@ -1,43 +1,39 @@
 <template>
   <div class="markdown-editor">
     <div class="toolbar">
-      <el-button-group>
-        <el-button size="small" @click="insert('bold')" title="加粗">
-          <strong>B</strong>
-        </el-button>
-        <el-button size="small" @click="insert('h1')" title="一级标题">H1</el-button>
-        <el-button size="small" @click="insert('h2')" title="二级标题">H2</el-button>
-        <el-button size="small" @click="insert('h3')" title="三级标题">H3</el-button>
-      </el-button-group>
-      <el-button-group style="margin-left: 8px">
-        <el-button size="small" @click="insert('link')" title="链接">
-          <el-icon><Link /></el-icon>
-        </el-button>
-        <el-button size="small" @click="insert('image')" title="图片">
-          <el-icon><Picture /></el-icon>
-        </el-button>
-      </el-button-group>
-      <el-button-group style="margin-left: 8px">
-        <el-button size="small" @click="insert('quote')" title="引用">
-          <el-icon><ChatLineSquare /></el-icon>
-        </el-button>
-        <el-button size="small" @click="insert('code')" title="代码">
-          <el-icon><Document /></el-icon>
-        </el-button>
-        <el-button size="small" @click="insert('list')" title="列表">
-          <el-icon><List /></el-icon>
-        </el-button>
-      </el-button-group>
-      <el-button-group style="margin-left: 8px">
-        <el-button size="small" @click="insert('time')" title="插入当前时间">
-          <el-icon><Clock /></el-icon>
-          <span style="margin-left: 2px">时间</span>
-        </el-button>
-        <el-button size="small" @click="openAiDialog" title="AI 润色" style="color: #7c3aed">
-          <el-icon><MagicStick /></el-icon>
-          <span style="margin-left: 2px">AI</span>
-        </el-button>
-      </el-button-group>
+      <div class="toolbar__group">
+        <button type="button" class="toolbar__btn" @click="insert('bold')" title="加粗"><strong>B</strong></button>
+        <button type="button" class="toolbar__btn" @click="insert('h1')" title="一级标题">H1</button>
+        <button type="button" class="toolbar__btn" @click="insert('h2')" title="二级标题">H2</button>
+        <button type="button" class="toolbar__btn" @click="insert('h3')" title="三级标题">H3</button>
+      </div>
+      <div class="toolbar__sep" />
+      <div class="toolbar__group">
+        <button type="button" class="toolbar__btn" @click="insert('link')" title="链接">
+          <el-icon :size="14"><Link /></el-icon>
+        </button>
+        <button type="button" class="toolbar__btn" @click="insert('image')" title="图片">
+          <el-icon :size="14"><Picture /></el-icon>
+        </button>
+        <button type="button" class="toolbar__btn" @click="insert('quote')" title="引用">
+          <el-icon :size="14"><ChatLineSquare /></el-icon>
+        </button>
+        <button type="button" class="toolbar__btn" @click="insert('code')" title="代码">
+          <el-icon :size="14"><Document /></el-icon>
+        </button>
+        <button type="button" class="toolbar__btn" @click="insert('list')" title="列表">
+          <el-icon :size="14"><List /></el-icon>
+        </button>
+      </div>
+      <div class="toolbar__sep" />
+      <div class="toolbar__group">
+        <button type="button" class="toolbar__btn" @click="insert('time')" title="插入当前时间">
+          <el-icon :size="14"><Clock /></el-icon>
+        </button>
+        <button type="button" class="toolbar__btn toolbar__btn--ai" @click="openAiDialog" title="AI 润色">
+          <el-icon :size="14"><MagicStick /></el-icon>
+        </button>
+      </div>
     </div>
     <el-input
       ref="textareaRef"
@@ -237,14 +233,46 @@ const handleAiPolish = async () => {
 .toolbar {
   display: flex;
   align-items: center;
-  padding: 8px 12px;
+  padding: 6px 10px;
+  gap: 0;
   background: var(--bg-color);
   border-bottom: 1px solid var(--border-color);
 }
-.toolbar :deep(.el-button) {
-  padding: 5px 10px;
-  font-size: 13px;
+.toolbar__group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.toolbar__sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 6px;
+  background: var(--border-color);
+}
+.toolbar__btn {
+  appearance: none;
+  border: none;
+  background: transparent;
   border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 26px;
+  transition: background 0.15s, color 0.15s;
+}
+.toolbar__btn:hover {
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--primary-color);
+}
+.toolbar__btn--ai:hover {
+  background: rgba(139, 92, 246, 0.1);
+  color: #7c3aed;
 }
 .md-textarea :deep(.el-textarea__inner) {
   border: none;

@@ -49,10 +49,10 @@
         </div>
       </el-header>
       <el-main class="custom-main">
-        <router-view v-slot="{ Component }">
-          <transition name="fade-transform" mode="out-in">
-            <component :is="Component" />
-          </transition>
+        <router-view v-slot="{ Component, route }">
+          <keep-alive :include="['SendCenter', 'Templates']">
+            <component :is="Component" :key="route.path" />
+          </keep-alive>
         </router-view>
       </el-main>
     </el-container>

@@ -544,6 +544,29 @@ export function useOperationPlans() {
 
   onMounted(fetchPlans)
 
+  const exportPlan = async (planId: number, format: 'json' | 'excel') => {
+    try {
+      const token = localStorage.getItem('token') || ''
+      const url = `/api/v1/operation-plans/${planId}/export?format=${format}`
+      const resp = await fetch(url, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+      if (!resp.ok) throw new Error('导出失败')
+      const blob = await resp.blob()
+      const disposition = resp.headers.get('Content-Disposition') || ''
+      const match = disposition.match(/filename="?(.+?)"?$/)
+      const filename = match ? match[1] : `plan-${planId}.${format === 'excel' ? 'xlsx' : 'json'}`
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = filename
+      a.click()
+      URL.revokeObjectURL(a.href)
+      ElMessage.success('导出成功')
+    } catch (e: any) {
+      ElMessage.error('导出失败: ' + (e?.message || String(e)))
+    }
+  }
+
   return {
     plans,
     presets,
@@ -587,6 +610,7 @@ export function useOperationPlans() {
     renamePlan,
     copyDayContent,
     batchCopyDayContent,
-    syncNodeToPeerDays
+    syncNodeToPeerDays,
+    exportPlan
   }
 }

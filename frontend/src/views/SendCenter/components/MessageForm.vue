@@ -161,49 +161,44 @@
       <!-- Action Footer -->
       <div class="action-footer">
         <template v-if="isBatchMode">
-          <el-button
-            v-if="isBatchSending"
-            size="large"
-            type="danger"
-            @click="$emit('cancelBatchSend')"
-          >
-            <template #icon><el-icon><Close /></el-icon></template>
-            取消发送
-          </el-button>
-          <el-button
-            size="large"
-            type="primary"
-            @click="$emit('batchSend')"
-            :loading="isBatchSending"
-            :disabled="isBatchSending"
-          >
-            <template #icon><el-icon><Position /></el-icon></template>
-            批量发送 ({{ batchQueue.length }})
-          </el-button>
-          <el-button
-            size="large"
-            type="warning"
-            @click="$emit('batchSend', true)"
-            :loading="isBatchSending"
-            :disabled="isBatchSending"
-          >
-            <template #icon><el-icon><Position /></el-icon></template>
-            测试批量发送
-          </el-button>
+          <div class="action-footer__row">
+            <el-button
+              size="large"
+              type="primary"
+              @click="$emit('batchSend')"
+              :loading="isBatchSending"
+              :disabled="isBatchSending"
+            >
+              <template #icon><el-icon><Position /></el-icon></template>
+              批量发送 ({{ batchQueue.length }})
+            </el-button>
+            <el-button
+              size="large"
+              type="warning"
+              plain
+              @click="$emit('batchSend', true)"
+              :loading="isBatchSending"
+              :disabled="isBatchSending"
+            >
+              测试群发送
+            </el-button>
+          </div>
+          <div class="action-footer__sub" v-if="isBatchSending">
+            <el-button size="small" type="danger" text @click="$emit('cancelBatchSend')">
+              <el-icon><Close /></el-icon> 取消发送
+            </el-button>
+          </div>
         </template>
         <template v-else>
-          <el-button size="large" @click="$emit('preview')" :loading="isPreviewing">
-            <template #icon><el-icon><View /></el-icon></template>
-            预览消息
-          </el-button>
-          <el-button size="large" type="warning" @click="$emit('sendTest')" :loading="isTestSending">
-            <template #icon><el-icon><Position /></el-icon></template>
-            发送到测试群
-          </el-button>
-          <el-button size="large" type="primary" @click="$emit('send')" :loading="isSending">
-            <template #icon><el-icon><Position /></el-icon></template>
-            立即发送
-          </el-button>
+          <div class="action-footer__row">
+            <el-button size="large" type="primary" @click="$emit('send')" :loading="isSending">
+              <template #icon><el-icon><Position /></el-icon></template>
+              立即发送
+            </el-button>
+            <el-button size="large" type="warning" plain @click="$emit('sendTest')" :loading="isTestSending">
+              测试群发送
+            </el-button>
+          </div>
         </template>
       </div>
     </div>
@@ -497,6 +492,16 @@ const tagTypeByMsgType = (msgType: string) => {
 }
 .batch-queue__summary--partial {
   color: #e6a23c;
+}
+
+.action-footer__row {
+  display: flex;
+  gap: 10px;
+}
+.action-footer__sub {
+  display: flex;
+  justify-content: center;
+  margin-top: 6px;
 }
 
 /* Responsive */

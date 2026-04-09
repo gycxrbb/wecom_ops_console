@@ -18,6 +18,14 @@ NODE_COLUMN_RULES = [
     {"column": 10, "node_type": "night_summary", "title": "晚安 / 总结 / 次日预告", "msg_type": "markdown", "sort_order": 70},
 ]
 
+# 默认模板内容：Excel 空列时用这些内容填充
+DEFAULT_NODE_CONTENT = {
+    "lunch_reminder": "午餐时间，我来提醒群内各位伙伴，拍照晒餐哦~",
+    "afternoon_review": "餐评模板见Agent后台",
+    "dinner_reminder": "晚餐时间，我来提醒群内各位老师，拍照晒餐哦~",
+    "evening_review": "餐评模板见Agent后台",
+}
+
 DAY_PATTERN = re.compile(r"^第([一二三四五六七八九十百零两\d]+)天$")
 WEEK_PATTERN = re.compile(r"^第([一二三四五六七八九十百零两\d]+)周$")
 
@@ -112,7 +120,9 @@ def parse_sheet1_rows(rows: list[list[Any]], sheet_name: str) -> dict[str, Any]:
 
         if WEEK_PATTERN.match(first_col):
             week_label = first_col
-            continue
+            # 同一行可能同时有周标记和"第X天"，不要跳过
+            if not second_col or not DAY_PATTERN.match(second_col):
+                continue
 
         day_match = DAY_PATTERN.match(second_col)
         if day_match:
@@ -125,13 +135,16 @@ def parse_sheet1_rows(rows: list[list[Any]], sheet_name: str) -> dict[str, Any]:
             }
             for rule in NODE_COLUMN_RULES:
                 if len(row) < rule["column"]:
-                    continue
-                cell_text = normalize_text(row[rule["column"] - 1])
-                if not cell_text:
-                    continue
+                    cell_text = ""
+                else:
+                    cell_text = normalize_text(row[rule["column"] - 1])
                 node_payload = ensure_node_payload(current_day, rule)
-                node_payload["content"] = cell_text
-                node_payload["status"] = "ready"
+                if cell_text:
+                    node_payload["content"] = cell_text
+                    node_payload["status"] = "ready"
+                elif rule["node_type"] in DEFAULT_NODE_CONTENT:
+                    node_payload["content"] = DEFAULT_NODE_CONTENT[rule["node_type"]]
+                    node_payload["status"] = "ready"
             days.append(current_day)
             continue
 
@@ -324,14 +337,98 @@ def parse_operation_plan_json_bytes(content: bytes) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise HTTPException(400, "JSON 导入文件必须是对象结构")
 
+    # 兼容两种格式：
+    # 1) 通用导出格式：plan_name + days[].nodes[]
+    # 2) 原有 v2 格式：extraction_scope + days[].morning_text 等
+    plan_name_raw = normalize_text(payload.get("plan_name"))
     extraction_scope = normalize_text(payload.get("extraction_scope"))
-    if not extraction_scope:
-        raise HTTPException(400, "JSON 导入文件缺少 extraction_scope")
+    if not plan_name_raw and not extraction_scope:
+        raise HTTPException(400, "JSON 导入文件缺少 plan_name 或 extraction_scope")
 
-    plan_name, stage, topic = split_stage_topic(extraction_scope)
+    if plan_name_raw:
+        plan_name = plan_name_raw
+        stage = normalize_text(payload.get("stage")) or plan_name_raw
+        topic = normalize_text(payload.get("topic")) or plan_name_raw
+    else:
+        plan_name, stage, topic = split_stage_topic(extraction_scope)
+
+    days_raw = payload.get("days", [])
+    if not isinstance(days_raw, list) or not days_raw:
+        raise HTTPException(400, "JSON 导入文件缺少 days")
+
+    warnings: list[str] = []
+
+    # 检测格式：如果 days[0] 有 nodes 数组，走通用格式解析
+    first_day = days_raw[0] if days_raw else {}
+    if isinstance(first_day, dict) and isinstance(first_day.get("nodes"), list):
+        days = _parse_generic_json_days(days_raw, warnings)
+    else:
+        days = _parse_v2_json_days(days_raw, payload, warnings)
+
+    # 优先用 plan_name 作为 description（通用格式没有 build_json_description）
+    description = normalize_text(payload.get("description"))
+    if not description and extraction_scope:
+        description = build_json_description(payload)
+
+    return {
+        "plan_name": plan_name,
+        "stage": stage,
+        "topic": topic,
+        "description": description,
+        "day_count": len(days),
+        "days": sorted(days, key=lambda item: item["day_number"]),
+        "warnings": warnings,
+    }
+
+
+def _parse_generic_json_days(
+    days_raw: list[dict], warnings: list[str]
+) -> list[dict[str, Any]]:
+    """解析通用导出格式：days[].nodes[] 数组"""
+    days: list[dict[str, Any]] = []
+    for raw_day in days_raw:
+        if not isinstance(raw_day, dict):
+            continue
+        day_number = raw_day.get("day")
+        if not isinstance(day_number, int):
+            continue
+
+        nodes_raw = raw_day.get("nodes", [])
+        nodes: list[dict[str, Any]] = []
+        for raw_node in nodes_raw:
+            if not isinstance(raw_node, dict):
+                continue
+            content = raw_node.get("content", "")
+            nodes.append({
+                "node_type": normalize_text(raw_node.get("node_type")) or "custom",
+                "title": normalize_text(raw_node.get("title")) or "",
+                "description": normalize_text(raw_node.get("description")) or "",
+                "sort_order": int(raw_node.get("sort_order") or len(nodes) + 1) * 10,
+                "msg_type": normalize_text(raw_node.get("msg_type")) or "markdown",
+                "content": normalize_text(content),
+                "variables_json": raw_node.get("variables_json") if isinstance(raw_node.get("variables_json"), dict) else {},
+                "status": "ready" if content else "draft",
+                "enabled": True,
+            })
+
+        if not nodes:
+            warnings.append(f"第 {day_number} 天没有任何节点")
+
+        days.append({
+            "day_number": day_number,
+            "week_label": normalize_text(raw_day.get("week_label")),
+            "day_title": normalize_text(raw_day.get("day_title")) or f"第{day_number}天",
+            "day_focus": normalize_text(raw_day.get("day_focus")),
+            "nodes": nodes,
+        })
+    return days
+
+
+def _parse_v2_json_days(
+    days_raw: list[dict], payload: dict, warnings: list[str]
+) -> list[dict[str, Any]]:
+    """解析原有 v2 格式：days[].morning_text 等扁平字段"""
     stage_templates = payload.get("stage_templates", [])
-    if not isinstance(stage_templates, list) or not stage_templates:
-        raise HTTPException(400, "JSON 导入文件缺少 stage_templates")
 
     template_by_key: dict[str, dict[str, Any]] = {}
     for item in stage_templates:
@@ -341,11 +438,6 @@ def parse_operation_plan_json_bytes(content: bytes) -> dict[str, Any]:
         if key:
             template_by_key[key] = item
 
-    days_raw = payload.get("days", [])
-    if not isinstance(days_raw, list) or not days_raw:
-        raise HTTPException(400, "JSON 导入文件缺少 days")
-
-    warnings: list[str] = []
     days: list[dict[str, Any]] = []
 
     for raw_day in days_raw:
@@ -400,16 +492,7 @@ def parse_operation_plan_json_bytes(content: bytes) -> dict[str, Any]:
             )
 
         days.append(day_payload)
-
-    return {
-        "plan_name": plan_name,
-        "stage": stage,
-        "topic": topic,
-        "description": build_json_description(payload),
-        "day_count": len(days),
-        "days": sorted(days, key=lambda item: item["day_number"]),
-        "warnings": warnings,
-    }
+    return days
 
 
 async def parse_operation_plan_file(file: UploadFile) -> dict[str, Any]:

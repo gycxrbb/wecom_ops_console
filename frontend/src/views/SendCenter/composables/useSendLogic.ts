@@ -1,4 +1,4 @@
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import request from '@/utils/request'
 import { buildAssetAuthUrl } from '@/utils/assets'
 import { ElMessage } from 'element-plus'
@@ -216,6 +216,61 @@ export function useSendLogic() {
       isPreviewing.value = false
     }
   }
+
+  // ---- 自动实时预览（防抖 800ms）----
+  let previewTimer: ReturnType<typeof setTimeout> | null = null
+  const hasContent = computed(() => {
+    const c = form.contentJson
+    if (!c) return false
+    if (form.msg_type === 'text' || form.msg_type === 'markdown') return !!(c.content || '').trim()
+    if (form.msg_type === 'image') return !!c.asset_id
+    if (form.msg_type === 'file') return !!c.asset_id
+    if (form.msg_type === 'news') return Array.isArray(c.articles) && c.articles.length > 0
+    if (form.msg_type === 'template_card') return !!c.template_card
+    return JSON.stringify(c) !== '{}'
+  })
+
+  const autoPreview = () => {
+    if (previewTimer) clearTimeout(previewTimer)
+    if (!hasContent.value) {
+      previewData.value = null
+      previewError.value = ''
+      return
+    }
+    previewTimer = setTimeout(() => {
+      handlePreview()
+    }, 800)
+  }
+
+  watch(
+    () => [form.msg_type, JSON.stringify(form.contentJson), JSON.stringify(form.variables)],
+    autoPreview,
+  )
+
+  // ---- 批量项自动实时预览 ----
+  let batchPreviewTimer: ReturnType<typeof setTimeout> | null = null
+
+  const autoBatchItemPreview = () => {
+    if (batchPreviewTimer) clearTimeout(batchPreviewTimer)
+    const item = activeBatchItem.value
+    if (!item) {
+      batchItemPreviewData.value = null
+      batchItemPreviewError.value = ''
+      return
+    }
+    batchPreviewTimer = setTimeout(() => {
+      handleBatchItemPreview()
+    }, 800)
+  }
+
+  watch(activeBatchItem, () => {
+    autoBatchItemPreview()
+  })
+
+  watch(
+    () => activeBatchItem.value ? JSON.stringify(activeBatchItem.value.contentJson) : '',
+    () => { if (activeBatchItem.value) autoBatchItemPreview() },
+  )
 
   const handleSend = async (testGroupOnly = false) => {
     if (form.groups.length === 0) {

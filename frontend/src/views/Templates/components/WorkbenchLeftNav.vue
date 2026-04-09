@@ -34,6 +34,15 @@
         </template>
       </div>
       <div class="wb-left-nav__plan-actions">
+        <el-dropdown v-if="currentPlanId" trigger="click" @command="handleExport">
+          <el-button text size="small" type="primary">导出</el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="json">导出 JSON</el-dropdown-item>
+              <el-dropdown-item command="excel">导出 Excel</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
         <el-button text size="small" type="danger" @click="$emit('remove-plan', currentPlan)">删除主题</el-button>
       </div>
     </div>
@@ -114,7 +123,14 @@ const emit = defineEmits<{
   'jump-pending': []
   'add-day': []
   'remove-day': [dayId: number]
+  'export-plan': [planId: number, format: 'json' | 'excel']
 }>()
+
+const handleExport = (format: string) => {
+  if (props.currentPlanId) {
+    emit('export-plan', props.currentPlanId, format as 'json' | 'excel')
+  }
+}
 
 const showPendingOnly = ref(false)
 

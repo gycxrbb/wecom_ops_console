@@ -134,6 +134,9 @@
   </div>
 </template>
 
+<script lang="ts">
+defineOptions({ name: 'SendCenter' })
+</script>
 <script setup lang="ts">
 import { useSendLogic } from './composables/useSendLogic'
 import MessageForm from './components/MessageForm.vue'

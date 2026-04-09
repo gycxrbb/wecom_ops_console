@@ -329,12 +329,16 @@ def validate_outbound_content(msg_type: str, content: dict) -> None:
 
 
 
-MAX_SEND_RETRIES = 3
-RETRY_DELAY_SECONDS = 1.0
-
-
 async def do_send_to_groups(db: Session, groups: list[models.Group], msg_type: str, content_json: dict, variables_json: dict, user: models.User, schedule: models.Schedule | None = None, run_mode: str = 'immediate'):
     results = []
+
+    # 文件/图片类型：根据文件大小动态调整重试参数
+    is_file_type = msg_type in {'file', 'image'}
+    max_retries = settings.file_send_max_retries if is_file_type else settings.send_max_retries
+    retry_delay = settings.file_send_retry_delay_seconds if is_file_type else settings.send_retry_delay_seconds
+
+    # 文件类型缓存：同一个 asset_id 只上传一次 media_id
+    cached_media_id: dict[int, str] = {}
 
     for group in groups:
         rendered_content = render_message_content(msg_type, content_json, variables_json, user, group)
@@ -356,11 +360,22 @@ async def do_send_to_groups(db: Session, groups: list[models.Group], msg_type: s
         db.commit()
 
         last_error = None
-        for attempt in range(1, MAX_SEND_RETRIES + 1):
+        for attempt in range(1, max_retries + 1):
             try:
+                # 文件类型：复用已缓存的 media_id，避免重复上传
+                if is_file_type and 'asset_id' in rendered_content:
+                    asset_id = int(rendered_content['asset_id'])
+                    if asset_id in cached_media_id:
+                        rendered_content['media_id'] = cached_media_id[asset_id]
+
                 webhook = resolve_group_webhook(group)
                 payload, response = await WeComService.send(webhook, msg_type, rendered_content, group_key=str(group.id))
                 stored_payload = WeComService.payload_for_storage(payload)
+
+                # 缓存上传成功的 media_id 供后续群复用
+                if is_file_type and 'asset_id' in rendered_content and rendered_content.get('media_id'):
+                    cached_media_id[int(rendered_content['asset_id'])] = rendered_content['media_id']
+
                 msg.request_payload = json_dumps(stored_payload)
                 msg.status = 'sent'
                 msg.sent_at = datetime.utcnow()
@@ -385,13 +400,13 @@ async def do_send_to_groups(db: Session, groups: list[models.Group], msg_type: s
                 break
             except Exception as exc:
                 last_error = exc
-                if attempt < MAX_SEND_RETRIES:
-                    await asyncio.sleep(RETRY_DELAY_SECONDS)
+                if attempt < max_retries:
+                    await asyncio.sleep(retry_delay)
 
         if last_error is not None:
             msg.status = 'failed'
             msg.sent_at = datetime.utcnow()
-            msg.retry_count = MAX_SEND_RETRIES
+            msg.retry_count = max_retries
             db.add(
                 models.MessageLog(
                     message_id=msg.id,
@@ -400,12 +415,12 @@ async def do_send_to_groups(db: Session, groups: list[models.Group], msg_type: s
                     http_status=500,
                     success=0,
                     latency_ms=0,
-                    error_message=f'{last_error} (已重试{MAX_SEND_RETRIES}次)',
-                    attempt_no=MAX_SEND_RETRIES,
+                    error_message=f'{last_error} (已重试{max_retries}次)',
+                    attempt_no=max_retries,
                 )
             )
             db.commit()
-            results.append({'group_id': group.id, 'group_name': group.name, 'success': False, 'response': f'{last_error} (已重试{MAX_SEND_RETRIES}次)'})
+            results.append({'group_id': group.id, 'group_name': group.name, 'success': False, 'response': f'{last_error} (已重试{max_retries}次)'})
 
     return results
 
