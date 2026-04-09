@@ -95,6 +95,42 @@ def authenticate_crm_admin(username: str, password: str) -> dict[str, Any] | Non
     return admin
 
 
+def fetch_all_crm_admins() -> list[dict[str, Any]]:
+    """从 CRM 数据库拉取所有 status=1 的管理员列表"""
+    if not crm_admin_auth_enabled():
+        return []
+    try:
+        connection = pymysql.connect(
+            host=settings.crm_admin_db_host,
+            port=settings.crm_admin_db_port,
+            user=settings.crm_admin_db_user,
+            password=settings.crm_admin_db_password,
+            database=settings.crm_admin_db_name,
+            charset="utf8mb4",
+            cursorclass=DictCursor,
+            connect_timeout=5,
+            read_timeout=5,
+            write_timeout=5,
+        )
+    except Exception as exc:
+        logger.exception("crm admin db connect failed")
+        raise CrmAdminAuthUnavailable("CRM 用户库暂时不可用") from exc
+
+    try:
+        with connection.cursor() as cursor:
+            sql = (
+                f"SELECT id, username, nick_name, real_name, status "
+                f"FROM {settings.crm_admin_table_name} WHERE status=1 ORDER BY id"
+            )
+            cursor.execute(sql)
+            return cursor.fetchall()
+    except Exception as exc:
+        logger.exception("crm admin query all failed")
+        raise CrmAdminAuthUnavailable("CRM 用户库查询失败") from exc
+    finally:
+        connection.close()
+
+
 def sync_crm_admin_to_local(db: Session, admin: dict[str, Any]) -> models.User:
     username = str(admin.get("username") or "").strip()
     if not username:
@@ -115,6 +151,7 @@ def sync_crm_admin_to_local(db: Session, admin: dict[str, Any]) -> models.User:
             auth_source="crm",
             role="coach",
             password_hash=pwd_context.hash(secrets.token_hex(16)),
+            permissions_json="{}",
             status=1,
         )
         db.add(user)
@@ -128,9 +165,6 @@ def sync_crm_admin_to_local(db: Session, admin: dict[str, Any]) -> models.User:
         changed = True
     if (user.auth_source or "local") != "crm":
         user.auth_source = "crm"
-        changed = True
-    if user.role != "coach":
-        user.role = "coach"
         changed = True
     if user.status != 1:
         user.status = 1

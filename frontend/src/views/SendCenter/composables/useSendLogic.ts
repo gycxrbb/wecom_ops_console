@@ -1,7 +1,8 @@
-import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import request from '@/utils/request'
 import { buildAssetAuthUrl } from '@/utils/assets'
 import { ElMessage } from 'element-plus'
+import { msgTypeLabel } from '@/views/Templates/composables/useTemplates'
 
 // 每种消息类型的默认 content_json 结构
 const defaultContentByType: Record<string, any> = {
@@ -17,18 +18,61 @@ export type BatchQueueItem = {
   id: number
   title: string
   msg_type: string
+  description?: string
   contentJson: Record<string, any>
   variablesJson: Record<string, any>
   status: 'pending' | 'sending' | 'success' | 'failed'
   error?: string
 }
 
+const DRAFT_KEY = 'send-center-draft'
+
+function saveDraft(state: {
+  form: { groups: number[]; msg_type: string; contentJson: any; variables: any; template_id: number | null }
+  scheduleForm: { title: string; schedule_type: string; run_at: string; cron_expr: string; timezone: string; approval_required: boolean; skip_weekends: boolean; skip_dates: string[] }
+  selectedContentSource: 'template' | 'plan_node' | null
+  selectedContentId: number | null
+  selectedContentLabel: string | null
+  batchQueue: BatchQueueItem[]
+  activeBatchIndex: number | null
+}) {
+  try {
+    sessionStorage.setItem(DRAFT_KEY, JSON.stringify(state))
+  } catch { /* quota exceeded — ignore */ }
+}
+
+function loadDraft(): {
+  form: { groups: number[]; msg_type: string; contentJson: any; variables: any; template_id: number | null }
+  scheduleForm: { title: string; schedule_type: string; run_at: string; cron_expr: string; timezone: string; approval_required: boolean; skip_weekends: boolean; skip_dates: string[] }
+  selectedContentSource: 'template' | 'plan_node' | null
+  selectedContentId: number | null
+  selectedContentLabel: string | null
+  batchQueue: BatchQueueItem[]
+  activeBatchIndex: number | null
+} | null {
+  try {
+    const raw = sessionStorage.getItem(DRAFT_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch { return null }
+}
+
+export function clearSendCenterDraft() {
+  sessionStorage.removeItem(DRAFT_KEY)
+}
+
 export function useSendLogic() {
+  // ---- 尝试从 sessionStorage 恢复草稿 ----
+  const draft = loadDraft()
+
   const groups = ref<any[]>([])
   const templates = ref<any[]>([])
-  const selectedContentSource = ref<'template' | 'plan_node' | null>(null)
-  const selectedContentId = ref<number | null>(null)
-  const selectedContentLabel = ref<string | null>(null)
+  const selectedContentSource = ref<'template' | 'plan_node' | null>(
+    draft?.selectedContentSource === 'template' || draft?.selectedContentSource === 'plan_node'
+      ? draft.selectedContentSource
+      : null
+  )
+  const selectedContentId = ref<number | null>(draft?.selectedContentId ?? null)
+  const selectedContentLabel = ref<string | null>(draft?.selectedContentLabel ?? null)
   const previewData = ref<any | null>(null)
   const previewError = ref('')
   const isPreviewing = ref(false)
@@ -37,7 +81,9 @@ export function useSendLogic() {
   const isScheduling = ref(false)
 
   // ---- 批量发送状态 ----
-  const batchQueue = ref<BatchQueueItem[]>([])
+  const batchQueue = ref<BatchQueueItem[]>(
+    draft?.batchQueue?.map(item => ({ ...item, status: 'pending' as const })) ?? []
+  )
   const isBatchMode = computed(() => batchQueue.value.length > 0)
   const isBatchSending = ref(false)
   const batchCancelled = ref(false)
@@ -50,14 +96,73 @@ export function useSendLogic() {
   })
 
   // 批量项选中态
-  const activeBatchIndex = ref<number | null>(null)
-  const activeBatchItem = computed(() =>
-    activeBatchIndex.value != null && activeBatchIndex.value < batchQueue.value.length
-      ? batchQueue.value[activeBatchIndex.value] : null
-  )
+  const activeBatchIndex = ref<number | null>(draft?.activeBatchIndex ?? null)
+  // 推送预告项的虚拟 BatchQueueItem（仅在 index === -1 时使用）
+  const notifyBatchItem = computed<BatchQueueItem>(() => ({
+    id: -1,
+    title: '📢 推送预告',
+    msg_type: 'markdown',
+    description: '',
+    contentJson: { content: notifyCustomText.value },
+    variablesJson: {},
+    status: (notifySendStatus.value !== 'hidden' ? notifySendStatus.value : 'pending') as BatchQueueItem['status'],
+  }))
+  const activeBatchItem = computed<BatchQueueItem | null>(() => {
+    if (activeBatchIndex.value === -1) return notifyBatchItem.value
+    if (activeBatchIndex.value != null && activeBatchIndex.value < batchQueue.value.length)
+      return batchQueue.value[activeBatchIndex.value]
+    return null
+  })
   const batchItemPreviewData = ref<any | null>(null)
   const batchItemPreviewError = ref('')
   const isBatchItemPreviewing = ref(false)
+
+  // ---- 推送预告 ----
+  const notifyEnabled = ref(false)
+  const notifyCustomText = ref('')
+  const notifySendStatus = ref<'hidden' | 'pending' | 'sending' | 'success' | 'failed'>('hidden')
+
+  const notifyAutoText = computed(() => {
+    if (isBatchMode.value) {
+      const rows = batchQueue.value.map((item, i) => {
+        const desc = item.description ? ` — ${item.description}` : ''
+        return `**${i + 1}.** ${item.title} \`${msgTypeLabel(item.msg_type)}\`${desc}`
+      })
+      return [
+        '📢 **推送预告**',
+        '',
+        '接下来将发送以下内容：',
+        '',
+        ...rows,
+        '',
+        '请留意查收！',
+      ].join('\n')
+    }
+    const label = selectedContentLabel.value || form.msg_type
+    return `📢 **推送预告**\n即将发送：**${label}** \`${msgTypeLabel(form.msg_type)}消息\``
+  })
+
+  // 开启预告时自动填入生成的文本
+  watch(notifyEnabled, (val) => {
+    if (val) {
+      notifyCustomText.value = notifyAutoText.value
+      if (isBatchMode.value) notifySendStatus.value = 'pending'
+    } else {
+      notifySendStatus.value = 'hidden'
+    }
+  })
+
+  // 队列或内容变化时重新生成预告文本（仅当预告开启时）
+  watch(
+    () => [batchQueue.value.length, JSON.stringify(batchQueue.value.map(i => i.title + i.msg_type + (i.description || ''))), selectedContentLabel.value, form.msg_type],
+    () => {
+      if (notifyEnabled.value) {
+        notifyCustomText.value = notifyAutoText.value
+        if (isBatchMode.value && notifySendStatus.value === 'hidden') notifySendStatus.value = 'pending'
+      }
+      if (!isBatchMode.value) notifySendStatus.value = 'hidden'
+    },
+  )
 
   const selectBatchItem = (index: number | null) => {
     activeBatchIndex.value = index
@@ -66,11 +171,17 @@ export function useSendLogic() {
   }
 
   const handleBatchItemContentUpdate = (val: Record<string, any>) => {
-    if (activeBatchItem.value) activeBatchItem.value.contentJson = val
+    if (activeBatchIndex.value === -1) {
+      notifyCustomText.value = val.content || ''
+    } else if (activeBatchItem.value) {
+      activeBatchItem.value.contentJson = val
+    }
   }
 
   const handleBatchItemVariablesUpdate = (val: Record<string, any>) => {
-    if (activeBatchItem.value) activeBatchItem.value.variablesJson = val
+    if (activeBatchIndex.value !== -1 && activeBatchItem.value) {
+      activeBatchItem.value.variablesJson = val
+    }
   }
 
   const handleBatchItemPreview = async () => {
@@ -128,22 +239,22 @@ export function useSendLogic() {
   }
 
   const form = reactive({
-    groups: [] as number[],
-    msg_type: 'text',
-    contentJson: { ...defaultContentByType.text },
-    variables: {} as Record<string, any>,
-    template_id: null as number | null
+    groups: draft?.form?.groups ?? ([] as number[]),
+    msg_type: draft?.form?.msg_type ?? 'text',
+    contentJson: draft?.form?.contentJson ?? { ...defaultContentByType.text },
+    variables: draft?.form?.variables ?? ({} as Record<string, any>),
+    template_id: draft?.form?.template_id ?? (null as number | null)
   })
 
   const scheduleForm = reactive({
-    title: '',
-    schedule_type: 'once',
-    run_at: '',
-    cron_expr: '',
-    timezone: 'Asia/Shanghai',
-    approval_required: false,
-    skip_weekends: false,
-    skip_dates: [] as string[]
+    title: draft?.scheduleForm?.title ?? '',
+    schedule_type: draft?.scheduleForm?.schedule_type ?? 'once',
+    run_at: draft?.scheduleForm?.run_at ?? '',
+    cron_expr: draft?.scheduleForm?.cron_expr ?? '',
+    timezone: draft?.scheduleForm?.timezone ?? 'Asia/Shanghai',
+    approval_required: draft?.scheduleForm?.approval_required ?? false,
+    skip_weekends: draft?.scheduleForm?.skip_weekends ?? false,
+    skip_dates: draft?.scheduleForm?.skip_dates ?? ([] as string[])
   })
 
   const fetchBaseData = async () => {
@@ -282,6 +393,16 @@ export function useSendLogic() {
       isSending.value = true
     }
     try {
+      // 先发送预告通知
+      if (notifyEnabled.value && notifyCustomText.value.trim()) {
+        await request.post('/v1/send', {
+          group_ids: form.groups,
+          msg_type: 'markdown',
+          content_json: { content: notifyCustomText.value },
+          variables_json: {},
+          test_group_only: testGroupOnly
+        })
+      }
       const res = await request.post('/v1/send', {
         group_ids: form.groups,
         msg_type: form.msg_type,
@@ -343,11 +464,12 @@ export function useSendLogic() {
 
   // ---- 批量发送方法 ----
 
-  const handleBatchSelect = (items: Array<{ id: number; title: string; msg_type: string; contentJson: Record<string, any>; variablesJson: Record<string, any> }>) => {
+  const handleBatchSelect = (items: Array<{ id: number; title: string; msg_type: string; description?: string; contentJson: Record<string, any>; variablesJson: Record<string, any> }>) => {
     batchQueue.value = items.map(item => ({
       id: item.id,
       title: item.title,
       msg_type: item.msg_type,
+      description: item.description || '',
       contentJson: item.contentJson,
       variablesJson: item.variablesJson,
       status: 'pending' as const,
@@ -370,6 +492,7 @@ export function useSendLogic() {
     batchItemPreviewData.value = null
     batchItemPreviewError.value = ''
     selectedContentLabel.value = null
+    notifySendStatus.value = 'hidden'
   }
 
   const cancelBatchSend = () => {
@@ -390,11 +513,27 @@ export function useSendLogic() {
       item.status = 'pending'
       item.error = undefined
     }
+    if (notifyEnabled.value && notifyCustomText.value.trim()) {
+      notifySendStatus.value = 'pending'
+    }
 
+    // 构建实际发送列表（预告可选插入头部）
+    const sendQueue: Array<{ item: BatchQueueItem; index: number }> = []
+    if (notifyEnabled.value && notifyCustomText.value.trim()) {
+      sendQueue.push({
+        item: { id: -1, title: '📢 推送预告', msg_type: 'markdown', contentJson: { content: notifyCustomText.value }, variablesJson: {}, status: 'pending' as const },
+        index: -1,
+      })
+    }
     for (let i = 0; i < batchQueue.value.length; i++) {
+      sendQueue.push({ item: batchQueue.value[i], index: i })
+    }
+
+    for (const entry of sendQueue) {
       if (batchCancelled.value) break
-      const item = batchQueue.value[i]
+      const item = entry.item
       item.status = 'sending'
+      if (entry.index === -1) notifySendStatus.value = 'sending'
       try {
         const res = await request.post('/v1/send', {
           group_ids: form.groups,
@@ -407,12 +546,15 @@ export function useSendLogic() {
         if (failed.length > 0) {
           item.status = 'failed'
           item.error = failed.map((r: any) => r.response || r.error_message || '未知错误').join('; ')
+          if (entry.index === -1) notifySendStatus.value = 'failed'
         } else {
           item.status = 'success'
+          if (entry.index === -1) notifySendStatus.value = 'success'
         }
       } catch (e: any) {
         item.status = 'failed'
         item.error = String(e)
+        if (entry.index === -1) notifySendStatus.value = 'failed'
       }
     }
 
@@ -430,8 +572,50 @@ export function useSendLogic() {
     }
   }
 
+  // ---- 草稿自动保存（防抖 1s）----
+  let draftTimer: ReturnType<typeof setTimeout> | null = null
+  const autoSaveDraft = () => {
+    if (draftTimer) clearTimeout(draftTimer)
+    draftTimer = setTimeout(() => {
+      saveDraft({
+        form: { groups: form.groups, msg_type: form.msg_type, contentJson: form.contentJson, variables: form.variables, template_id: form.template_id },
+        scheduleForm: { title: scheduleForm.title, schedule_type: scheduleForm.schedule_type, run_at: scheduleForm.run_at, cron_expr: scheduleForm.cron_expr, timezone: scheduleForm.timezone, approval_required: scheduleForm.approval_required, skip_weekends: scheduleForm.skip_weekends, skip_dates: scheduleForm.skip_dates },
+        selectedContentSource: selectedContentSource.value,
+        selectedContentId: selectedContentId.value,
+        selectedContentLabel: selectedContentLabel.value,
+        batchQueue: batchQueue.value.map(item => ({ ...item })),
+        activeBatchIndex: activeBatchIndex.value
+      })
+    }, 1000)
+  }
+
+  watch(
+    () => [
+      form.groups, form.msg_type, JSON.stringify(form.contentJson), JSON.stringify(form.variables), form.template_id,
+      scheduleForm.title, scheduleForm.schedule_type, scheduleForm.run_at, scheduleForm.cron_expr,
+      scheduleForm.timezone, scheduleForm.approval_required, scheduleForm.skip_weekends, JSON.stringify(scheduleForm.skip_dates),
+      selectedContentSource.value, selectedContentId.value, selectedContentLabel.value,
+      batchQueue.value.length, activeBatchIndex.value
+    ],
+    autoSaveDraft,
+  )
+
   onMounted(() => {
     fetchBaseData()
+  })
+
+  onBeforeUnmount(() => {
+    if (draftTimer) clearTimeout(draftTimer)
+    // 立即保存一次，确保最新状态写入
+    saveDraft({
+      form: { groups: form.groups, msg_type: form.msg_type, contentJson: form.contentJson, variables: form.variables, template_id: form.template_id },
+      scheduleForm: { title: scheduleForm.title, schedule_type: scheduleForm.schedule_type, run_at: scheduleForm.run_at, cron_expr: scheduleForm.cron_expr, timezone: scheduleForm.timezone, approval_required: scheduleForm.approval_required, skip_weekends: scheduleForm.skip_weekends, skip_dates: scheduleForm.skip_dates },
+      selectedContentSource: selectedContentSource.value,
+      selectedContentId: selectedContentId.value,
+      selectedContentLabel: selectedContentLabel.value,
+      batchQueue: batchQueue.value.map(item => ({ ...item })),
+      activeBatchIndex: activeBatchIndex.value
+    })
   })
 
   return {
@@ -450,6 +634,10 @@ export function useSendLogic() {
     isScheduling,
     // 批量发送
     batchQueue,
+    notifyEnabled,
+    notifyCustomText,
+    notifyAutoText,
+    notifySendStatus,
     isBatchMode,
     isBatchSending,
     batchProgress,
@@ -475,6 +663,8 @@ export function useSendLogic() {
     handlePreview,
     handleSend,
     handleTestSend,
-    handleSchedule
+    handleSchedule,
+    // 草稿管理
+    clearSendCenterDraft
   }
 }

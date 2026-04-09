@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from .. import models
 from ..config import settings
 from ..database import get_db
-from ..security import decrypt_webhook, encrypt_webhook, get_current_user, json_dumps, json_loads, require_role, hash_password
+from ..security import decrypt_webhook, encrypt_webhook, get_current_user, json_dumps, json_loads, require_role, require_permission, hash_password
 from ..services.material_storage_service import build_storage_result_from_material, log_material_storage_event
 from ..services.storage import UploadPayload, storage_facade
 from ..services.template_engine import default_context, render_value
@@ -329,18 +329,17 @@ def validate_outbound_content(msg_type: str, content: dict) -> None:
 
 
 
-async def do_send_to_groups(db: Session, groups: list[models.Group], msg_type: str, content_json: dict, variables_json: dict, user: models.User, schedule: models.Schedule | None = None, run_mode: str = 'immediate'):
-    results = []
 
-    # 文件/图片类型：根据文件大小动态调整重试参数
+async def _send_to_single_group(
+    group: models.Group, msg_type: str, content_json: dict, variables_json: dict,
+    user: models.User, schedule: models.Schedule | None, max_retries: int, retry_delay: float,
+    cached_media_id: dict[int, str],
+) -> dict:
+    """向单个群发送消息（含重试），使用独立 DB session 避免并发锁冲突。"""
+    from ..database import SessionLocal
     is_file_type = msg_type in {'file', 'image'}
-    max_retries = settings.file_send_max_retries if is_file_type else settings.send_max_retries
-    retry_delay = settings.file_send_retry_delay_seconds if is_file_type else settings.send_retry_delay_seconds
-
-    # 文件类型缓存：同一个 asset_id 只上传一次 media_id
-    cached_media_id: dict[int, str] = {}
-
-    for group in groups:
+    db = SessionLocal()
+    try:
         rendered_content = render_message_content(msg_type, content_json, variables_json, user, group)
         rendered_content = attach_asset_paths(db, msg_type, rendered_content)
         validate_outbound_content(msg_type, rendered_content)
@@ -362,7 +361,6 @@ async def do_send_to_groups(db: Session, groups: list[models.Group], msg_type: s
         last_error = None
         for attempt in range(1, max_retries + 1):
             try:
-                # 文件类型：复用已缓存的 media_id，避免重复上传
                 if is_file_type and 'asset_id' in rendered_content:
                     asset_id = int(rendered_content['asset_id'])
                     if asset_id in cached_media_id:
@@ -372,7 +370,6 @@ async def do_send_to_groups(db: Session, groups: list[models.Group], msg_type: s
                 payload, response = await WeComService.send(webhook, msg_type, rendered_content, group_key=str(group.id))
                 stored_payload = WeComService.payload_for_storage(payload)
 
-                # 缓存上传成功的 media_id 供后续群复用
                 if is_file_type and 'asset_id' in rendered_content and rendered_content.get('media_id'):
                     cached_media_id[int(rendered_content['asset_id'])] = rendered_content['media_id']
 
@@ -392,37 +389,49 @@ async def do_send_to_groups(db: Session, groups: list[models.Group], msg_type: s
                     )
                 )
                 db.commit()
+                result: dict = {'group_id': group.id, 'group_name': group.name, 'success': True, 'response': response}
                 if attempt > 1:
-                    results.append({'group_id': group.id, 'group_name': group.name, 'success': True, 'response': response, 'retries': attempt})
-                else:
-                    results.append({'group_id': group.id, 'group_name': group.name, 'success': True, 'response': response})
-                last_error = None
-                break
+                    result['retries'] = attempt
+                return result
             except Exception as exc:
                 last_error = exc
                 if attempt < max_retries:
                     await asyncio.sleep(retry_delay)
 
-        if last_error is not None:
-            msg.status = 'failed'
-            msg.sent_at = datetime.utcnow()
-            msg.retry_count = max_retries
-            db.add(
-                models.MessageLog(
-                    message_id=msg.id,
-                    request_payload=json_dumps(rendered_content),
-                    response_payload='{}',
-                    http_status=500,
-                    success=0,
-                    latency_ms=0,
-                    error_message=f'{last_error} (已重试{max_retries}次)',
-                    attempt_no=max_retries,
-                )
+        msg.status = 'failed'
+        msg.sent_at = datetime.utcnow()
+        msg.retry_count = max_retries
+        db.add(
+            models.MessageLog(
+                message_id=msg.id,
+                request_payload=json_dumps(rendered_content),
+                response_payload='{}',
+                http_status=500,
+                success=0,
+                latency_ms=0,
+                error_message=f'{last_error} (已重试{max_retries}次)',
+                attempt_no=max_retries,
             )
-            db.commit()
-            results.append({'group_id': group.id, 'group_name': group.name, 'success': False, 'response': f'{last_error} (已重试{max_retries}次)'})
+        )
+        db.commit()
+        return {'group_id': group.id, 'group_name': group.name, 'success': False, 'response': f'{last_error} (已重试{max_retries}次)'}
+    finally:
+        db.close()
 
-    return results
+
+async def do_send_to_groups(db: Session, groups: list[models.Group], msg_type: str, content_json: dict, variables_json: dict, user: models.User, schedule: models.Schedule | None = None, run_mode: str = 'immediate'):
+    is_file_type = msg_type in {'file', 'image'}
+    max_retries = settings.file_send_max_retries if is_file_type else settings.send_max_retries
+    retry_delay = settings.file_send_retry_delay_seconds if is_file_type else settings.send_retry_delay_seconds
+    cached_media_id: dict[int, str] = {}
+
+    # 多群并发发送，不同群之间互不影响可并行；每个群使用独立 session 避免 SQLite 锁冲突
+    tasks = [
+        _send_to_single_group(group, msg_type, content_json, variables_json, user, schedule, max_retries, retry_delay, cached_media_id)
+        for group in groups
+    ]
+    results = await asyncio.gather(*tasks)
+    return list(results)
 
 async def perform_job_send(db: Session, schedule: models.Schedule, run_mode: str = 'scheduled'):
     user = schedule.owner or db.query(models.User).filter(models.User.role == 'admin').first()
@@ -456,7 +465,7 @@ def bootstrap(request: Request, db: Session = Depends(get_db)):
     success_logs = db.query(models.MessageLog).filter(models.MessageLog.success == True).count()
     pending_approval_count = db.query(models.Schedule).filter(models.Schedule.approval_required == 1, models.Schedule.status == 'pending_approval').count()
     return {
-        'current_user': {'id': user.id, 'username': user.username, 'display_name': user.display_name, 'role': user.role},
+        'current_user': {'id': user.id, 'username': user.username, 'display_name': user.display_name, 'role': user.role, 'permissions': json_loads(user.permissions_json, {})},
         'dashboard': {
             'group_count': db.query(models.Group).count(),
             'template_count': db.query(models.Template).count(),
@@ -477,6 +486,7 @@ def list_groups(request: Request, db: Session = Depends(get_db)):
 async def upsert_group(request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
     require_role(user, 'admin')
+    require_permission(user, 'group')
     data = parse_body(await request.body())
     group_id = data.get('id')
     group = db.query(models.Group).filter(models.Group.id == group_id).first() if group_id else models.Group()
@@ -496,6 +506,7 @@ async def upsert_group(request: Request, db: Session = Depends(get_db)):
 def delete_group(group_id: int, request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
     require_role(user, 'admin')
+    require_permission(user, 'group')
     group = db.query(models.Group).filter(models.Group.id == group_id).first()
     if not group:
         raise HTTPException(404, '群不存在')
@@ -515,6 +526,7 @@ def list_templates(request: Request, db: Session = Depends(get_db)):
 @router.post('/templates')
 async def upsert_template(request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
+    require_permission(user, 'template')
     data = parse_body(await request.body())
     template_id = data.get('id')
     tpl = db.query(models.Template).filter(models.Template.id == template_id).first() if template_id else models.Template(owner_id=user.id)
@@ -553,6 +565,7 @@ def clone_template(template_id: int, request: Request, db: Session = Depends(get
 @router.delete('/templates/{template_id}')
 def delete_template(template_id: int, request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
+    require_permission(user, 'template')
     tpl = db.query(models.Template).filter(models.Template.id == template_id).first()
     if not tpl:
         raise HTTPException(404, '模板不存在')
@@ -578,6 +591,7 @@ def list_assets(request: Request, folder_id: str = None, db: Session = Depends(g
 @router.post('/assets')
 async def upload_asset(request: Request, file: UploadFile = File(...), folder_id: str = Form(None), db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
+    require_permission(user, 'asset')
     raw = await file.read()
     asset_type = 'image' if (file.content_type or '').startswith('image/') else 'file'
     fid = int(folder_id) if folder_id and folder_id.isdigit() else None
@@ -646,6 +660,7 @@ def preview_asset(asset_id: int, request: Request, db: Session = Depends(get_db)
 def delete_asset(asset_id: int, request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
     require_role(user, 'admin', 'coach')
+    require_permission(user, 'asset')
     asset = db.query(models.Material).filter(models.Material.id == asset_id).first()
     if not asset:
         raise HTTPException(404, '资产不存在')
@@ -698,6 +713,7 @@ async def move_asset(asset_id: int, request: Request, db: Session = Depends(get_
 @router.post('/preview')
 async def preview_message(request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
+    require_permission(user, 'send')
     data = parse_body(await request.body())
     group = None
     if data.get('group_ids'):
@@ -711,6 +727,7 @@ async def preview_message(request: Request, db: Session = Depends(get_db)):
 @router.post('/send')
 async def send_message(request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
+    require_permission(user, 'send')
     data = parse_body(await request.body())
     group_ids = data.get('group_ids', [])
     if data.get('test_group_only'):
@@ -738,6 +755,7 @@ def list_schedules(request: Request, db: Session = Depends(get_db)):
 @router.post('/schedules')
 async def create_or_update_schedule(request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
+    require_permission(user, 'schedule')
     data = parse_body(await request.body())
     job_id = data.get('id')
     job = db.query(models.Schedule).filter(models.Schedule.id == job_id).first() if job_id else models.Schedule(owner_id=user.id)
@@ -819,6 +837,7 @@ def clone_schedule(job_id: int, request: Request, db: Session = Depends(get_db))
 @router.post('/schedules/{job_id}/toggle')
 def toggle_schedule(job_id: int, request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
+    require_permission(user, 'schedule')
     job = db.query(models.Schedule).filter(models.Schedule.id == job_id).first()
     if not job:
         raise HTTPException(404, '任务不存在')
@@ -852,6 +871,7 @@ def approve_schedule(job_id: int, request: Request, db: Session = Depends(get_db
 @router.delete('/schedules/{job_id}')
 def delete_schedule(job_id: int, request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
+    require_permission(user, 'schedule')
     job = db.query(models.Schedule).filter(models.Schedule.id == job_id).first()
     if not job:
         raise HTTPException(404, '任务不存在')
@@ -867,6 +887,7 @@ async def run_schedule_now(job_id: int, request: Request, db: Session = Depends(
     import logging
     _log = logging.getLogger(__name__)
     user = get_user_or_401(request, db)
+    require_permission(user, 'schedule')
     job = db.query(models.Schedule).filter(models.Schedule.id == job_id).first()
     if not job:
         raise HTTPException(404, '任务不存在')
@@ -890,6 +911,7 @@ def list_logs(request: Request, db: Session = Depends(get_db)):
 @router.post('/logs/{log_id}/retry')
 async def retry_log(log_id: int, request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
+    require_permission(user, 'log')
     log = db.query(models.MessageLog).filter(models.MessageLog.id == log_id).first()
     if not log:
         raise HTTPException(404, '日志不存在')
@@ -1070,6 +1092,7 @@ async def create_approval(request: Request, db: Session = Depends(get_db)):
 async def approve_request(approval_id: int, request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
     require_role(user, 'admin')
+    require_permission(user, 'approval')
     
     appr = db.query(models.ApprovalRequest).filter(models.ApprovalRequest.id == approval_id).first()
     if not appr:
@@ -1099,6 +1122,7 @@ async def approve_request(approval_id: int, request: Request, db: Session = Depe
 async def reject_request(approval_id: int, request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
     require_role(user, 'admin')
+    require_permission(user, 'approval')
     
     appr = db.query(models.ApprovalRequest).filter(models.ApprovalRequest.id == approval_id).first()
     if not appr:

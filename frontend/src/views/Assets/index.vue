@@ -39,6 +39,13 @@
           </button>
         </div>
         <div class="assets-header__right">
+          <el-button
+            :type="batchMode ? 'primary' : 'default'"
+            plain
+            @click="toggleBatchMode"
+          >
+            <el-icon><Operation /></el-icon> {{ batchMode ? '退出批量' : '批量管理' }}
+          </el-button>
           <el-button plain @click="openCreateDialog">
             <el-icon><FolderAdd /></el-icon> 新建文件夹
           </el-button>
@@ -114,11 +121,58 @@
           :file-assets="fileAssets"
           :folders="folders"
           :deleting-ids="deletingIds"
+          :batch-mode="batchMode"
+          :selected-ids="selectedIds"
           @download="handleDownload"
           @delete="handleDelete"
           @move="handleMove"
+          @toggle-select="toggleSelect"
         />
       </div>
+
+      <!-- 批量操作浮动栏 -->
+      <transition name="batch-bar-fade">
+        <div v-if="batchMode && selectedIds.length > 0" class="batch-action-bar">
+          <div class="batch-action-bar__info">
+            <strong>{{ selectedIds.length }}</strong> 项已选中
+          </div>
+          <div class="batch-action-bar__actions">
+            <el-button size="small" @click="selectAll">全选</el-button>
+            <el-button size="small" @click="clearSelection">取消全选</el-button>
+            <el-button size="small" type="warning" @click="openBatchMoveDialog">批量移动</el-button>
+            <el-button size="small" type="danger" @click="handleBatchDelete">批量删除</el-button>
+          </div>
+        </div>
+      </transition>
+
+      <!-- 批量移动对话框 -->
+      <el-dialog v-model="batchMoveDialogVisible" title="批量移动到文件夹" width="400px">
+        <div class="move-folder-list">
+          <div
+            class="move-item"
+            :class="{ 'is-selected': batchMoveTargetId === null }"
+            @click="batchMoveTargetId = null"
+          >
+            <el-icon><FolderOpened /></el-icon>
+            <span>未分类</span>
+          </div>
+          <div
+            v-for="folder in flattenedFolders"
+            :key="folder.id"
+            class="move-item"
+            :class="{ 'is-selected': batchMoveTargetId === folder.id }"
+            @click="batchMoveTargetId = folder.id"
+            :style="{ paddingLeft: `${14 + folder.depth * 18}px` }"
+          >
+            <el-icon><FolderIcon /></el-icon>
+            <span>{{ folder.name }}</span>
+          </div>
+        </div>
+        <template #footer>
+          <el-button @click="batchMoveDialogVisible = false">取消</el-button>
+          <el-button type="primary" @click="handleBatchMove">确定移动</el-button>
+        </template>
+      </el-dialog>
     </div>
 
     <FolderDialog
@@ -132,8 +186,9 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { FolderAdd, FolderOpened, Upload } from '@element-plus/icons-vue'
+import { FolderAdd, FolderOpened, Upload, Operation } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Folder as FolderIcon } from '@element-plus/icons-vue'
 import { useAssets } from './composables/useAssets'
 import { useFolders } from './composables/useFolders'
 import FolderSidebar from './components/FolderSidebar.vue'
@@ -143,7 +198,8 @@ import type { Folder } from './composables/useFolders'
 
 const {
   assets, loading, imageAssets, fileAssets,
-  fetchAssets, uploadAsset, deleteAsset, moveAsset, downloadAsset
+  fetchAssets, uploadAsset, deleteAsset, moveAsset, downloadAsset,
+  batchDeleteAssets, batchMoveAssets
 } = useAssets()
 
 const {
@@ -246,6 +302,85 @@ const handleFileChange = async (uploadFile: any) => {
 const handleDownload = (item: any) => downloadAsset(item)
 
 const deletingIds = ref<Set<number>>(new Set())
+
+// ---- 批量管理 ----
+const batchMode = ref(false)
+const selectedIds = ref<number[]>([])
+const batchMoveDialogVisible = ref(false)
+const batchMoveTargetId = ref<number | null>(null)
+
+const toggleBatchMode = () => {
+  batchMode.value = !batchMode.value
+  if (!batchMode.value) {
+    selectedIds.value = []
+  }
+}
+
+const toggleSelect = (id: number) => {
+  const idx = selectedIds.value.indexOf(id)
+  if (idx >= 0) {
+    selectedIds.value.splice(idx, 1)
+  } else {
+    selectedIds.value.push(id)
+  }
+}
+
+const selectAll = () => {
+  selectedIds.value = assets.value.map(a => a.id)
+}
+
+const clearSelection = () => {
+  selectedIds.value = []
+}
+
+const openBatchMoveDialog = () => {
+  batchMoveTargetId.value = null
+  batchMoveDialogVisible.value = true
+}
+
+const handleBatchMove = async () => {
+  if (!selectedIds.value.length) return
+  await batchMoveAssets(selectedIds.value, batchMoveTargetId.value)
+  batchMoveDialogVisible.value = false
+  selectedIds.value = []
+  await Promise.all([refreshCurrentAssets(), fetchFolders()])
+}
+
+const handleBatchDelete = async () => {
+  if (!selectedIds.value.length) return
+  try {
+    await ElMessageBox.confirm(
+      `确定删除选中的 ${selectedIds.value.length} 个素材吗？删除后不可恢复。`,
+      '批量删除',
+      { type: 'warning' }
+    )
+  } catch {
+    return
+  }
+  await batchDeleteAssets(selectedIds.value)
+  selectedIds.value = []
+  await Promise.all([refreshCurrentAssets(), fetchFolders()])
+}
+
+const flattenedFolders = computed(() => {
+  const map = new Map<number | null, Folder[]>()
+  for (const folder of folders.value) {
+    const key = folder.parent_id ?? null
+    const list = map.get(key) || []
+    list.push(folder)
+    map.set(key, list)
+  }
+  const result: Array<Folder & { depth: number }> = []
+  const walk = (parentId: number | null, depth: number) => {
+    const children = map.get(parentId) || []
+    for (const folder of children) {
+      result.push({ ...folder, depth })
+      walk(folder.id, depth + 1)
+    }
+  }
+  walk(null, 0)
+  return result
+})
 
 const handleDelete = async (item: any) => {
   if (deletingIds.value.has(item.id)) return
@@ -518,5 +653,71 @@ onMounted(async () => {
   .assets-main {
     padding: 12px;
   }
+}
+
+/* ---- 批量操作浮动栏 ---- */
+.batch-action-bar {
+  position: sticky;
+  bottom: 16px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 20px;
+  border-radius: 14px;
+  border: 1px solid var(--border-color);
+  background: var(--card-bg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+  margin-top: 16px;
+}
+
+.batch-action-bar__info {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.batch-action-bar__info strong {
+  color: var(--primary-color);
+  font-size: 16px;
+  margin-right: 4px;
+}
+
+.batch-action-bar__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.batch-bar-fade-enter-active,
+.batch-bar-fade-leave-active {
+  transition: all 0.25s ease;
+}
+.batch-bar-fade-enter-from,
+.batch-bar-fade-leave-to {
+  opacity: 0;
+  transform: translateY(12px);
+}
+
+/* ---- 批量移动对话框 ---- */
+.move-folder-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.move-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px solid var(--border-color);
+  transition: all 0.15s;
+  font-size: 14px;
+}
+.move-item:hover { border-color: var(--primary-color); }
+.move-item.is-selected {
+  border-color: var(--primary-color);
+  background: rgba(34, 197, 94, 0.08);
 }
 </style>

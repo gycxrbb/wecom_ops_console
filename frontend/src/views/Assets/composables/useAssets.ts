@@ -85,8 +85,41 @@ export function useAssets() {
     window.URL.revokeObjectURL(downloadUrl)
   }
 
+  const batchDeleteAssets = async (ids: number[]) => {
+    let failed = 0
+    for (const id of ids) {
+      try {
+        await request.delete(`/v1/assets/${id}`)
+      } catch {
+        failed++
+      }
+    }
+    if (failed === 0) {
+      ElMessage.success(`已删除 ${ids.length} 个素材`)
+    } else {
+      ElMessage.warning(`${ids.length - failed} 个删除成功，${failed} 个失败`)
+    }
+  }
+
+  const batchMoveAssets = async (ids: number[], folderId: number | null) => {
+    let failed = 0
+    for (const id of ids) {
+      try {
+        await request.patch(`/v1/assets/${id}/move`, { folder_id: folderId })
+      } catch {
+        failed++
+      }
+    }
+    if (failed === 0) {
+      ElMessage.success(`已移动 ${ids.length} 个素材`)
+    } else {
+      ElMessage.warning(`${ids.length - failed} 个移动成功，${failed} 个失败`)
+    }
+  }
+
   return {
     assets, loading, imageAssets, fileAssets,
-    fetchAssets, uploadAsset, deleteAsset, moveAsset, downloadAsset
+    fetchAssets, uploadAsset, deleteAsset, moveAsset, downloadAsset,
+    batchDeleteAssets, batchMoveAssets
   }
 }

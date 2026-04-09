@@ -12,6 +12,7 @@ from .routers.api_folders import router as folders_router
 from .routers.api_operation_plans import router as operation_plans_router
 from .routers.api_profile import router as profile_router
 from .routers.api_schedule_tools import router as schedule_tools_router
+from .routers.api_permissions import router as permissions_router
 from .services.seed import seed_all
 from .services.scheduler_service import schedule_service
 
@@ -43,3 +44,4 @@ app.include_router(folders_router)
 app.include_router(operation_plans_router)
 app.include_router(profile_router)
 app.include_router(schedule_tools_router)
+app.include_router(permissions_router)

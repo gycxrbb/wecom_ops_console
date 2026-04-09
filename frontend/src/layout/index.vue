@@ -49,10 +49,8 @@
         </div>
       </el-header>
       <el-main class="custom-main">
-        <router-view v-slot="{ Component, route }">
-          <keep-alive :include="['SendCenter', 'Templates']">
-            <component :is="Component" :key="route.path" />
-          </keep-alive>
+        <router-view v-slot="{ Component }">
+          <component :is="Component" />
         </router-view>
       </el-main>
     </el-container>
@@ -143,6 +141,7 @@ const getRouteName = () => {
     '/logs': '发送记录',
     '/approvals': '审批中心',
     '/users': '用户管理',
+    '/permissions': '权限管理',
     '/profile': '个人中心'
   }
   return map[route.path] || '页面'

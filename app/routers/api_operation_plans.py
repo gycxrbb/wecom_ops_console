@@ -11,7 +11,7 @@ from .. import models
 from ..database import get_db
 from ..services.operation_plan_export import export_plan_to_excel_bytes, export_plan_to_json_bytes
 from ..services.operation_plan_import import parse_operation_plan_file
-from ..security import get_current_user, json_dumps, json_loads, require_role
+from ..security import get_current_user, json_dumps, json_loads, require_role, require_permission
 
 router = APIRouter(prefix='/api/v1/operation-plans', tags=['operation-plans'])
 
@@ -433,6 +433,7 @@ def list_plans(request: Request, db: Session = Depends(get_db)):
 def create_plan(body: PlanCreate, request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
     require_role(user, 'admin', 'coach')
+    require_permission(user, 'plan')
     plan = models.Plan(
         name=body.name.strip(),
         topic=body.topic.strip(),
@@ -501,6 +502,7 @@ def get_plan_detail(plan_id: int, request: Request, db: Session = Depends(get_db
 def update_plan(plan_id: int, body: PlanUpdate, request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
     require_role(user, 'admin', 'coach')
+    require_permission(user, 'plan')
     plan = get_plan_or_404(db, plan_id)
     ensure_plan_access(user, plan)
     plan.name = body.name.strip()
@@ -518,6 +520,7 @@ def update_plan(plan_id: int, body: PlanUpdate, request: Request, db: Session = 
 def delete_plan(plan_id: int, request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
     require_role(user, 'admin', 'coach')
+    require_permission(user, 'plan')
     plan = get_plan_or_404(db, plan_id)
     ensure_plan_access(user, plan)
     db.delete(plan)
@@ -529,6 +532,7 @@ def delete_plan(plan_id: int, request: Request, db: Session = Depends(get_db)):
 def create_day(plan_id: int, body: PlanDayCreate, request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
     require_role(user, 'admin', 'coach')
+    require_permission(user, 'plan')
     plan = get_plan_or_404(db, plan_id)
     ensure_plan_access(user, plan)
     ensure_day_number_unique(db, plan.id, body.day_number)
@@ -553,6 +557,7 @@ def create_day(plan_id: int, body: PlanDayCreate, request: Request, db: Session 
 def update_day(day_id: int, body: PlanDayUpdate, request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
     require_role(user, 'admin', 'coach')
+    require_permission(user, 'plan')
     day = get_day_or_404(db, day_id)
     ensure_plan_access(user, day.plan)
     ensure_day_number_unique(db, day.plan_id, body.day_number, exclude_day_id=day.id)
@@ -568,6 +573,7 @@ def update_day(day_id: int, body: PlanDayUpdate, request: Request, db: Session =
 def copy_day(day_id: int, body: PlanDayCopyRequest, request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
     require_role(user, 'admin', 'coach')
+    require_permission(user, 'plan')
     target_day = get_day_or_404(db, day_id)
     source_day = get_day_or_404(db, body.source_day_id)
     ensure_plan_access(user, target_day.plan)
@@ -600,6 +606,7 @@ def copy_day(day_id: int, body: PlanDayCopyRequest, request: Request, db: Sessio
 def delete_day(day_id: int, request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
     require_role(user, 'admin', 'coach')
+    require_permission(user, 'plan')
     day = get_day_or_404(db, day_id)
     ensure_plan_access(user, day.plan)
     db.delete(day)
@@ -611,6 +618,7 @@ def delete_day(day_id: int, request: Request, db: Session = Depends(get_db)):
 def create_node(day_id: int, body: PlanNodeCreate, request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
     require_role(user, 'admin', 'coach')
+    require_permission(user, 'plan')
     day = get_day_or_404(db, day_id)
     ensure_plan_access(user, day.plan)
     node = models.PlanNode(plan_day_id=day.id)
@@ -624,6 +632,7 @@ def create_node(day_id: int, body: PlanNodeCreate, request: Request, db: Session
 def update_node(node_id: int, body: PlanNodeUpdate, request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
     require_role(user, 'admin', 'coach')
+    require_permission(user, 'plan')
     node = get_node_or_404(db, node_id)
     ensure_plan_access(user, node.plan_day.plan)
     apply_node_payload(node, db, body, node.owner_id or user.id)
@@ -635,6 +644,7 @@ def update_node(node_id: int, body: PlanNodeUpdate, request: Request, db: Sessio
 def delete_node(node_id: int, request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
     require_role(user, 'admin', 'coach')
+    require_permission(user, 'plan')
     node = get_node_or_404(db, node_id)
     ensure_plan_access(user, node.plan_day.plan)
     db.delete(node)

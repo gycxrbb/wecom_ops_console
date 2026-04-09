@@ -102,11 +102,32 @@
         <div class="batch-queue__header">
           <span>发送队列</span>
           <span class="batch-queue__progress" v-if="isBatchSending">
-            {{ batchProgress.done + 1 }} / {{ batchQueue.length }}
+            {{ batchProgress.done + (notifyEnabled && (notifySendStatus === 'success' || notifySendStatus === 'failed') ? 1 : 0) + 1 }} / {{ batchQueue.length + (notifyEnabled ? 1 : 0) }}
           </span>
           <span v-if="!isBatchSending" class="batch-queue__hint">点击查看详情</span>
         </div>
         <div class="batch-queue__list">
+          <!-- 推送预告项 -->
+          <div v-if="notifyEnabled && isBatchMode" class="batch-queue__item batch-queue__item--notify"
+            :class="{
+              'is-active': activeBatchIndex === -1,
+              'is-sending': notifySendStatus === 'sending',
+              'is-success': notifySendStatus === 'success',
+              'is-failed': notifySendStatus === 'failed'
+            }"
+            @click="$emit('selectBatchItem', -1)"
+          >
+            <div class="batch-queue__item-index batch-queue__item-index--notify">📢</div>
+            <div class="batch-queue__item-info">
+              <span class="batch-queue__item-title">推送预告</span>
+            </div>
+            <el-tag size="small" type="success">Markdown</el-tag>
+            <div class="batch-queue__item-status">
+              <el-icon v-if="notifySendStatus === 'sending'" class="is-loading"><Loading /></el-icon>
+              <el-icon v-else-if="notifySendStatus === 'success'" color="#67c23a"><CircleCheckFilled /></el-icon>
+              <el-icon v-else-if="notifySendStatus === 'failed'" color="#f56c6c"><CircleCloseFilled /></el-icon>
+            </div>
+          </div>
           <div
             v-for="(item, index) in batchQueue"
             :key="item.id"
@@ -157,6 +178,25 @@
         :show-variables="supportsVariables"
         style="width: 100%"
       />
+
+      <!-- Push Notification Preview -->
+      <div v-if="showNotifySection" class="notify-section">
+        <div class="notify-header">
+          <el-switch :model-value="notifyEnabled" size="small" @update:model-value="$emit('update:notifyEnabled', $event)" />
+          <span class="notify-label">发送推送预告</span>
+          <span class="notify-hint">在正式内容前发送一条预告通知</span>
+        </div>
+        <div v-if="notifyEnabled" class="notify-body">
+          <el-input
+            type="textarea"
+            :rows="4"
+            :model-value="notifyCustomText"
+            @update:model-value="$emit('update:notifyCustomText', $event)"
+            placeholder="自动生成的预告文本，可手动编辑..."
+            class="notify-textarea"
+          />
+        </div>
+      </div>
 
       <!-- Action Footer -->
       <div class="action-footer">
@@ -229,14 +269,20 @@ const props = defineProps({
   batchQueue: { type: Array as PropType<BatchQueueItem[]>, default: () => [] },
   isBatchSending: { type: Boolean, default: false },
   batchProgress: { type: Object as PropType<{ total: number; done: number; success: number; failed: number }>, default: () => ({ total: 0, done: 0, success: 0, failed: 0 }) },
-  activeBatchIndex: { type: Number as PropType<number | null>, default: null }
+  activeBatchIndex: { type: Number as PropType<number | null>, default: null },
+  notifyEnabled: { type: Boolean, default: false },
+  notifyCustomText: { type: String, default: '' },
+  notifyAutoText: { type: String, default: '' },
+  notifySendStatus: { type: String as PropType<'hidden' | 'pending' | 'sending' | 'success' | 'failed'>, default: 'hidden' }
 })
 
 defineEmits([
   'contentSelect', 'clearContent', 'preview', 'send', 'sendTest',
   'msgTypeChange', 'contentUpdate', 'variablesUpdate',
   // 批量模式
-  'batchSelect', 'batchSend', 'removeBatchItem', 'clearBatch', 'cancelBatchSend', 'selectBatchItem'
+  'batchSelect', 'batchSend', 'removeBatchItem', 'clearBatch', 'cancelBatchSend', 'selectBatchItem',
+  // 预告通知
+  'update:notifyEnabled', 'update:notifyCustomText'
 ])
 
 const contentSelectorVisible = ref(false)
@@ -259,6 +305,12 @@ const selectedGroupNames = computed(() =>
 const toggleSelectAllGroups = () => {
   props.form.groups = isAllSelected.value ? [] : [...allGroupIds.value]
 }
+
+const showNotifySection = computed(() => {
+  if (props.isBatchMode && props.batchQueue.length > 0) return true
+  if (!props.isBatchMode && props.selectedContentLabel) return true
+  return false
+})
 
 const tagTypeByMsgType = (msgType: string) => {
   const map: Record<string, string> = {
@@ -481,6 +533,13 @@ const tagTypeByMsgType = (msgType: string) => {
 .batch-queue__item-remove:hover {
   color: #f56c6c;
 }
+.batch-queue__item--notify {
+  border-left: 3px solid #67c23a;
+}
+.batch-queue__item-index--notify {
+  font-size: 14px;
+  background: rgba(103, 194, 58, 0.1);
+}
 .batch-queue__summary {
   padding: 10px 18px;
   font-size: 13px;
@@ -502,6 +561,37 @@ const tagTypeByMsgType = (msgType: string) => {
   display: flex;
   justify-content: center;
   margin-top: 6px;
+}
+
+/* Notify Section */
+.notify-section {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-color);
+}
+.notify-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.notify-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.notify-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.notify-body {
+  margin-top: 10px;
+}
+.notify-textarea :deep(.el-textarea__inner) {
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.7;
 }
 
 /* Responsive */

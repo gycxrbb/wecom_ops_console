@@ -281,3 +281,11 @@ def ensure_plan_schema(engine: Engine) -> None:
         )
         if not _has_named_index(inspector, "plan_nodes", "ix_plan_nodes_plan_day_id"):
             conn.execute(text("CREATE INDEX ix_plan_nodes_plan_day_id ON plan_nodes (plan_day_id)"))
+
+    # users: add permissions_json column
+    inspector = inspect(engine)
+    if "users" in inspector.get_table_names():
+        existing_columns = {column["name"] for column in inspector.get_columns("users")}
+        if "permissions_json" not in existing_columns:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE users ADD COLUMN permissions_json TEXT"))

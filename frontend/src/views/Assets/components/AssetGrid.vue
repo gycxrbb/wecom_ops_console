@@ -11,8 +11,21 @@
       </div>
       <el-empty v-if="imageAssets.length === 0" description="暂无图片素材" :image-size="60" />
       <div v-else class="image-grid">
-        <div v-for="item in imageAssets" :key="item.id" class="image-card">
-          <div class="image-frame" @click="openPreview(item)">
+        <div
+          v-for="item in imageAssets"
+          :key="item.id"
+          class="image-card"
+          :class="{ 'is-selected': isSelected(item.id) }"
+          @click="handleCardClick(item)"
+        >
+          <div class="image-frame">
+            <el-checkbox
+              v-if="batchMode"
+              :model-value="isSelected(item.id)"
+              class="image-checkbox"
+              @click.stop
+              @change="emit('toggle-select', item.id)"
+            />
             <el-image
               :src="buildAssetAuthUrl(item.preview_url || item.url)"
               :preview-src-list="[]"
@@ -57,10 +70,17 @@
         <span class="section-count">{{ fileAssets.length }} 项</span>
       </div>
       <el-empty v-if="fileAssets.length === 0" description="暂无文件素材" :image-size="60" />
-      <el-table v-else :data="fileAssets" style="width: 100%">
+      <el-table
+        v-else
+        ref="fileTableRef"
+        :data="fileAssets"
+        style="width: 100%"
+        @selection-change="handleFileSelectionChange"
+      >
+        <el-table-column v-if="batchMode" type="selection" width="45" />
         <el-table-column label="文件名" min-width="220" show-overflow-tooltip>
           <template #default="scope">
-            <span class="file-name-link" @click="openPreview(scope.row)">{{ scope.row.name }}</span>
+            <span class="file-name-link" @click="batchMode ? emit('toggle-select', scope.row.id) : openPreview(scope.row)">{{ scope.row.name }}</span>
           </template>
         </el-table-column>
         <el-table-column label="状态" width="110">
@@ -166,7 +186,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Download, Delete, Rank, FolderOpened, Link, Document } from '@element-plus/icons-vue'
 import { Folder as FolderIcon } from '@element-plus/icons-vue'
@@ -179,15 +199,66 @@ const props = defineProps<{
   fileAssets: Asset[]
   folders: Folder[]
   deletingIds?: Set<number>
+  batchMode?: boolean
+  selectedIds?: number[]
 }>()
 
-const emit = defineEmits(['download', 'delete', 'move'])
+const emit = defineEmits(['download', 'delete', 'move', 'toggle-select'])
+
+const fileTableRef = ref<InstanceType<typeof import('element-plus')['ElTable']>>()
 
 const moveDialogVisible = ref(false)
 const moveTargetId = ref<number | null>(null)
 const moveAssetId = ref<number | null>(null)
 const previewDialogVisible = ref(false)
 const previewAsset = ref<Asset | null>(null)
+
+const isSelected = (id: number) => (props.selectedIds || []).includes(id)
+
+const handleCardClick = (item: Asset) => {
+  if (props.batchMode) {
+    emit('toggle-select', item.id)
+  } else {
+    openPreview(item)
+  }
+}
+
+const handleFileSelectionChange = (rows: Asset[]) => {
+  if (!props.batchMode) return
+  // Sync file table selection into parent's selectedIds
+  const fileIds = props.fileAssets.map(f => f.id)
+  const nonFileSelected = (props.selectedIds || []).filter(id => !fileIds.includes(id))
+  const newSelectedIds = [...nonFileSelected, ...rows.map(r => r.id)]
+  // Emit individual toggles isn't efficient here, so emit a special event
+  // Actually, let's use a different approach: emit each file's toggle
+  // For simplicity, just emit toggle for each file
+  const currentFileSelected = fileIds.filter(id => (props.selectedIds || []).includes(id))
+  const newFileSelected = rows.map(r => r.id)
+  // Deselect those that were selected but now aren't
+  for (const id of currentFileSelected) {
+    if (!newFileSelected.includes(id)) emit('toggle-select', id)
+  }
+  // Select those that weren't selected but now are
+  for (const id of newFileSelected) {
+    if (!currentFileSelected.includes(id)) emit('toggle-select', id)
+  }
+}
+
+// When batchMode changes, clear file table selection
+watch(() => props.batchMode, (val) => {
+  if (!val) {
+    fileTableRef.value?.clearSelection()
+  }
+})
+
+// Sync file table checkboxes with selectedIds
+watch(() => props.selectedIds, (ids) => {
+  if (!props.batchMode || !fileTableRef.value) return
+  const fileIds = (ids || [])
+  for (const row of props.fileAssets) {
+    fileTableRef.value.toggleRowSelection(row, fileIds.includes(row.id))
+  }
+}, { deep: true })
 
 const flattenedFolders = computed(() => {
   const map = new Map<number | null, Folder[]>()
@@ -334,6 +405,19 @@ const isUnavailable = (item: Asset) => ['source_missing', 'deleted'].includes(it
   margin-bottom: 10px;
   position: relative;
   cursor: pointer;
+}
+.image-checkbox {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+  background: rgba(255, 255, 255, 0.85);
+  border-radius: 6px;
+  padding: 2px;
+}
+.image-card.is-selected {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.18);
 }
 .image-frame:hover {
   opacity: 0.85;

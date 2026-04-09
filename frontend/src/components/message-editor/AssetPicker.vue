@@ -3,64 +3,144 @@
     :model-value="visible"
     @update:model-value="$emit('update:visible', $event)"
     title="选择素材"
-    width="700px"
+    width="920px"
     append-to-body
+    class="asset-picker-dialog"
   >
-    <!-- 上传区 -->
-    <div style="margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center">
-      <el-radio-group v-model="listFilter" size="small">
-        <el-radio-button label="all">全部</el-radio-button>
-        <el-radio-button label="image">图片</el-radio-button>
-        <el-radio-button label="file">文件</el-radio-button>
-      </el-radio-group>
-      <el-upload
-        :http-request="handleUpload"
-        :show-file-list="false"
-        :accept="acceptType === 'image' ? 'image/*' : undefined"
-      >
-        <el-button type="primary" size="small">上传新素材</el-button>
-      </el-upload>
-    </div>
-    <div class="upload-hint">{{ uploadHint }}</div>
-
-    <!-- 素材列表 -->
-    <div v-loading="loading" style="min-height: 200px">
-      <el-empty v-if="filteredList.length === 0" description="暂无素材" />
-      <!-- 图片模式：网格 -->
-      <div v-if="listFilter === 'image' || listFilter === 'all'" class="asset-grid">
-        <div
-          v-for="item in filteredList"
-          :key="item.id"
-          class="asset-item"
-          :class="{ selected: selectedId === item.id }"
-          @click="selectedId = item.id; selectedAsset = item"
-        >
-          <div class="asset-thumb">
-            <el-image
-              v-if="isImage(item)"
-              :src="buildAssetPreviewUrl(item)"
-              fit="cover"
-              style="width: 100%; height: 100%"
-            />
-            <el-icon v-else :size="32"><Document /></el-icon>
-          </div>
-          <div class="asset-name">{{ item.name }}</div>
+    <div class="asset-picker">
+      <aside class="asset-picker__sidebar">
+        <div class="asset-picker__sidebar-header">
+          <span>素材目录</span>
+          <el-button link type="primary" @click="handleFolderSelect('all')">全部素材</el-button>
         </div>
-      </div>
-      <!-- 文件模式：列表 -->
-      <el-table
-        v-if="listFilter === 'file'"
-        :data="filteredList"
-        highlight-current-row
-        @current-change="(row: any) => { selectedId = row?.id; selectedAsset = row }"
-        size="small"
-      >
-        <el-table-column prop="name" label="文件名" />
-        <el-table-column prop="material_type" label="类型" width="80" />
-        <el-table-column label="大小" width="100">
-          <template #default="{ row }">{{ formatSize(row.file_size) }}</template>
-        </el-table-column>
-      </el-table>
+
+        <button
+          type="button"
+          class="folder-shortcut"
+          :class="{ 'is-active': currentFolderId === 'all' }"
+          @click="handleFolderSelect('all')"
+        >
+          全部素材
+        </button>
+        <button
+          type="button"
+          class="folder-shortcut"
+          :class="{ 'is-active': currentFolderId === 'uncategorized' }"
+          @click="handleFolderSelect('uncategorized')"
+        >
+          未分类
+        </button>
+
+        <el-tree
+          v-if="folderTree.length"
+          :data="folderTree"
+          node-key="id"
+          :current-node-key="currentFolderTreeKey"
+          highlight-current
+          default-expand-all
+          :expand-on-click-node="false"
+          class="folder-tree"
+          @node-click="handleFolderNodeClick"
+        >
+          <template #default="{ data }">
+            <div class="folder-tree__node">
+              <span class="folder-tree__name">{{ data.name }}</span>
+              <span class="folder-tree__count">{{ data.asset_count }}</span>
+            </div>
+          </template>
+        </el-tree>
+
+        <div v-else class="folder-tree__empty">暂无文件夹</div>
+      </aside>
+
+      <section class="asset-picker__main">
+        <div class="asset-picker__toolbar">
+          <div class="asset-picker__toolbar-left">
+            <el-radio-group v-model="listFilter" size="small">
+              <el-radio-button label="all">全部</el-radio-button>
+              <el-radio-button label="image">图片</el-radio-button>
+              <el-radio-button label="file">文件</el-radio-button>
+            </el-radio-group>
+            <div class="asset-picker__summary">
+              <span>{{ currentFolderLabel }}</span>
+              <strong>{{ filteredList.length }}</strong>
+            </div>
+          </div>
+
+          <el-upload
+            :http-request="handleUpload"
+            :show-file-list="false"
+            :accept="acceptType === 'image' ? 'image/*' : undefined"
+          >
+            <el-button type="primary" size="small">上传到当前目录</el-button>
+          </el-upload>
+        </div>
+
+        <div class="upload-hint">{{ uploadHint }}</div>
+
+        <div v-if="folderBreadcrumbs.length" class="asset-picker__breadcrumbs">
+          <button type="button" class="breadcrumb-link" @click="handleFolderSelect('all')">全部素材</button>
+          <template v-for="folder in folderBreadcrumbs" :key="folder.id">
+            <span class="breadcrumb-sep">/</span>
+            <button type="button" class="breadcrumb-link" @click="handleFolderSelect(String(folder.id))">
+              {{ folder.name }}
+            </button>
+          </template>
+        </div>
+
+        <div v-if="childFolders.length" class="child-folder-strip">
+          <button
+            v-for="folder in childFolders"
+            :key="folder.id"
+            type="button"
+            class="child-folder-card"
+            @click="handleFolderSelect(String(folder.id))"
+          >
+            <span class="child-folder-card__name">{{ folder.name }}</span>
+            <span class="child-folder-card__meta">{{ folder.asset_count }} 个素材</span>
+          </button>
+        </div>
+
+        <div v-loading="loading" class="asset-picker__content">
+          <el-empty v-if="filteredList.length === 0" description="当前目录暂无素材" />
+
+          <div v-else-if="listFilter === 'image' || listFilter === 'all'" class="asset-grid">
+            <div
+              v-for="item in filteredList"
+              :key="item.id"
+              class="asset-item"
+              :class="{ selected: selectedId === item.id }"
+              @click="selectedId = item.id; selectedAsset = item"
+            >
+              <div class="asset-thumb">
+                <el-image
+                  v-if="isImage(item)"
+                  :src="buildAssetPreviewUrl(item)"
+                  fit="cover"
+                  style="width: 100%; height: 100%"
+                />
+                <el-icon v-else :size="32"><Document /></el-icon>
+              </div>
+              <div class="asset-name">{{ item.name }}</div>
+              <div class="asset-meta">{{ formatSize(item.file_size) }}</div>
+            </div>
+          </div>
+
+          <el-table
+            v-else
+            :data="filteredList"
+            highlight-current-row
+            @current-change="(row: any) => { selectedId = row?.id; selectedAsset = row }"
+            size="small"
+          >
+            <el-table-column prop="name" label="文件名" />
+            <el-table-column prop="material_type" label="类型" width="80" />
+            <el-table-column label="大小" width="100">
+              <template #default="{ row }">{{ formatSize(row.file_size) }}</template>
+            </el-table-column>
+          </el-table>
+        </div>
+      </section>
     </div>
 
     <template #footer>
@@ -71,7 +151,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { Document } from '@element-plus/icons-vue'
 import request from '@/utils/request'
 import { ElMessage } from 'element-plus'
@@ -87,17 +167,60 @@ const emit = defineEmits<{
   (e: 'select', asset: any): void
 }>()
 
+interface Folder {
+  id: number
+  name: string
+  parent_id: number | null
+  asset_count: number
+  child_count: number
+}
+
 const assets = ref<any[]>([])
+const folders = ref<Folder[]>([])
 const loading = ref(false)
 const listFilter = ref(props.acceptType || 'all')
 const selectedId = ref<number | null>(null)
 const selectedAsset = ref<any>(null)
+const currentFolderId = ref<string>('all')
 const uploadHint = ASSET_UPLOAD_HINT
 
 const filteredList = computed(() => {
-  const available = assets.value.filter((a: any) => a.storage_status !== 'source_missing')
+  let available = assets.value.filter((item: any) => item.storage_status !== 'source_missing')
+  if (currentFolderId.value === 'uncategorized') {
+    available = available.filter((item: any) => item.folder_id == null)
+  }
   if (listFilter.value === 'all') return available
-  return available.filter((a: any) => a.material_type === listFilter.value)
+  return available.filter((item: any) => item.material_type === listFilter.value)
+})
+
+const folderTree = computed(() => buildFolderTree(folders.value))
+const currentFolderTreeKey = computed(() => {
+  if (currentFolderId.value === 'all' || currentFolderId.value === 'uncategorized') return undefined
+  return Number(currentFolderId.value)
+})
+const currentFolder = computed(() => (
+  currentFolderId.value === 'all' || currentFolderId.value === 'uncategorized'
+    ? null
+    : folders.value.find(folder => String(folder.id) === currentFolderId.value) || null
+))
+const childFolders = computed(() => {
+  if (currentFolderId.value === 'uncategorized') return []
+  const parentId = currentFolder.value?.id ?? null
+  return folders.value.filter(folder => folder.parent_id === parentId)
+})
+const currentFolderLabel = computed(() => {
+  if (currentFolderId.value === 'all') return '全部素材'
+  if (currentFolderId.value === 'uncategorized') return '未分类'
+  return currentFolder.value?.name || '当前目录'
+})
+const folderBreadcrumbs = computed(() => {
+  const chain: Folder[] = []
+  let cursor = currentFolder.value
+  while (cursor) {
+    chain.unshift(cursor)
+    cursor = folders.value.find(folder => folder.id === cursor?.parent_id) || null
+  }
+  return chain
 })
 
 const isImage = (item: any) => item.material_type === 'image' || (item.mime_type || '').startsWith('image/')
@@ -105,15 +228,46 @@ const buildAssetPreviewUrl = (item: any) => buildAssetAuthUrl(item.preview_url |
 
 const formatSize = (bytes: number) => {
   if (!bytes) return '-'
-  if (bytes < 1024) return bytes + ' B'
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
-  return (bytes / 1024 / 1024).toFixed(1) + ' MB'
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
-const fetchAssets = async () => {
+const buildFolderTree = (list: Folder[]) => {
+  const grouped = new Map<number | null, Folder[]>()
+  list.forEach(folder => {
+    const key = folder.parent_id ?? null
+    const siblings = grouped.get(key) || []
+    siblings.push(folder)
+    grouped.set(key, siblings)
+  })
+  const build = (parentId: number | null): any[] => (
+    (grouped.get(parentId) || [])
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
+      .map(folder => ({
+        ...folder,
+        children: build(folder.id)
+      }))
+  )
+  return build(null)
+}
+
+const fetchFolders = async () => {
+  try {
+    const res = await request.get('/v1/asset-folders')
+    folders.value = res || []
+  } catch (e) {
+    console.error(e)
+  }
+}
+
+const fetchAssets = async (folderId?: string) => {
   loading.value = true
   try {
-    const res = await request.get('/v1/assets')
+    const params: Record<string, string> = {}
+    if (folderId && folderId !== 'all' && folderId !== 'uncategorized') params.folder_id = folderId
+    const res = await request.get('/v1/assets', { params })
     assets.value = res.list || res
   } catch (e) {
     console.error(e)
@@ -131,14 +285,17 @@ const handleUpload = async (options: any) => {
 
   const formData = new FormData()
   formData.append('file', options.file)
+  if (currentFolderId.value !== 'all' && currentFolderId.value !== 'uncategorized') {
+    formData.append('folder_id', currentFolderId.value)
+  }
+
   try {
-    const res = await request.post('/v1/assets', formData, {
+    await request.post('/v1/assets', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
     ElMessage.success('上传成功')
-    await fetchAssets()
-    // 自动选中新上传的
-    const newAsset = assets.value.find((a: any) => a.name === options.file.name)
+    await Promise.all([fetchAssets(currentFolderId.value), fetchFolders()])
+    const newAsset = [...assets.value].reverse().find((item: any) => item.name === options.file.name)
     if (newAsset) {
       selectedId.value = newAsset.id
       selectedAsset.value = newAsset
@@ -155,27 +312,207 @@ const confirmSelect = () => {
   }
 }
 
+const handleFolderSelect = async (folderId: string) => {
+  currentFolderId.value = folderId
+  selectedId.value = null
+  selectedAsset.value = null
+  await fetchAssets(folderId)
+}
+
+const handleFolderNodeClick = async (folder: Folder) => {
+  await handleFolderSelect(String(folder.id))
+}
+
 watch(() => props.visible, (val) => {
   if (val) {
     selectedId.value = null
     selectedAsset.value = null
     listFilter.value = props.acceptType || 'all'
-    fetchAssets()
+    currentFolderId.value = 'all'
+    void Promise.all([fetchFolders(), fetchAssets('all')])
   }
 })
 </script>
 
 <style scoped>
+.asset-picker {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 18px;
+  min-height: 420px;
+  overflow: hidden;
+}
+
+.asset-picker__sidebar {
+  border-right: 1px solid var(--el-border-color-lighter);
+  padding-right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+}
+
+.asset-picker__sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+.folder-shortcut {
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--el-text-color-secondary);
+  padding: 10px 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+.folder-shortcut:hover,
+.folder-shortcut.is-active {
+  border-color: var(--el-color-primary-light-5);
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+}
+
+.folder-tree {
+  flex: 1;
+  overflow: auto;
+}
+
+.folder-tree__node {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.folder-tree__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder-tree__count {
+  color: var(--el-text-color-placeholder);
+  font-size: 12px;
+}
+
+.folder-tree__empty {
+  color: var(--el-text-color-placeholder);
+  font-size: 12px;
+  padding: 10px 0;
+}
+
+.asset-picker__main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.asset-picker__toolbar {
+  margin-bottom: 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.asset-picker__toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.asset-picker__summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: var(--el-fill-color-light);
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
 .upload-hint {
   margin-bottom: 16px;
   font-size: 12px;
   color: #909399;
 }
+
+.asset-picker__breadcrumbs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.breadcrumb-link {
+  border: none;
+  background: transparent;
+  padding: 0;
+  color: var(--el-color-primary);
+  cursor: pointer;
+}
+
+.breadcrumb-sep {
+  color: var(--el-text-color-placeholder);
+}
+
+.child-folder-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.child-folder-card {
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 12px;
+  background: var(--el-fill-color-blank);
+  padding: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+.child-folder-card:hover {
+  border-color: var(--el-color-primary-light-5);
+  transform: translateY(-1px);
+}
+
+.child-folder-card__name {
+  display: block;
+  color: var(--el-text-color-primary);
+  font-weight: 600;
+}
+
+.child-folder-card__meta {
+  display: block;
+  margin-top: 6px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.asset-picker__content {
+  min-height: 260px;
+  overflow-y: auto;
+  max-height: 420px;
+}
+
 .asset-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
   gap: 12px;
 }
+
 .asset-item {
   cursor: pointer;
   border: 2px solid transparent;
@@ -184,13 +521,16 @@ watch(() => props.visible, (val) => {
   text-align: center;
   transition: border-color 0.2s;
 }
+
 .asset-item:hover {
   border-color: var(--el-color-primary-light-5);
 }
+
 .asset-item.selected {
   border-color: var(--el-color-primary);
   background: var(--el-color-primary-light-9);
 }
+
 .asset-thumb {
   width: 100%;
   height: 100px;
@@ -202,11 +542,23 @@ watch(() => props.visible, (val) => {
   overflow: hidden;
   margin-bottom: 4px;
 }
+
 .asset-name {
   font-size: 12px;
   color: #606266;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.asset-meta {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--el-text-color-placeholder);
+}
+
+html.dark .folder-shortcut,
+html.dark .child-folder-card {
+  background: rgba(20, 24, 31, 0.92);
 }
 </style>

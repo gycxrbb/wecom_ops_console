@@ -23,6 +23,10 @@
           :isBatchSending="isBatchSending"
           :batchProgress="batchProgress"
           :activeBatchIndex="activeBatchIndex"
+          :notifyEnabled="notifyEnabled"
+          :notifyCustomText="notifyCustomText"
+          :notifyAutoText="notifyAutoText"
+          :notifySendStatus="notifySendStatus"
           @contentSelect="handleContentSelect"
           @clearContent="handleClearContent"
           @msgTypeChange="handleMsgTypeChange"
@@ -37,6 +41,8 @@
           @clearBatch="clearBatch"
           @cancelBatchSend="cancelBatchSend"
           @selectBatchItem="selectBatchItem"
+          @update:notifyEnabled="notifyEnabled = $event"
+          @update:notifyCustomText="notifyCustomText = $event"
         />
       </el-col>
 
@@ -135,7 +141,7 @@
 </template>
 
 <script lang="ts">
-defineOptions({ name: 'SendCenter' })
+export default { name: 'SendCenter' }
 </script>
 <script setup lang="ts">
 import { useSendLogic } from './composables/useSendLogic'
@@ -165,6 +171,10 @@ const {
   isScheduling,
   // 批量发送
   batchQueue,
+  notifyEnabled,
+  notifyCustomText,
+  notifyAutoText,
+  notifySendStatus,
   isBatchMode,
   isBatchSending,
   batchProgress,
@@ -236,13 +246,17 @@ const handleBatchItemSend = async () => {
     const failed = Array.isArray(res?.results) ? res.results.filter((r: any) => r?.success === false) : []
     if (failed.length > 0) {
       ElMessage.error(`发送失败：${failed[0]?.response || '未知错误'}`)
+      if (activeBatchIndex.value === -1) notifySendStatus.value = 'failed'
+      else item.status = 'failed'
     } else {
       ElMessage.success('发送成功')
-      item.status = 'success'
+      if (activeBatchIndex.value === -1) notifySendStatus.value = 'success'
+      else item.status = 'success'
     }
   } catch (e: any) {
     ElMessage.error('发送失败: ' + String(e))
-    item.status = 'failed'
+    if (activeBatchIndex.value === -1) notifySendStatus.value = 'failed'
+    else item.status = 'failed'
   }
 }
 </script>

@@ -247,3 +247,21 @@
 - **复现条件**: 上传图片素材后，在发送中心选择图片消息并调用 `/api/v1/preview`。
 - **解决方案**: 将 `build_payload` 调整为 `@classmethod`，让图片分支和后续可能复用存储读取能力的消息类型都能合法访问类级辅助方法。
 - **关联文件**: app/services/wecom.py
+
+## Bug #28: 前端 TypeScript 配置把 ignoreDeprecations 设成 6.0，直接阻断构建
+
+- **日期**: 2026-04-09
+- **现象**: 执行 `npm run build` 时，`vue-tsc` 直接报 `tsconfig.json(16,27): error TS5103: Invalid value for '--ignoreDeprecations'`。
+- **根因**: 当前前端依赖里的 TypeScript 版本是 `5.2.x`，但 `frontend/tsconfig.json` 把 `ignoreDeprecations` 配成了 `6.0`，超出了当前编译器支持范围。
+- **复现条件**: 在当前仓库执行前端构建或类型检查。
+- **解决方案**: 将 `ignoreDeprecations` 调整回当前 TS 版本可接受的 `5.0`，恢复前端构建链路。
+- **关联文件**: frontend/tsconfig.json
+
+## Bug #28: 前端构建被 tsconfig 的 ignoreDeprecations 配置拦住
+
+- **日期**: 2026-04-09
+- **现象**: 执行 `npm run build` 时，`vue-tsc -b` 在读取 `frontend/tsconfig.json` 阶段直接报 `TS5103: Invalid value for '--ignoreDeprecations'`。
+- **根因**: 当前环境里的 TypeScript / vue-tsc 组合不接受仓库里现有的 `ignoreDeprecations: \"5.0\"` 配置，导致即使业务代码正确也会被构建门禁拦下。
+- **复现条件**: 在 `frontend` 目录执行 `npm run build`。
+- **解决方案**: 从 `frontend/tsconfig.json` 去掉这项非必要配置，让构建回到正式编译路径。
+- **关联文件**: frontend/tsconfig.json

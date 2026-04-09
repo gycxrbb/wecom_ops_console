@@ -17,6 +17,7 @@ export const useUserStore = defineStore('user', {
     async fetchUser() {
       try {
         const res = await request.get('/v1/bootstrap')
+        // bootstrap 返回的 current_user 包含 permissions
         this.user = res.current_user
         await this.fetchProfile()
         return res

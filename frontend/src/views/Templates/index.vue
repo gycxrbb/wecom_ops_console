@@ -524,7 +524,7 @@
 </template>
 
 <script lang="ts">
-defineOptions({ name: 'Templates' })
+export default { name: 'Templates' }
 </script>
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'

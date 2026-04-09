@@ -134,6 +134,37 @@ def get_current_user(request: Request, db: Session):
 def require_role(user: models.User, *roles: str):
     if user.role not in roles:
         raise HTTPException(status_code=403, detail='Insufficient permission')
+
+
+ALL_PERMISSIONS = [
+    'send', 'schedule', 'group', 'template',
+    'plan', 'asset', 'log', 'approval',
+]
+
+PERMISSION_LABELS = {
+    'send': '消息发送',
+    'schedule': '定时任务',
+    'group': '群管理',
+    'template': '模板管理',
+    'plan': '运营编排',
+    'asset': '素材管理',
+    'log': '发送记录',
+    'approval': '审批操作',
+}
+
+PERMISSION_GROUPS = {
+    '核心业务': ['send', 'schedule'],
+    '数据管理': ['group', 'template', 'plan', 'asset'],
+    '系统设置': ['log', 'approval'],
+}
+
+
+def require_permission(user: models.User, key: str):
+    if user.role == 'admin':
+        return
+    perms = json_loads(user.permissions_json, {})
+    if not perms.get(key):
+        raise HTTPException(status_code=403, detail=f'缺少 {PERMISSION_LABELS.get(key, key)} 权限')
 import jwt
 from datetime import datetime, timedelta
 

@@ -19,41 +19,45 @@
         <el-icon><DataBoard /></el-icon>
         <span>看板</span>
       </el-menu-item>
-      <el-menu-item index="/send">
+      <el-menu-item index="/send" v-if="moduleVisible('send')">
         <el-icon><Promotion /></el-icon>
         <span>发送中心</span>
       </el-menu-item>
 
       <div class="menu-group" style="margin-top: 20px;">数据管理</div>
-      <el-menu-item index="/groups">
+      <el-menu-item index="/groups" v-if="moduleVisible('group')">
         <el-icon><ChatDotRound /></el-icon>
         <span>群管理</span>
       </el-menu-item>
-      <el-menu-item index="/templates">
+      <el-menu-item index="/templates" v-if="moduleVisible('template')">
         <el-icon><Document /></el-icon>
         <span>模板中心</span>
       </el-menu-item>
-      <el-menu-item index="/assets">
+      <el-menu-item index="/assets" v-if="moduleVisible('asset')">
         <el-icon><Picture /></el-icon>
         <span>素材库</span>
       </el-menu-item>
-      <el-menu-item index="/schedules">
+      <el-menu-item index="/schedules" v-if="moduleVisible('schedule')">
         <el-icon><Timer /></el-icon>
         <span>定时任务</span>
       </el-menu-item>
 
       <div class="menu-group" style="margin-top: 20px;">系统设置</div>
-      <el-menu-item index="/logs">
+      <el-menu-item index="/logs" v-if="moduleVisible('log')">
         <el-icon><Tickets /></el-icon>
         <span>发送记录</span>
       </el-menu-item>
-      <el-menu-item index="/approvals">
+      <el-menu-item index="/approvals" v-if="moduleVisible('approval')">
         <el-icon><Stamp /></el-icon>
         <span>审批中心</span>
       </el-menu-item>
       <el-menu-item index="/users" v-if="userStore.user?.role === 'admin'">
         <el-icon><User /></el-icon>
         <span>用户管理</span>
+      </el-menu-item>
+      <el-menu-item index="/permissions" v-if="userStore.user?.role === 'admin'">
+        <el-icon><Lock /></el-icon>
+        <span>权限管理</span>
       </el-menu-item>
     </el-menu>
 
@@ -84,9 +88,10 @@
 </template>
 
 <script setup lang="ts">
-import { DataBoard, Promotion, ChatDotRound, Document, Picture, Timer, Tickets, Stamp, User, CaretBottom } from '@element-plus/icons-vue'
+import { DataBoard, Promotion, ChatDotRound, Document, Picture, Timer, Tickets, Stamp, User, Lock, CaretBottom } from '@element-plus/icons-vue'
+import { moduleVisible as checkVisible, type PermissionKey } from '@/utils/permissions'
 
-defineProps<{
+const props = defineProps<{
   isDark: boolean
   routePath: string
   userStore: any
@@ -96,6 +101,8 @@ const emit = defineEmits<{
   (e: 'command', command: string): void
   (e: 'navigate'): void
 }>()
+
+const moduleVisible = (key: string) => checkVisible(props.userStore?.user, key as PermissionKey)
 
 const onMenuSelect = () => {
   emit('navigate')

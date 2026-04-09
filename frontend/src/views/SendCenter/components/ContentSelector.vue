@@ -345,7 +345,7 @@ const toggleNodeCheck = (nodeId: number) => {
 }
 
 const confirmBatchSelect = () => {
-  const items: Array<{ id: number; title: string; msg_type: string; contentJson: Record<string, any>; variablesJson: Record<string, any> }> = []
+  const items: Array<{ id: number; title: string; msg_type: string; description: string; contentJson: Record<string, any>; variablesJson: Record<string, any> }> = []
   for (const day of currentDays.value) {
     for (const node of (day.nodes || [])) {
       if (checkedNodeIds.value.has(node.id)) {
@@ -353,6 +353,7 @@ const confirmBatchSelect = () => {
           id: node.id,
           title: `${node.title} (第${day.day_number}天)`,
           msg_type: node.msg_type,
+          description: node.description || '',
           contentJson: node.content_json || {},
           variablesJson: node.variables_json || {},
         })
@@ -626,6 +627,7 @@ html.dark .plan-sidebar__item:hover {
   line-height: 1.4;
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
