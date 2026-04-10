@@ -18,7 +18,7 @@ from .services.scheduler_service import schedule_service
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    Base.metadata.create_all(bind=engine)
+    Base.metadata.create_all(bind=engine, checkfirst=True)
     ensure_schedule_schema(engine)
     ensure_asset_folders_schema(engine)
     ensure_plan_schema(engine)
