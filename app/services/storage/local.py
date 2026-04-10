@@ -19,7 +19,8 @@ class LocalStorageProvider(StorageProvider):
     def _build_object_key(self, filename: str) -> tuple[str, str]:
         suffix = Path(filename).suffix.lower()
         stored_name = f"{datetime.now():%Y/%m/%d}/{uuid4().hex}{suffix}"
-        return stored_name, f"/uploads/{stored_name.replace('\\', '/')}"
+        url_path = stored_name.replace('\\', '/')
+        return stored_name, f"/uploads/{url_path}"
 
     def upload(self, payload: UploadPayload) -> StorageResult:
         stored_name, public_url = self._build_object_key(payload.filename)
