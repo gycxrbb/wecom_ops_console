@@ -73,16 +73,29 @@ def authenticate(db: Session, username: str, password: str):
         db.refresh(local_user)
         return local_user
 
-    if crm_admin_auth_enabled():
-        crm_admin = authenticate_crm_admin(username, password)
-        if not crm_admin:
+    # 本地已有用户且 auth_source 为 local → 直接本地验证，不走 CRM
+    if local_user and (local_user.auth_source or 'local') == 'local':
+        if not verify_password(password, local_user.password_hash):
             return None
-        user = sync_crm_admin_to_local(db, crm_admin)
-        user.last_login_at = datetime.utcnow()
+        local_user.last_login_at = datetime.utcnow()
         db.commit()
-        db.refresh(user)
-        return user
+        db.refresh(local_user)
+        return local_user
 
+    # 非 admin、非本地用户 → 尝试 CRM 认证
+    if crm_admin_auth_enabled():
+        try:
+            crm_admin = authenticate_crm_admin(username, password)
+            if crm_admin:
+                user = sync_crm_admin_to_local(db, crm_admin)
+                user.last_login_at = datetime.utcnow()
+                db.commit()
+                db.refresh(user)
+                return user
+        except CrmAdminAuthUnavailable:
+            pass
+
+    # CRM 未启用 / CRM 认证失败 / CRM 不可用 → 本地兜底
     if not local_user:
         return None
     if not verify_password(password, local_user.password_hash):

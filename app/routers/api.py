@@ -524,7 +524,8 @@ def delete_group(group_id: int, request: Request, db: Session = Depends(get_db))
 def list_templates(request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
     query = db.query(models.Template)
-    if user.role != 'admin':
+    perms = json_loads(user.permissions_json, {})
+    if user.role != 'admin' and not perms.get('template'):
         query = query.filter((models.Template.is_system == True) | (models.Template.owner_id == user.id))
     templates = query.order_by(models.Template.is_system.desc(), models.Template.updated_at.desc()).all()
     return [serialize_template(t) for t in templates]
@@ -753,7 +754,8 @@ async def send_message(request: Request, db: Session = Depends(get_db)):
 def list_schedules(request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
     query = db.query(models.Schedule)
-    if user.role != 'admin':
+    perms = json_loads(user.permissions_json, {})
+    if user.role != 'admin' and not perms.get('schedule'):
         query = query.filter(models.Schedule.owner_id == user.id)
     jobs = query.order_by(models.Schedule.created_at.desc()).all()
     return [serialize_schedule(job) for job in jobs]

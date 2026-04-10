@@ -2,7 +2,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 from .. import models
 from ..config import settings
-from ..security import hash_password, json_dumps, decrypt_webhook
+from ..security import hash_password, json_dumps, json_loads, decrypt_webhook
 
 SYSTEM_TEMPLATES = [
     {
@@ -164,12 +164,19 @@ def _should_be_test_group(group: models.Group) -> bool:
 
 
 def seed_all(db: Session):
+    all_perms = '{"send":true,"schedule":true,"group":true,"template":true,"plan":true,"asset":true,"log":true,"approval":true}'
     if db.query(models.User).count() == 0:
         db.add_all([
             models.User(username=settings.admin_username, display_name='系统管理员', role='admin', auth_source='local', password_hash=hash_password(settings.admin_password)),
-            models.User(username=settings.coach_username, display_name='教练示例账号', role='coach', auth_source='local', password_hash=hash_password(settings.coach_password)),
+            models.User(username=settings.coach_username, display_name='教练示例账号', role='coach', auth_source='local', password_hash=hash_password(settings.coach_password), permissions_json=all_perms),
         ])
         db.commit()
+    else:
+        # 确保 coach 示例账号拥有全部权限
+        coach = db.query(models.User).filter(models.User.username == settings.coach_username).first()
+        if coach and not json_loads(coach.permissions_json, {}):
+            coach.permissions_json = all_perms
+            db.commit()
 
     if db.query(models.Group).count() == 0:
         db.add_all([
