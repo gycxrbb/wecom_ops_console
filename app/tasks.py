@@ -35,7 +35,10 @@ def send_message_task(self, message_id: int):
             db.commit()
             return 'Group disabled or not found'
 
-        webhook_url = decrypt_webhook(group.webhook_cipher) if group.webhook_cipher else ''
+        try:
+            webhook_url = decrypt_webhook(group.webhook_cipher) if group.webhook_cipher else ''
+        except Exception:
+            webhook_url = ''
         if not _has_real_webhook(webhook_url):
             message.status = 'failed'
             message.sent_at = datetime.utcnow()

@@ -77,7 +77,10 @@ def api_get_me(request: Request, db: Session = Depends(get_db)):
 
 
 def serialize_group(group: models.Group):
-    webhook = decrypt_webhook(group.webhook_cipher) if group.webhook_cipher else ''
+    try:
+        webhook = decrypt_webhook(group.webhook_cipher) if group.webhook_cipher else ''
+    except Exception:
+        webhook = ''
     return {
         'id': group.id,
         'name': group.name,
@@ -243,7 +246,10 @@ def has_real_webhook(webhook: str | None) -> bool:
 
 
 def resolve_group_webhook(group: models.Group) -> str:
-    webhook = decrypt_webhook(group.webhook_cipher) if group.webhook_cipher else ''
+    try:
+        webhook = decrypt_webhook(group.webhook_cipher) if group.webhook_cipher else ''
+    except Exception:
+        webhook = ''
     if not has_real_webhook(webhook):
         raise HTTPException(400, f'群“{group.name}”的 webhook 尚未配置为真实企业微信群机器人地址')
     return webhook
