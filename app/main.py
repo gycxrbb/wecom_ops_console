@@ -54,7 +54,16 @@ async def github_webhook(request: Request):
     # 后台执行部署脚本
     deploy_script = """
 cd /www/wwwroot/wecom-ops-console
-git pull
+
+# 用国内镜像拉代码，失败则重试
+git remote set-url origin https://ghproxy.cn/https://github.com/gycxrbb/wecom_ops_console.git
+for i in 1 2 3; do
+    git pull && break
+    echo "git pull attempt $i failed, retrying..." >> data/deploy.log
+    sleep 3
+done
+git remote set-url origin https://github.com/gycxrbb/wecom_ops_console.git
+
 docker compose -f docker-compose.prod.yml build
 docker compose -f docker-compose.prod.yml up -d
 echo "Deployed: $(date)" >> /www/wwwroot/wecom-ops-console/data/deploy.log
