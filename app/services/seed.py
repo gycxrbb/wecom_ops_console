@@ -182,7 +182,10 @@ def seed_all(db: Session):
     updated_groups = False
     has_test_group = any(group.group_type == 'test' for group in groups)
     for group in groups:
-        webhook = decrypt_webhook(group.webhook_cipher) if group.webhook_cipher else ''
+        try:
+            webhook = decrypt_webhook(group.webhook_cipher) if group.webhook_cipher else ''
+        except Exception:
+            webhook = ''
         if _is_placeholder_webhook(webhook):
             group.webhook_cipher = ''
             updated_groups = True
