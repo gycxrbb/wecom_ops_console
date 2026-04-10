@@ -1,14 +1,25 @@
 <template>
   <div class="page-container">
     <div class="page-header">
-      <h1 class="page-title">用户管理</h1>
+      <div>
+        <h1 class="page-title">用户管理</h1>
+        <p class="page-desc">这里创建的是本地登录账号；CRM 成员请到“权限管理”页同步和授权。</p>
+      </div>
       <el-button type="primary" @click="handleCreate">
         <el-icon><Plus /></el-icon> 新增用户
       </el-button>
     </div>
 
     <el-card shadow="never" class="table-card">
-      <el-table :data="users" v-loading="loading" style="width: 100%">
+      <div class="toolbar">
+        <el-input
+          v-model="keyword"
+          placeholder="搜索用户名 / 显示名称 / 角色"
+          clearable
+          class="search-input"
+        />
+      </div>
+      <el-table :data="filteredUsers" v-loading="loading" style="width: 100%">
         <el-table-column prop="id" label="ID" width="80" />
         <el-table-column prop="username" label="用户名" />
         <el-table-column prop="display_name" label="显示名称" />
@@ -76,12 +87,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
 
 const users = ref<any[]>([])
+const keyword = ref('')
 const loading = ref(false)
 const dialogVisible = ref(false)
 const saving = ref(false)
@@ -102,6 +114,16 @@ const rules = {
   display_name: [{ required: true, message: '请输入显示名称', trigger: 'blur' }],
   role: [{ required: true, message: '请选择角色', trigger: 'change' }]
 }
+
+const filteredUsers = computed(() => {
+  const q = keyword.value.trim().toLowerCase()
+  if (!q) return users.value
+  return users.value.filter((user) =>
+    [user.username, user.display_name, user.role]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(q))
+  )
+})
 
 const fetchUsers = async () => {
   loading.value = true
@@ -153,6 +175,7 @@ const saveUser = async () => {
       fetchUsers()
     } catch (error) {
       console.error(error)
+      ElMessage.error((error as any)?.response?.data?.detail || (error as any)?.message || '保存失败')
     } finally {
       saving.value = false
     }
@@ -177,7 +200,20 @@ onMounted(() => {
   max-width: 1200px;
   margin: 0 auto;
 }
+.page-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
 .table-card {
   border-radius: 12px;
+}
+.toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 16px;
+}
+.search-input {
+  width: min(360px, 100%);
 }
 </style>

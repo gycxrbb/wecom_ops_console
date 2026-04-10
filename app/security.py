@@ -61,28 +61,20 @@ def authenticate(db: Session, username: str, password: str):
 
     local_user = db.query(models.User).filter(models.User.username == username, models.User.status == 1).first()
 
-    # 保留当前本地 admin 账号为正式兜底入口，不走外部 CRM 用户库。
-    if username == settings.admin_username:
-        if not local_user:
-            return None
-        if not verify_password(password, local_user.password_hash):
-            return None
+    # 先查本地 users 表，只要本地 hash 能通过就直接登录。
+    # 这样本地账号不会被 CRM 链路拖慢；CRM 镜像账号在本地 hash 不匹配时再回源 CRM。
+    if local_user and local_user.password_hash and verify_password(password, local_user.password_hash):
         local_user.last_login_at = datetime.utcnow()
         local_user.auth_source = local_user.auth_source or 'local'
         db.commit()
         db.refresh(local_user)
         return local_user
 
-    # 本地已有用户且 auth_source 为 local → 直接本地验证，不走 CRM
+    # 本地正式账号本地校验失败后直接拒绝，不再继续尝试 CRM，避免同名外部账号误登录。
     if local_user and (local_user.auth_source or 'local') == 'local':
-        if not verify_password(password, local_user.password_hash):
-            return None
-        local_user.last_login_at = datetime.utcnow()
-        db.commit()
-        db.refresh(local_user)
-        return local_user
+        return None
 
-    # 非 admin、非本地用户 → 尝试 CRM 认证
+    # 仅在本地未命中或当前是 CRM 镜像账号时，才尝试 CRM 认证。
     if crm_admin_auth_enabled():
         try:
             crm_admin = authenticate_crm_admin(username, password)
@@ -95,7 +87,7 @@ def authenticate(db: Session, username: str, password: str):
         except CrmAdminAuthUnavailable:
             pass
 
-    # CRM 未启用 / CRM 认证失败 / CRM 不可用 → 本地兜底
+    # CRM 未启用 / CRM 认证失败 / CRM 不可用 → 对已有镜像账号做最后的本地兜底。
     if not local_user:
         return None
     if not verify_password(password, local_user.password_hash):

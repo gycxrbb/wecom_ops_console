@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import re
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import Response
@@ -471,6 +473,16 @@ def create_plan(body: PlanCreate, request: Request, db: Session = Depends(get_db
     return serialize_plan(get_plan_or_404(db, plan.id), include_days=True)
 
 
+def _safe_download_filename(plan_name: str, ext: str) -> str:
+    """生成 ASCII 安全的 Content-Disposition header 值（仅使用 latin-1 兼容字符）"""
+    # 将所有非 ASCII 字符替换为下划线，只保留安全字符
+    safe = re.sub(r'[^\x20-\x7e]', '_', plan_name)[:50] or 'operation-plan'
+    # 去掉连续下划线
+    safe = re.sub(r'_+', '_', safe).strip('_')
+    filename = f'{safe}.{ext}'
+    return f'attachment; filename="{filename}"'
+
+
 @router.get('/{plan_id}/export')
 def export_plan(plan_id: int, format: str = 'json', request: Request = None, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
@@ -480,19 +492,19 @@ def export_plan(plan_id: int, format: str = 'json', request: Request = None, db:
 
     if format == 'excel':
         data = export_plan_to_excel_bytes(plan)
-        safe_name = plan_name.replace(' ', '_').replace('/', '_')[:50]
+        disposition = _safe_download_filename(plan_name, 'xlsx')
         return Response(
             content=data,
             media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            headers={'Content-Disposition': f'attachment; filename="{safe_name}.xlsx"'},
+            headers={'Content-Disposition': disposition},
         )
 
     data = export_plan_to_json_bytes(plan)
-    safe_name = plan_name.replace(' ', '_').replace('/', '_')[:50]
+    disposition = _safe_download_filename(plan_name, 'json')
     return Response(
         content=data,
         media_type='application/json; charset=utf-8',
-        headers={'Content-Disposition': f'attachment; filename="{safe_name}.json"'},
+        headers={'Content-Disposition': disposition},
     )
 
 

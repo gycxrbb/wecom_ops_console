@@ -196,6 +196,7 @@ cd /www/wwwroot/wecom-ops-console
 
 # 网络修复
 git config --global http.sslVerify false
+git config --global https.sslVerify false
 echo "nameserver 8.8.8.8" > /etc/resolv.conf
 echo "nameserver 1.1.1.1" >> /etc/resolv.conf
 

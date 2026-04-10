@@ -49,11 +49,11 @@ def list_members(request: Request, db: Session = Depends(get_db)):
     except CrmAdminAuthUnavailable:
         pass  # CRM 不可用时仍返回本地已有数据
 
-    # 查询所有 CRM 来源用户（排除 admin）
+    # 查询所有可配置权限的成员：本地账号 + CRM 镜像账号，排除管理员
     users = (
         db.query(models.User)
-        .filter(models.User.auth_source == 'crm', models.User.status == 1)
-        .order_by(models.User.id)
+        .filter(models.User.status == 1, models.User.role != 'admin')
+        .order_by(models.User.auth_source.asc(), models.User.id.asc())
         .all()
     )
     return [
@@ -62,6 +62,8 @@ def list_members(request: Request, db: Session = Depends(get_db)):
             'username': u.username,
             'display_name': u.display_name,
             'avatar_url': u.avatar_url or '',
+            'auth_source': u.auth_source or 'local',
+            'role': u.role,
             'permissions': json_loads(u.permissions_json, {}),
         }
         for u in users

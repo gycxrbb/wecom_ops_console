@@ -979,15 +979,37 @@ async def upsert_user(request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
     require_role(user, 'admin')
     data = parse_body(await request.body())
+    username = (data.get('username') or '').strip()
+    if not username:
+        raise HTTPException(400, '用户名不能为空')
+
     target = db.query(models.User).filter(models.User.id == data.get('id')).first() if data.get('id') else models.User()
+    if data.get('id') and not target:
+        raise HTTPException(404, '用户不存在')
+
+    duplicate = (
+        db.query(models.User)
+        .filter(models.User.username == username)
+        .first()
+    )
+    if duplicate and duplicate.id != target.id:
+        source_label = 'CRM 同步账号' if (duplicate.auth_source or 'local') == 'crm' else '本地账号'
+        raise HTTPException(400, f'用户名“{username}”已存在，当前为{source_label}')
+
+    password = (data.get('password') or '').strip()
+    if not data.get('id') and not password:
+        raise HTTPException(400, '新增用户时必须设置登录密码')
+
     if not data.get('id'):
         db.add(target)
-    target.username = data['username']
-    target.display_name = data.get('display_name', data['username'])
+        target.auth_source = 'local'
+        target.permissions_json = target.permissions_json or '{}'
+    target.username = username
+    target.display_name = data.get('display_name', username)
     target.role = data.get('role', 'coach')
     target.status = bool(data.get('is_active', True))
-    if data.get('password'):
-        target.password_hash = hash_password(data['password'])
+    if password:
+        target.password_hash = hash_password(password)
     db.commit()
     return {'id': target.id, 'username': target.username, 'display_name': target.display_name, 'role': target.role, 'is_active': target.status}
 

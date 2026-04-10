@@ -23,6 +23,8 @@ export type BatchQueueItem = {
   variablesJson: Record<string, any>
   status: 'pending' | 'sending' | 'success' | 'failed'
   error?: string
+  remarkEnabled?: boolean
+  remark?: string
 }
 
 const DRAFT_KEY = 'send-center-draft'
@@ -473,6 +475,8 @@ export function useSendLogic() {
       contentJson: item.contentJson,
       variablesJson: item.variablesJson,
       status: 'pending' as const,
+      remarkEnabled: false,
+      remark: item.description || '',
     }))
     // 进入批量模式时清除单条选中状态
     selectedContentSource.value = null
@@ -482,6 +486,21 @@ export function useSendLogic() {
 
   const removeBatchItem = (index: number) => {
     batchQueue.value.splice(index, 1)
+  }
+
+  const toggleBatchItemRemark = (index: number) => {
+    const item = batchQueue.value[index]
+    if (!item) return
+    item.remarkEnabled = !item.remarkEnabled
+    if (item.remarkEnabled && !item.remark) {
+      item.remark = item.description || ''
+    }
+  }
+
+  const updateBatchItemRemark = (index: number, text: string) => {
+    const item = batchQueue.value[index]
+    if (!item) return
+    item.remark = text
   }
 
   const clearBatch = () => {
@@ -517,7 +536,7 @@ export function useSendLogic() {
       notifySendStatus.value = 'pending'
     }
 
-    // 构建实际发送列表（预告可选插入头部）
+    // 构建实际发送列表（预告可选插入头部，备注可选插入每项之后）
     const sendQueue: Array<{ item: BatchQueueItem; index: number }> = []
     if (notifyEnabled.value && notifyCustomText.value.trim()) {
       sendQueue.push({
@@ -527,6 +546,21 @@ export function useSendLogic() {
     }
     for (let i = 0; i < batchQueue.value.length; i++) {
       sendQueue.push({ item: batchQueue.value[i], index: i })
+      // 备注消息紧跟在该任务后面
+      if (batchQueue.value[i].remarkEnabled && batchQueue.value[i].remark?.trim()) {
+        sendQueue.push({
+          item: {
+            id: -(i + 100),
+            title: `备注: ${batchQueue.value[i].title}`,
+            msg_type: 'markdown',
+            description: '',
+            contentJson: { content: batchQueue.value[i].remark },
+            variablesJson: {},
+            status: 'pending' as const,
+          },
+          index: -2,
+        })
+      }
     }
 
     for (const entry of sendQueue) {
@@ -649,6 +683,8 @@ export function useSendLogic() {
     selectBatchItem,
     handleBatchSelect,
     removeBatchItem,
+    toggleBatchItemRemark,
+    updateBatchItemRemark,
     clearBatch,
     cancelBatchSend,
     handleBatchSend,

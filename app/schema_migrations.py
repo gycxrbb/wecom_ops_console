@@ -202,6 +202,11 @@ def ensure_user_profile_schema(engine: Engine) -> None:
             conn.execute(text("ALTER TABLE users ADD COLUMN avatar_url VARCHAR(255) DEFAULT ''"))
         if "auth_source" not in existing_columns:
             conn.execute(text("ALTER TABLE users ADD COLUMN auth_source VARCHAR(32) DEFAULT 'local'"))
+        inspector = inspect(conn)
+        if not _has_named_index(inspector, "users", "ix_users_status_role_auth_source"):
+            conn.execute(text("CREATE INDEX ix_users_status_role_auth_source ON users (status, role, auth_source)"))
+        if not _has_named_index(inspector, "users", "ix_users_status_auth_source"):
+            conn.execute(text("CREATE INDEX ix_users_status_auth_source ON users (status, auth_source)"))
 
 
 def ensure_plan_schema(engine: Engine) -> None:

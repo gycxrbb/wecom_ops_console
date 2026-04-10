@@ -2,7 +2,16 @@
   <div class="page-container">
     <div class="page-header">
       <h2 class="page-title">权限管理</h2>
-      <p class="page-desc">管理 CRM 运营成员的操作权限。管理员始终拥有全部权限。</p>
+      <p class="page-desc">管理本地账号和 CRM 成员的操作权限。管理员始终拥有全部权限，且不会出现在此列表中。</p>
+    </div>
+
+    <div class="toolbar">
+      <el-input
+        v-model="keyword"
+        placeholder="搜索用户名 / 显示名称 / 账号来源"
+        clearable
+        class="search-input"
+      />
     </div>
 
     <div v-if="loading" style="text-align: center; padding: 60px; color: var(--text-muted)">
@@ -10,12 +19,12 @@
       <span style="margin-left: 8px">加载中...</span>
     </div>
 
-    <div v-else-if="members.length === 0" class="empty-state">
-      <span>暂无 CRM 成员，点击上方按钮同步</span>
+    <div v-else-if="filteredMembers.length === 0" class="empty-state">
+      <span>暂无可配置权限的账号</span>
     </div>
 
     <div v-else class="members-grid">
-      <div v-for="member in members" :key="member.id" class="member-card">
+      <div v-for="member in filteredMembers" :key="member.id" class="member-card">
         <div class="member-card__header">
           <el-avatar :size="36" style="background-color: #22C55E; flex-shrink: 0">
             {{ member.display_name?.charAt(0) || 'U' }}
@@ -23,6 +32,7 @@
           <div class="member-card__info">
             <span class="member-card__name">{{ member.display_name }}</span>
             <span class="member-card__username">{{ member.username }}</span>
+            <span class="member-card__meta">{{ member.auth_source === 'crm' ? 'CRM 同步账号' : '本地账号' }}</span>
           </div>
           <el-button size="small" type="primary" text @click="saveMember(member)" :loading="member._saving">
             保存
@@ -57,6 +67,8 @@ interface Member {
   username: string
   display_name: string
   avatar_url: string
+  auth_source: string
+  role: string
   permissions: Record<string, boolean>
   _saving?: boolean
 }
@@ -67,8 +79,24 @@ interface PermGroup {
 }
 
 const members = ref<Member[]>([])
+const keyword = ref('')
 const loading = ref(false)
 const permissionGroups = ref<PermGroup[]>([])
+
+const filteredMembers = computed(() => {
+  const q = keyword.value.trim().toLowerCase()
+  if (!q) return members.value
+  return members.value.filter((member) =>
+    [
+      member.username,
+      member.display_name,
+      member.auth_source === 'crm' ? 'crm 同步账号' : '本地账号',
+      member.auth_source,
+    ]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(q))
+  )
+})
 
 const fetchSchema = async () => {
   try {
@@ -125,6 +153,14 @@ onMounted(() => {
   color: var(--text-muted);
   margin-top: 4px;
 }
+.toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 16px;
+}
+.search-input {
+  width: min(360px, 100%);
+}
 .empty-state {
   text-align: center;
   padding: 60px 20px;
@@ -163,6 +199,15 @@ onMounted(() => {
   display: block;
   font-size: 12px;
   color: var(--text-muted);
+}
+.member-card__meta {
+  display: inline-flex;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: rgba(34, 197, 94, 0.08);
+  border-radius: 999px;
+  padding: 2px 8px;
 }
 .member-card__body {
   padding: 16px 20px;

@@ -131,30 +131,54 @@
           <div
             v-for="(item, index) in batchQueue"
             :key="item.id"
-            class="batch-queue__item"
-            :class="{
-              'is-active': activeBatchIndex === index,
-              'is-sending': item.status === 'sending',
-              'is-success': item.status === 'success',
-              'is-failed': item.status === 'failed'
-            }"
-            @click="$emit('selectBatchItem', index)"
+            class="batch-queue__item-wrapper"
           >
-            <div class="batch-queue__item-index">{{ index + 1 }}</div>
-            <div class="batch-queue__item-info">
-              <span class="batch-queue__item-title">{{ item.title }}</span>
+            <div
+              class="batch-queue__item"
+              :class="{
+                'is-active': activeBatchIndex === index,
+                'is-sending': item.status === 'sending',
+                'is-success': item.status === 'success',
+                'is-failed': item.status === 'failed'
+              }"
+              @click="$emit('selectBatchItem', index)"
+            >
+              <div class="batch-queue__item-index">{{ index + 1 }}</div>
+              <div class="batch-queue__item-info">
+                <span class="batch-queue__item-title">{{ item.title }}</span>
+              </div>
+              <el-tag size="small" :type="tagTypeByMsgType(item.msg_type)">{{ msgTypeLabel(item.msg_type) }}</el-tag>
+              <div class="batch-queue__item-status">
+                <el-icon v-if="item.status === 'sending'" class="is-loading"><Loading /></el-icon>
+                <el-icon v-else-if="item.status === 'success'" color="#67c23a"><CircleCheckFilled /></el-icon>
+                <el-icon v-else-if="item.status === 'failed'" color="#f56c6c"><CircleCloseFilled /></el-icon>
+              </div>
+              <button
+                v-if="!isBatchSending"
+                type="button"
+                class="batch-queue__item-remark-btn"
+                :class="{ 'is-active': item.remarkEnabled }"
+                @click.stop="$emit('toggleRemark', index)"
+                title="添加备注"
+              >备注</button>
+              <el-icon
+                v-if="!isBatchSending"
+                class="batch-queue__item-remove"
+                @click.stop="$emit('removeBatchItem', index)"
+              ><Close /></el-icon>
             </div>
-            <el-tag size="small" :type="tagTypeByMsgType(item.msg_type)">{{ msgTypeLabel(item.msg_type) }}</el-tag>
-            <div class="batch-queue__item-status">
-              <el-icon v-if="item.status === 'sending'" class="is-loading"><Loading /></el-icon>
-              <el-icon v-else-if="item.status === 'success'" color="#67c23a"><CircleCheckFilled /></el-icon>
-              <el-icon v-else-if="item.status === 'failed'" color="#f56c6c"><CircleCloseFilled /></el-icon>
-            </div>
-            <el-icon
-              v-if="!isBatchSending"
-              class="batch-queue__item-remove"
-              @click="$emit('removeBatchItem', index)"
-            ><Close /></el-icon>
+            <transition name="el-zoom-in-top">
+              <div v-if="item.remarkEnabled" class="batch-queue__remark" @click.stop>
+                <el-input
+                  type="textarea"
+                  :rows="3"
+                  :model-value="item.remark"
+                  @update:model-value="$emit('updateRemark', index, $event)"
+                  placeholder="备注内容（Markdown 格式）..."
+                  class="batch-queue__remark-input"
+                />
+              </div>
+            </transition>
           </div>
         </div>
         <div v-if="batchProgress.done > 0" class="batch-queue__summary">
@@ -281,6 +305,7 @@ defineEmits([
   'msgTypeChange', 'contentUpdate', 'variablesUpdate',
   // 批量模式
   'batchSelect', 'batchSend', 'removeBatchItem', 'clearBatch', 'cancelBatchSend', 'selectBatchItem',
+  'toggleRemark', 'updateRemark',
   // 预告通知
   'update:notifyEnabled', 'update:notifyCustomText'
 ])
@@ -532,6 +557,37 @@ const tagTypeByMsgType = (msgType: string) => {
 }
 .batch-queue__item-remove:hover {
   color: #f56c6c;
+}
+.batch-queue__item-wrapper {
+  display: flex;
+  flex-direction: column;
+}
+.batch-queue__item-remark-btn {
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 1px 6px;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+.batch-queue__item-remark-btn:hover {
+  border-color: var(--el-color-primary, #409eff);
+  color: var(--el-color-primary, #409eff);
+}
+.batch-queue__item-remark-btn.is-active {
+  border-color: var(--el-color-primary, #409eff);
+  background: rgba(64, 158, 255, 0.08);
+  color: var(--el-color-primary, #409eff);
+}
+.batch-queue__remark {
+  padding: 6px 12px 8px 36px;
+}
+.batch-queue__remark-input :deep(.el-textarea__inner) {
+  font-size: 12px;
+  border-radius: 8px;
 }
 .batch-queue__item--notify {
   border-left: 3px solid #67c23a;

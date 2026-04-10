@@ -546,7 +546,7 @@ export function useOperationPlans() {
 
   const exportPlan = async (planId: number, format: 'json' | 'excel') => {
     try {
-      const token = localStorage.getItem('token') || ''
+      const token = localStorage.getItem('access_token') || ''
       const url = `/api/v1/operation-plans/${planId}/export?format=${format}`
       const resp = await fetch(url, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},

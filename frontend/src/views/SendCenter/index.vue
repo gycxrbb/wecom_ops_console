@@ -41,6 +41,8 @@
           @clearBatch="clearBatch"
           @cancelBatchSend="cancelBatchSend"
           @selectBatchItem="selectBatchItem"
+          @toggleRemark="toggleBatchItemRemark"
+          @updateRemark="updateBatchItemRemark"
           @update:notifyEnabled="notifyEnabled = $event"
           @update:notifyCustomText="notifyCustomText = $event"
         />
@@ -186,6 +188,8 @@ const {
   selectBatchItem,
   handleBatchSelect,
   removeBatchItem,
+  toggleBatchItemRemark,
+  updateBatchItemRemark,
   clearBatch,
   cancelBatchSend,
   handleBatchSend,
