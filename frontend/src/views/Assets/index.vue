@@ -181,6 +181,13 @@
       :initial-name="folderDialogInitialName"
       @confirm="handleFolderDialogConfirm"
     />
+
+    <CompressDialog
+      v-model="compressDialogVisible"
+      :file="pendingLargeFile"
+      @compress="handleCompressed"
+      @upload-original="handleUploadOriginal"
+    />
   </div>
 </template>
 
@@ -194,6 +201,8 @@ import { useFolders } from './composables/useFolders'
 import FolderSidebar from './components/FolderSidebar.vue'
 import AssetGrid from './components/AssetGrid.vue'
 import FolderDialog from './components/FolderDialog.vue'
+import CompressDialog from './components/CompressDialog.vue'
+import { isCompressibleImage } from '@/utils/imageCompress'
 import type { Folder } from './composables/useFolders'
 
 const {
@@ -209,6 +218,12 @@ const {
 const activeFolderId = ref<string>('all')
 const uploading = ref(false)
 const uploadProgress = ref({ done: 0, total: 0 })
+
+// ---- 压缩对话框 ----
+const LARGE_FILE_THRESHOLD = 20 * 1024 * 1024
+const compressDialogVisible = ref(false)
+const pendingLargeFile = ref<File | null>(null)
+const pendingFolderId = ref<number | null>(null)
 
 const uploadButtonText = computed(() => {
   if (!uploading.value) return '上传素材'
@@ -287,6 +302,14 @@ const handleFileChange = async (uploadFile: any) => {
     folderId = Number(activeFolderId.value)
   }
 
+  // 大文件检测：>= 20MB 弹出压缩对话框
+  if (file.size >= LARGE_FILE_THRESHOLD) {
+    pendingLargeFile.value = file
+    pendingFolderId.value = folderId
+    compressDialogVisible.value = true
+    return
+  }
+
   uploading.value = true
   try {
     await uploadAsset(file, folderId, true)
@@ -296,6 +319,36 @@ const handleFileChange = async (uploadFile: any) => {
     ElMessage.error('上传失败')
   } finally {
     uploading.value = false
+  }
+}
+
+const handleCompressed = async (blob: Blob, originalFile: File) => {
+  const newName = originalFile.name.replace(/\.[^.]+$/, '.jpg')
+  const compressedFile = new File([blob], newName, { type: 'image/jpeg' })
+  uploading.value = true
+  try {
+    await uploadAsset(compressedFile, pendingFolderId.value, true)
+    await Promise.all([refreshCurrentAssets(), fetchFolders()])
+    ElMessage.success('压缩上传成功')
+  } catch {
+    ElMessage.error('上传失败')
+  } finally {
+    uploading.value = false
+    pendingLargeFile.value = null
+  }
+}
+
+const handleUploadOriginal = async (file: File) => {
+  uploading.value = true
+  try {
+    await uploadAsset(file, pendingFolderId.value, true)
+    await Promise.all([refreshCurrentAssets(), fetchFolders()])
+    ElMessage.success('上传成功')
+  } catch {
+    ElMessage.error('上传失败')
+  } finally {
+    uploading.value = false
+    pendingLargeFile.value = null
   }
 }
 
