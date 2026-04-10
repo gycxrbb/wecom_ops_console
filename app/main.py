@@ -1,5 +1,5 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 from .config import STATIC_DIR, UPLOAD_DIR, FRONTEND_DIR, settings
@@ -15,6 +15,9 @@ from .routers.api_schedule_tools import router as schedule_tools_router
 from .routers.api_permissions import router as permissions_router
 from .services.seed import seed_all
 from .services.scheduler_service import schedule_service
+import subprocess
+import hashlib
+import hmac
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -35,6 +38,31 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
 app.add_middleware(SessionMiddleware, secret_key=settings.app_secret_key)
+
+
+# === GitHub Webhook 自动部署 ===
+WEBHOOK_SECRET = settings.app_secret_key  # 复用 APP_SECRET_KEY 作为签名密钥
+
+@app.post('/webhook/deploy')
+async def github_webhook(request: Request):
+    # 简单鉴权：通过 query parameter 传 key
+    key = request.query_params.get('key', '')
+    expected_key = hashlib.sha256(WEBHOOK_SECRET.encode()).hexdigest()[:16]
+    if key != expected_key:
+        return {"error": "unauthorized"}
+
+    # 后台执行部署脚本
+    deploy_script = """
+cd /www/wwwroot/wecom-ops-console
+git pull
+docker compose -f docker-compose.prod.yml build
+docker compose -f docker-compose.prod.yml up -d
+echo "Deployed: $(date)" >> /www/wwwroot/wecom-ops-console/data/deploy.log
+"""
+    subprocess.Popen(['bash', '-c', deploy_script])
+    return {"status": "deploying"}
+
+
 app.mount('/static', StaticFiles(directory=str(STATIC_DIR)), name='static')
 app.mount('/uploads', StaticFiles(directory=str(UPLOAD_DIR)), name='uploads')
 app.include_router(auth_router)
