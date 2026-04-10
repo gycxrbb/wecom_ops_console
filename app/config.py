@@ -6,6 +6,7 @@ DATA_DIR = BASE_DIR / 'data'
 UPLOAD_DIR = DATA_DIR / 'uploads'
 TEMPLATE_DIR = BASE_DIR / 'app' / 'templates'
 STATIC_DIR = BASE_DIR / 'app' / 'static'
+FRONTEND_DIR = BASE_DIR / 'frontend' / 'dist'
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=str(BASE_DIR / '.env'), env_file_encoding='utf-8', extra='ignore')

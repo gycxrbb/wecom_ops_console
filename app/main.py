@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
-from .config import STATIC_DIR, UPLOAD_DIR, settings
+from .config import STATIC_DIR, UPLOAD_DIR, FRONTEND_DIR, settings
 from .database import Base, engine, SessionLocal
 from .routers.auth import router as auth_router
 from .routers.pages import router as pages_router
@@ -45,3 +45,15 @@ app.include_router(operation_plans_router)
 app.include_router(profile_router)
 app.include_router(schedule_tools_router)
 app.include_router(permissions_router)
+
+# Vue SPA 前端（必须在所有 API 路由之后 mount）
+if FRONTEND_DIR.exists():
+    from fastapi.responses import FileResponse
+    import os
+
+    @app.get('/{full_path:path}')
+    async def serve_spa(full_path: str):
+        file_path = FRONTEND_DIR / full_path
+        if full_path and file_path.exists() and file_path.is_file():
+            return FileResponse(str(file_path))
+        return FileResponse(str(FRONTEND_DIR / 'index.html'))
