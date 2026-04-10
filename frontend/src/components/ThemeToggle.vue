@@ -1,17 +1,17 @@
 <template>
   <div class="theme-toggle-wrapper" @click="toggleTheme" :class="{ 'is-dark': isDark }">
-    <div class="theme-toggle-bg" ref="bgRef"></div>
-    
+    <div class="theme-toggle-bg"></div>
+
     <!-- 状态文字 -->
     <div class="theme-toggle-text-container">
-      <span ref="textLightRef" class="toggle-text text-light">浅色</span>
-      <span ref="textDarkRef" class="toggle-text text-dark">深色</span>
+      <span class="toggle-text text-light" :class="{ 'is-hidden': isDark }">浅色</span>
+      <span class="toggle-text text-dark" :class="{ 'is-hidden': !isDark }">深色</span>
     </div>
 
     <!-- 滑块与内部图标 -->
-    <div class="theme-toggle-thumb" ref="thumbRef">
+    <div class="theme-toggle-thumb" :class="{ 'is-dark-thumb': isDark }">
       <!-- 太阳图标 (Light) -->
-      <svg ref="sunRef" class="thumb-icon sun-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <svg class="thumb-icon sun-icon" :class="{ 'icon-hidden': isDark }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="12" cy="12" r="5" />
         <line x1="12" y1="1" x2="12" y2="3" />
         <line x1="12" y1="21" x2="12" y2="23" />
@@ -24,7 +24,7 @@
       </svg>
 
       <!-- 月亮图标 (Dark) -->
-      <svg ref="moonRef" class="thumb-icon moon-icon" viewBox="0 0 24 24" fill="currentColor">
+      <svg class="thumb-icon moon-icon" :class="{ 'icon-hidden': !isDark }" viewBox="0 0 24 24" fill="currentColor">
         <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
       </svg>
     </div>
@@ -32,8 +32,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from "vue"
-import gsap from "gsap"
+import { ref, watch } from "vue"
 
 const props = defineProps({
   modelValue: {
@@ -45,55 +44,16 @@ const props = defineProps({
 const emit = defineEmits(["update:modelValue", "change"])
 const isDark = ref(props.modelValue)
 
-// Refs for animation
-const bgRef = ref<HTMLElement | null>(null)
-const thumbRef = ref<HTMLElement | null>(null)
-const sunRef = ref<HTMLElement | null>(null)
-const moonRef = ref<HTMLElement | null>(null)
-const textLightRef = ref<HTMLElement | null>(null)
-const textDarkRef = ref<HTMLElement | null>(null)
-
-const animate = (immediate = false) => {
-  if (!bgRef.value || !thumbRef.value || !sunRef.value || !moonRef.value || !textLightRef.value || !textDarkRef.value) {
-    return
-  }
-  const tl = gsap.timeline({ defaults: { duration: immediate ? 0 : 0.4, ease: "back.out(1.2)" } })
-
-  if (isDark.value) {
-    // 深色模式动画
-    tl.to(thumbRef.value, { x: 44 }, 0)
-      .to(sunRef.value, { opacity: 0, rotate: -90, scale: 0.5, duration: immediate ? 0 : 0.25, ease: "power2.in" }, 0)
-      .to(moonRef.value, { opacity: 1, rotate: 0, scale: 1, duration: immediate ? 0 : 0.25, ease: "power2.out" }, 0.1)
-      .to(bgRef.value, { background: "linear-gradient(135deg, #1e293b, #0f172a)" }, 0)
-      .to(textLightRef.value, { opacity: 0, x: -10 }, 0)
-      .to(textDarkRef.value, { opacity: 1, x: 0 }, 0.1)
-  } else {
-    // 浅色模式动画
-    tl.to(thumbRef.value, { x: 0 }, 0)
-      .to(moonRef.value, { opacity: 0, rotate: 90, scale: 0.5, duration: immediate ? 0 : 0.25, ease: "power2.in" }, 0)
-      .to(sunRef.value, { opacity: 1, rotate: 0, scale: 1, duration: immediate ? 0 : 0.25, ease: "power2.out" }, 0.1)
-      .to(bgRef.value, { background: "linear-gradient(135deg, #e0f2fe, #bae6fd)" }, 0)
-      .to(textDarkRef.value, { opacity: 0, x: 10 }, 0)
-      .to(textLightRef.value, { opacity: 1, x: 0 }, 0.1)
-  }
-}
-
 const toggleTheme = () => {
   isDark.value = !isDark.value
   emit("update:modelValue", isDark.value)
   emit("change", isDark.value)
-  animate()
 }
 
 watch(() => props.modelValue, (val) => {
   if (isDark.value !== val) {
     isDark.value = val
-    animate()
   }
-})
-
-onMounted(() => {
-  animate(true) // 初始化状态，不带延迟
 })
 </script>
 
@@ -109,6 +69,7 @@ onMounted(() => {
   user-select: none;
   margin-right: 16px;
   border: 1px solid rgba(255, 255, 255, 0.2);
+  transition: border-color 0.3s, box-shadow 0.3s;
 }
 
 .is-dark.theme-toggle-wrapper {
@@ -121,6 +82,12 @@ onMounted(() => {
   inset: 0;
   border-radius: 16px;
   z-index: 1;
+  background: linear-gradient(135deg, #e0f2fe, #bae6fd);
+  transition: background 0.4s ease;
+}
+
+.is-dark .theme-toggle-bg {
+  background: linear-gradient(135deg, #1e293b, #0f172a);
 }
 
 .theme-toggle-text-container {
@@ -137,16 +104,41 @@ onMounted(() => {
 
 .toggle-text {
   position: absolute;
+  transition: opacity 0.3s ease, transform 0.3s ease;
 }
 
 .text-light {
-  right: 10px; /* 浅色模式时右边显示文字 */
+  right: 10px;
   color: #0c4a6e;
+  opacity: 1;
+  transform: translateX(0);
 }
 
 .text-dark {
-  left: 12px; /* 深色模式时左边显示文字 */
+  left: 12px;
   color: #f8fafc;
+  opacity: 0;
+  transform: translateX(10px);
+}
+
+.text-light.is-hidden {
+  opacity: 0;
+  transform: translateX(-10px);
+}
+
+.text-dark.is-hidden {
+  opacity: 0;
+  transform: translateX(10px);
+}
+
+.text-dark:not(.is-hidden) {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.text-light:not(.is-hidden) {
+  opacity: 1;
+  transform: translateX(0);
 }
 
 .theme-toggle-thumb {
@@ -162,9 +154,13 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  transition: transform 0.4s cubic-bezier(0.68, -0.2, 0.27, 1.2),
+              background 0.3s ease,
+              box-shadow 0.3s ease;
 }
 
-.is-dark .theme-toggle-thumb {
+.theme-toggle-thumb.is-dark-thumb {
+  transform: translateX(44px);
   background: #1e293b;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
 }
@@ -173,13 +169,37 @@ onMounted(() => {
   position: absolute;
   width: 14px;
   height: 14px;
+  transition: opacity 0.25s ease, transform 0.3s ease;
 }
 
 .sun-icon {
   color: #f59e0b;
+  opacity: 1;
+  transform: rotate(0deg) scale(1);
 }
 
 .moon-icon {
   color: #fbbf24;
+  opacity: 0;
+  transform: rotate(90deg) scale(0.5);
+}
+
+.icon-hidden {
+  opacity: 0;
+}
+
+.sun-icon.icon-hidden {
+  opacity: 0;
+  transform: rotate(-90deg) scale(0.5);
+}
+
+.moon-icon:not(.icon-hidden) {
+  opacity: 1;
+  transform: rotate(0deg) scale(1);
+}
+
+.sun-icon:not(.icon-hidden) {
+  opacity: 1;
+  transform: rotate(0deg) scale(1);
 }
 </style>

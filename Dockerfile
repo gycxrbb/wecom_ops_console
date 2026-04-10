@@ -4,7 +4,7 @@ WORKDIR /build
 COPY frontend/package.json frontend/package-lock.json* ./
 RUN npm install --registry=https://registry.npmmirror.com
 COPY frontend/ .
-RUN npm run build
+RUN npx vite build
 
 # === Stage 2: Python 应用 ===
 FROM python:3.11-slim
