@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
@@ -22,6 +24,10 @@ from ..services.crm_admin_auth import (
 
 router = APIRouter(prefix='/api/v1/permissions', tags=['permissions'])
 
+# CRM 管理员同步缓存：每 5 分钟最多同步一次远程 CRM 数据库
+_last_crm_sync = 0.0
+_CRM_SYNC_INTERVAL = 300  # 秒
+
 
 @router.get('/schema')
 def get_permission_schema(request: Request, db: Session = Depends(get_db)):
@@ -41,13 +47,17 @@ def list_members(request: Request, db: Session = Depends(get_db)):
     user = get_current_user(request, db)
     require_role(user, 'admin')
 
-    # 从 CRM 拉取所有活跃成员并同步到本地
-    try:
-        crm_admins = fetch_all_crm_admins()
-        for admin in crm_admins:
-            sync_crm_admin_to_local(db, admin)
-    except CrmAdminAuthUnavailable:
-        pass  # CRM 不可用时仍返回本地已有数据
+    # 从 CRM 拉取所有活跃成员并同步到本地（每 5 分钟最多同步一次）
+    global _last_crm_sync
+    now = time.time()
+    if now - _last_crm_sync >= _CRM_SYNC_INTERVAL:
+        try:
+            crm_admins = fetch_all_crm_admins()
+            for admin in crm_admins:
+                sync_crm_admin_to_local(db, admin)
+            _last_crm_sync = now
+        except CrmAdminAuthUnavailable:
+            pass  # CRM 不可用时仍返回本地已有数据
 
     # 查询所有可配置权限的成员：本地账号 + CRM 镜像账号，排除管理员
     users = (

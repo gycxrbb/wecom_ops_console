@@ -85,6 +85,7 @@
           @save-day="saveDayDraft"
           @reset-day="resetDayDraft"
           @add-node="addNode"
+          @add-node-after="addNode"
           @remove-node="removeNode"
         />
 
@@ -103,6 +104,7 @@
           @reset="resetNodeDraft"
           @apply-template="handleApplyTemplate"
           @sync-node="confirmAndOpenSyncNode"
+          @copy-node="workbench.copyNode"
           @prev-node="workbench.goToPrevNode"
           @next-node="workbench.goToNextNode"
           @update:selected-template-id="(id: number) => selectedTemplateId = id"
@@ -828,6 +830,7 @@ const workbench = useWorkbenchActions({
   nodeSaving,
   selectNode,
   selectDay,
+  addNode,
   saveNodeDraft,
   confirmDiscardDraft,
 })

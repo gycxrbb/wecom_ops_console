@@ -6,6 +6,9 @@
     width="920px"
     append-to-body
     class="asset-picker-dialog"
+    :close-on-click-modal="!uploading"
+    :close-on-press-escape="!uploading"
+    :show-close="!uploading"
   >
     <div class="asset-picker">
       <aside class="asset-picker__sidebar">
@@ -71,12 +74,25 @@
             :http-request="handleUpload"
             :show-file-list="false"
             :accept="acceptType === 'image' ? 'image/*' : undefined"
+            :disabled="uploading"
           >
-            <el-button type="primary" size="small">上传到当前目录</el-button>
+            <el-button type="primary" size="small" :loading="uploading">
+              {{ uploading ? uploadButtonText : '上传到当前目录' }}
+            </el-button>
           </el-upload>
         </div>
 
         <div class="upload-hint">{{ uploadHint }}</div>
+
+        <transition name="upload-status-fade">
+          <div v-if="uploading" class="asset-picker__upload-status">
+            <el-icon class="asset-picker__upload-status-icon is-spinning"><Loading /></el-icon>
+            <div class="asset-picker__upload-status-copy">
+              <strong>{{ uploadStatusTitle }}</strong>
+              <span>{{ uploadStatusDesc }}</span>
+            </div>
+          </div>
+        </transition>
 
         <div v-if="folderBreadcrumbs.length" class="asset-picker__breadcrumbs">
           <button type="button" class="breadcrumb-link" @click="handleFolderSelect('all')">全部素材</button>
@@ -101,7 +117,7 @@
           </button>
         </div>
 
-        <div v-loading="loading" class="asset-picker__content">
+        <div v-loading="loading || uploading" :element-loading-text="uploadStatusTitle" class="asset-picker__content">
           <el-empty v-if="filteredList.length === 0" description="当前目录暂无素材" />
 
           <div v-else-if="listFilter === 'image' || listFilter === 'all'" class="asset-grid">
@@ -144,15 +160,15 @@
     </div>
 
     <template #footer>
-      <el-button @click="$emit('update:visible', false)">取消</el-button>
-      <el-button type="primary" :disabled="!selectedId" @click="confirmSelect">确认选择</el-button>
+      <el-button :disabled="uploading" @click="$emit('update:visible', false)">取消</el-button>
+      <el-button type="primary" :disabled="!selectedId || uploading" @click="confirmSelect">确认选择</el-button>
     </template>
   </el-dialog>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { Document } from '@element-plus/icons-vue'
+import { Document, Loading } from '@element-plus/icons-vue'
 import request from '@/utils/request'
 import { ElMessage } from 'element-plus'
 import { ASSET_UPLOAD_HINT, buildAssetAuthUrl, validateAssetUpload } from '@/utils/assets'
@@ -178,6 +194,8 @@ interface Folder {
 const assets = ref<any[]>([])
 const folders = ref<Folder[]>([])
 const loading = ref(false)
+const uploading = ref(false)
+const uploadingFileName = ref('')
 const listFilter = ref(props.acceptType || 'all')
 const selectedId = ref<number | null>(null)
 const selectedAsset = ref<any>(null)
@@ -222,6 +240,17 @@ const folderBreadcrumbs = computed(() => {
   }
   return chain
 })
+
+const uploadButtonText = computed(() => (
+  uploadingFileName.value ? `上传中: ${uploadingFileName.value}` : '上传中...'
+))
+
+const uploadStatusTitle = computed(() => `正在上传到${currentFolderLabel.value}`)
+const uploadStatusDesc = computed(() => (
+  uploadingFileName.value
+    ? `文件「${uploadingFileName.value}」上传完成前，请稍候片刻。`
+    : '素材上传完成后会自动刷新当前目录并选中新素材。'
+))
 
 const isImage = (item: any) => item.material_type === 'image' || (item.mime_type || '').startsWith('image/')
 const buildAssetPreviewUrl = (item: any) => buildAssetAuthUrl(item.preview_url || item.url)
@@ -277,6 +306,7 @@ const fetchAssets = async (folderId?: string) => {
 }
 
 const handleUpload = async (options: any) => {
+  if (uploading.value) return
   const validation = validateAssetUpload(options.file, props.acceptType || 'all')
   if (!validation.valid) {
     ElMessage.warning(validation.message)
@@ -290,6 +320,8 @@ const handleUpload = async (options: any) => {
   }
 
   try {
+    uploading.value = true
+    uploadingFileName.value = options.file?.name || ''
     await request.post('/v1/assets', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
@@ -302,6 +334,9 @@ const handleUpload = async (options: any) => {
     }
   } catch (e) {
     ElMessage.error('上传失败')
+  } finally {
+    uploading.value = false
+    uploadingFileName.value = ''
   }
 }
 
@@ -329,6 +364,8 @@ watch(() => props.visible, (val) => {
     selectedAsset.value = null
     listFilter.value = props.acceptType || 'all'
     currentFolderId.value = 'all'
+    uploading.value = false
+    uploadingFileName.value = ''
     void Promise.all([fetchFolders(), fetchAssets('all')])
   }
 })
@@ -446,6 +483,42 @@ watch(() => props.visible, (val) => {
   color: #909399;
 }
 
+.asset-picker__upload-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(64, 158, 255, 0.24);
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(64, 158, 255, 0.08), rgba(103, 194, 58, 0.08));
+}
+
+.asset-picker__upload-status-icon {
+  color: var(--el-color-primary);
+  font-size: 18px;
+  flex: 0 0 auto;
+}
+
+.asset-picker__upload-status-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.asset-picker__upload-status-copy strong {
+  color: var(--el-text-color-primary);
+  font-size: 13px;
+}
+
+.asset-picker__upload-status-copy span {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
 .asset-picker__breadcrumbs {
   display: flex;
   align-items: center;
@@ -560,5 +633,16 @@ watch(() => props.visible, (val) => {
 html.dark .folder-shortcut,
 html.dark .child-folder-card {
   background: rgba(20, 24, 31, 0.92);
+}
+
+.upload-status-fade-enter-active,
+.upload-status-fade-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.upload-status-fade-enter-from,
+.upload-status-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
 }
 </style>

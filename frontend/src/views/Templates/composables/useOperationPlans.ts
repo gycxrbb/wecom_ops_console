@@ -372,7 +372,7 @@ export function useOperationPlans() {
     }
   }
 
-  const addNode = async (afterNodeId?: number | null) => {
+  const addNode = async (afterNodeId?: number | null, overrides?: Partial<PlanNode>) => {
     if (!currentDay.value) return
     const day = currentDay.value
     // 计算插入位置的 sort_order
@@ -394,13 +394,13 @@ export function useOperationPlans() {
     }
     try {
       const saved = await request.post(`/v1/operation-plans/days/${day.id}/nodes`, {
-        node_type: 'custom',
-        title: '新节点',
-        description: '',
+        node_type: overrides?.node_type || 'custom',
+        title: overrides?.title || '新节点',
+        description: overrides?.description || '',
         sort_order: sortOrder,
-        msg_type: 'markdown',
-        content_json: { content: '' },
-        variables_json: {},
+        msg_type: overrides?.msg_type || 'markdown',
+        content_json: overrides?.content_json || { content: '' },
+        variables_json: overrides?.variables_json || {},
         status: 'draft',
         enabled: true
       })

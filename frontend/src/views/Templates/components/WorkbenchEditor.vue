@@ -17,14 +17,19 @@
         <span class="wb-status-dot" :class="{ 'is-dirty': nodeDirty }">
           {{ nodeDirty ? '草稿待保存' : '已同步' }}
         </span>
-        <el-dropdown trigger="click">
-          <el-button text size="small">更多操作</el-button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item @click="$emit('sync-node')">同步同类节点到其他天</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
+        <div class="wb-editor__toolbar-actions">
+          <el-button text size="small" @click="$emit('copy-node')">
+            <el-icon><CopyDocument /></el-icon> 复制
+          </el-button>
+          <el-dropdown trigger="click">
+            <el-button text size="small">更多操作</el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item @click="$emit('sync-node')">同步同类节点到其他天</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </div>
       </div>
 
       <!-- 套模板 -->
@@ -123,7 +128,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { ArrowLeft, ArrowRight, FullScreen } from '@element-plus/icons-vue'
+import { ArrowLeft, ArrowRight, FullScreen, CopyDocument } from '@element-plus/icons-vue'
 import MessageEditor from '@/components/message-editor/index.vue'
 import { msgTypeOptions, supportsVariables } from '../composables/useTemplates'
 
@@ -152,6 +157,7 @@ const emit = defineEmits<{
   'reset': []
   'apply-template': []
   'sync-node': []
+  'copy-node': []
   'prev-node': []
   'next-node': []
   'update:selected-template-id': [id: number]
@@ -210,6 +216,11 @@ const confirmDescDialog = () => {
   justify-content: space-between;
   align-items: center;
   gap: 8px;
+}
+.wb-editor__toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .wb-editor__template-apply {

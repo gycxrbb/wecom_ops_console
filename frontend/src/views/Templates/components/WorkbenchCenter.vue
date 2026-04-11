@@ -86,6 +86,13 @@
               <strong>{{ node.title }}</strong>
               <div class="wb-node-item__head-right">
                 <span class="wb-node-item__type">{{ msgTypeLabel(node.msg_type) }}</span>
+                <el-tooltip v-if="currentNodeId === node.id" content="新增节点" placement="top" :show-after="400">
+                  <el-icon
+                    class="wb-node-item__add"
+                    :size="14"
+                    @click.stop="$emit('add-node-after', node.id)"
+                  ><Plus /></el-icon>
+                </el-tooltip>
                 <el-icon
                   class="wb-node-item__delete"
                   :size="14"
@@ -104,7 +111,7 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { FullScreen, Close } from '@element-plus/icons-vue'
+import { FullScreen, Close, Plus } from '@element-plus/icons-vue'
 import { msgTypeLabel } from '../composables/useTemplates'
 
 interface Day {
@@ -140,6 +147,7 @@ const emit = defineEmits<{
   'save-day': []
   'reset-day': []
   'add-node': []
+  'add-node-after': [nodeId: number]
   'remove-node': [nodeId: number]
 }>()
 
@@ -338,6 +346,15 @@ const confirmFocusDialog = () => {
   line-height: 1.5;
 }
 
+.wb-node-item__add {
+  color: var(--primary-color);
+  cursor: pointer;
+  transition: color 0.15s, transform 0.15s;
+}
+.wb-node-item__add:hover {
+  color: var(--el-color-primary);
+  transform: scale(1.15);
+}
 .wb-node-item__delete {
   color: var(--text-muted);
   opacity: 0;

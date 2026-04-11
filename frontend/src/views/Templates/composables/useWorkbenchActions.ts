@@ -1,5 +1,5 @@
-import { computed, onBeforeUnmount, onMounted, type Ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { computed, onBeforeUnmount, onMounted, ref, type Ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import type { PlanDay, PlanNode } from './useOperationPlans'
 
 interface WorkbenchDeps {
@@ -11,6 +11,7 @@ interface WorkbenchDeps {
   nodeSaving: Ref<boolean>
   selectNode: (nodeId: number) => void
   selectDay: (dayId: number) => void
+  addNode: (afterNodeId?: number | null, overrides?: Partial<PlanNode>) => Promise<void>
   saveNodeDraft: () => Promise<boolean>
   confirmDiscardDraft: () => Promise<boolean>
 }
@@ -42,29 +43,68 @@ export function useWorkbenchActions(deps: WorkbenchDeps) {
   // ===== 保存并下一条 =====
 
   const saveAndNext = async () => {
+    const idx = currentNodeIndex.value
+    if (idx < 0 || !deps.currentNode.value || !deps.currentDay.value) return
+
     if (deps.nodeDirty.value) {
       const saved = await deps.saveNodeDraft()
       if (!saved) return
     }
 
-    const idx = currentNodeIndex.value
-    const nextDraft = deps.nodes.value.slice(idx + 1).find(n => n.status === 'draft')
-    if (nextDraft) {
-      deps.selectNode(nextDraft.id)
+    const nextNode = deps.nodes.value[idx + 1]
+    if (nextNode) {
+      deps.selectNode(nextNode.id)
       return
     }
 
-    const currentDayIdx = deps.days.value.findIndex(d => d.id === deps.currentDay.value?.id)
-    const nextPendingDay = deps.days.value.slice(currentDayIdx + 1).find(
-      d => d.nodes?.some(n => n.status === 'draft')
-    )
-    if (nextPendingDay) {
-      deps.selectDay(nextPendingDay.id)
-      ElMessage.success(`已跳转到 Day ${nextPendingDay.day_number}`)
+    try {
+      await ElMessageBox.confirm(
+        `已经是第${deps.currentDay.value.day_number}天最后一个节点了，您是否需要新增一个节点？`,
+        '最后一个节点',
+        {
+          confirmButtonText: '新增节点',
+          cancelButtonText: '仅保存',
+          distinguishCancelAndClose: true,
+          closeOnClickModal: false,
+          closeOnPressEscape: false,
+          type: 'warning',
+        }
+      )
+      await deps.addNode(deps.currentNode.value.id)
+      return
+    } catch (error) {
+      if (error === 'cancel') {
+        ElMessage.success('当前节点已保存')
+      }
+    }
+  }
+
+  // ===== 复制/粘贴节点 =====
+
+  const copiedNode = ref<PlanNode | null>(null)
+
+  const copyNode = () => {
+    const node = deps.currentNode.value
+    if (!node) return
+    copiedNode.value = { ...node }
+    ElMessage.success(`已复制节点「${node.title}」`)
+  }
+
+  const pasteNode = async () => {
+    if (!copiedNode.value) {
+      ElMessage.warning('没有已复制的节点')
       return
     }
-
-    ElMessage.success('所有节点已配置完成！')
+    const afterId = deps.currentNode.value?.id ?? null
+    await deps.addNode(afterId, {
+      title: copiedNode.value.title,
+      description: copiedNode.value.description,
+      msg_type: copiedNode.value.msg_type,
+      content_json: copiedNode.value.content_json,
+      variables_json: copiedNode.value.variables_json,
+      node_type: copiedNode.value.node_type,
+    })
+    copiedNode.value = null
   }
 
   // ===== 键盘快捷键 =====
@@ -85,6 +125,22 @@ export function useWorkbenchActions(deps: WorkbenchDeps) {
       event.preventDefault()
       if (deps.nodeDirty.value && !deps.nodeSaving.value) {
         saveAndNext()
+      }
+      return
+    }
+
+    if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
+      if (deps.currentNode.value) {
+        event.preventDefault()
+        copyNode()
+      }
+      return
+    }
+
+    if ((event.ctrlKey || event.metaKey) && event.key === 'v') {
+      if (copiedNode.value) {
+        event.preventDefault()
+        pasteNode()
       }
       return
     }
@@ -137,6 +193,9 @@ export function useWorkbenchActions(deps: WorkbenchDeps) {
     goToNextNode,
     currentNodeIndex,
     saveAndNext,
+    copyNode,
+    pasteNode,
+    copiedNode,
     currentDayProgress,
     overallProgress,
     completedCount,

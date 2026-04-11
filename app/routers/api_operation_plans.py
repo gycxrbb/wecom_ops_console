@@ -474,13 +474,17 @@ def create_plan(body: PlanCreate, request: Request, db: Session = Depends(get_db
 
 
 def _safe_download_filename(plan_name: str, ext: str) -> str:
-    """生成 ASCII 安全的 Content-Disposition header 值（仅使用 latin-1 兼容字符）"""
-    # 将所有非 ASCII 字符替换为下划线，只保留安全字符
+    """生成 Content-Disposition header 值，支持中文文件名"""
+    # ASCII fallback: 去掉非 ASCII
     safe = re.sub(r'[^\x20-\x7e]', '_', plan_name)[:50] or 'operation-plan'
-    # 去掉连续下划线
     safe = re.sub(r'_+', '_', safe).strip('_')
-    filename = f'{safe}.{ext}'
-    return f'attachment; filename="{filename}"'
+    filename_fallback = f'{safe}.{ext}'
+    # URL-encode 中文原名用于 filename*
+    encoded = quote(f'{plan_name}.{ext}')
+    # filename 部分必须 latin-1 安全，filename* 用 UTF-8 编码
+    # 但 Starlette 会 encode latin-1 整个 header value
+    # 所以 filename* 中的 %xx 已经是 ASCII 安全的
+    return f"attachment; filename=\"{filename_fallback}\"; filename*=UTF-8''{encoded}"
 
 
 @router.get('/{plan_id}/export')
