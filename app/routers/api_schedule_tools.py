@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
@@ -53,3 +54,57 @@ def preview_schedule_runs(body: SchedulePreviewBody, request: Request, db: Sessi
         "next_runs": [item.isoformat() for item in next_runs],
         "next_run_at": next_runs[0].isoformat() if next_runs else None,
     }
+
+
+@router.get("/calendar")
+def get_schedule_calendar(
+    group_id: int | None = None,
+    days: int = 14,
+    request: Request = None,
+    db: Session = Depends(get_db),
+):
+    """返回未来 N 天的定时任务日历视图数据。"""
+    get_current_user(request, db)
+    tz = ZoneInfo("Asia/Shanghai")
+    now = datetime.now(tz)
+    end_date = now + timedelta(days=days)
+
+    query = db.query(models.Schedule).filter(
+        models.Schedule.enabled == 1,
+        models.Schedule.schedule_type.in_(["once", "cron"]),
+    )
+
+    if group_id:
+        query = query.filter(models.Schedule.group_ids_json.contains(str(group_id)))
+
+    jobs = query.order_by(models.Schedule.run_at).all()
+
+    calendar: dict[str, list[dict]] = {}
+
+    for i in range(days):
+        d = (now + timedelta(days=i)).strftime("%Y-%m-%d")
+        calendar[d] = []
+
+    for job in jobs:
+        next_runs = schedule_service.compute_next_runs(job, count=days * 2)
+        for run_time in next_runs:
+            run_local = run_time.astimezone(tz)
+            date_key = run_local.strftime("%Y-%m-%d")
+            if date_key in calendar:
+                entry = {
+                    "id": job.id,
+                    "title": job.title,
+                    "run_at": run_local.isoformat(),
+                    "msg_type": job.msg_type,
+                    "schedule_type": job.schedule_type,
+                    "status": job.status,
+                }
+                # avoid duplicates
+                if not any(e["id"] == job.id and e["run_at"] == entry["run_at"] for e in calendar[date_key]):
+                    calendar[date_key].append(entry)
+
+    # sort each day by run_at
+    for d in calendar:
+        calendar[d].sort(key=lambda x: x["run_at"])
+
+    return {"days": calendar, "total_jobs": len(jobs)}

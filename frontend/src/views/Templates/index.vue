@@ -11,6 +11,7 @@
       <div class="plans-hero__actions">
         <el-button plain size="large" @click="handleSwitchView('templates')">查看模板库</el-button>
         <el-button plain size="large" @click="openSopImportDialog">导入 SOP</el-button>
+        <el-button v-if="activeView === 'plans' && currentPlan" plain size="large" @click="publishDialogVisible = true">发布到群</el-button>
         <el-button type="primary" size="large" @click="openCreatePlan">新建运营主题</el-button>
       </div>
     </div>
@@ -522,6 +523,15 @@
         </div>
       </div>
     </el-dialog>
+
+    <PublishPlanDialog
+      v-model:visible="publishDialogVisible"
+      :plan-id="currentPlan?.id ?? null"
+      :plan-name="currentPlan?.name ?? ''"
+      :node-count="currentPlan?.node_count ?? 0"
+      :day-count="days.length"
+      @published="fetchPlans"
+    />
   </div>
 </template>
 
@@ -543,6 +553,7 @@ import { useWorkbenchActions } from './composables/useWorkbenchActions'
 import WorkbenchLeftNav from './components/WorkbenchLeftNav.vue'
 import WorkbenchCenter from './components/WorkbenchCenter.vue'
 import WorkbenchEditor from './components/WorkbenchEditor.vue'
+import PublishPlanDialog from './components/PublishPlanDialog.vue'
 import request from '@/utils/request'
 
 const storedView = typeof window !== 'undefined'
@@ -623,6 +634,7 @@ const nodeDirty = ref(false)
 const dayDirty = ref(false)
 const nodeSaving = ref(false)
 const daySaving = ref(false)
+const publishDialogVisible = ref(false)
 
 const cloneJson = <T,>(value: T): T => JSON.parse(JSON.stringify(value))
 

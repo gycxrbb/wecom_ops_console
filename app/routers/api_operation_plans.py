@@ -13,6 +13,7 @@ from .. import models
 from ..database import get_db
 from ..services.operation_plan_export import export_plan_to_excel_bytes, export_plan_to_json_bytes
 from ..services.operation_plan_import import parse_operation_plan_file
+from ..services.operation_plan_publish import publish_plan_to_groups
 from ..security import get_current_user, json_dumps, json_loads, require_role, require_permission
 
 router = APIRouter(prefix='/api/v1/operation-plans', tags=['operation-plans'])
@@ -672,3 +673,61 @@ def delete_node(node_id: int, request: Request, db: Session = Depends(get_db)):
     db.delete(node)
     db.commit()
     return {'ok': True}
+
+
+# ===== 一键发布到群 =====
+
+class PublishPlanBody(BaseModel):
+    group_ids: list[int] = Field(min_length=1)
+    start_date: str = Field(description='开始日期，格式 YYYY-MM-DD')
+    send_times: dict[str, str] = Field(default_factory=dict, description='各时段发送时间，如 {"morning": "08:00"}')
+    skip_weekends: bool = False
+    require_approval: bool = True
+
+
+@router.post('/{plan_id}/publish')
+def publish_plan(plan_id: int, body: PublishPlanBody, request: Request, db: Session = Depends(get_db)):
+    user = get_user_or_401(request, db)
+    require_role(user, 'admin', 'coach')
+    require_permission(user, 'plan')
+    plan = get_plan_or_404(db, plan_id)
+    ensure_plan_access(user, plan)
+
+    # eager load days + nodes
+    _ = plan.days
+    for day in plan.days:
+        _ = day.nodes
+
+    if not plan.days:
+        raise HTTPException(400, '运营计划没有编排内容，请先添加天数和节点')
+
+    total_nodes = sum(len(d.nodes or []) for d in plan.days)
+    if not total_nodes:
+        raise HTTPException(400, '运营计划没有任何节点，请先编排内容')
+
+    # validate group_ids
+    valid_groups = db.query(models.Group.id).filter(
+        models.Group.id.in_(body.group_ids), models.Group.enabled == 1
+    ).all()
+    valid_ids = {g[0] for g in valid_groups}
+    invalid = set(body.group_ids) - valid_ids
+    if invalid:
+        raise HTTPException(400, f'以下群不存在或已禁用: {invalid}')
+
+    created = publish_plan_to_groups(
+        db=db,
+        plan=plan,
+        group_ids=body.group_ids,
+        start_date=body.start_date,
+        send_times=body.send_times,
+        skip_weekends=body.skip_weekends,
+        require_approval=body.require_approval,
+        user=user,
+    )
+
+    return {
+        'ok': True,
+        'created_count': len(created),
+        'plan_name': plan.name,
+        'schedule_ids': [s.id for s in created],
+    }

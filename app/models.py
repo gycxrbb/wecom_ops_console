@@ -270,6 +270,18 @@ class ApprovalRequest(Base, TimestampMixin):
     applicant = relationship('User', foreign_keys=[applicant_id])
     approver = relationship('User', foreign_keys=[approver_id])
 
+class SopDocument(Base, TimestampMixin):
+    __tablename__ = 'sop_documents'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    title: Mapped[str] = mapped_column(String(128), nullable=False)
+    category: Mapped[str] = mapped_column(String(64), default='其他')
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str] = mapped_column(String(255), default='')
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey('users.id'), nullable=True)
+    creator = relationship('User')
+
+
 class AuditLog(Base, TimestampMixin):
     __tablename__ = 'audit_logs'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

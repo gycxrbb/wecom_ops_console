@@ -2,12 +2,19 @@
   <div class="page-container">
     <div class="page-header">
       <h1 class="page-title">定时任务</h1>
-      <el-button type="primary" @click="handleCreate">
-        <el-icon><Plus /></el-icon> 新建任务
-      </el-button>
+      <div class="page-header__actions">
+        <div class="view-switch">
+          <button type="button" class="view-switch__item" :class="{ 'is-active': activeView === 'table' }" @click="activeView = 'table'">列表</button>
+          <button type="button" class="view-switch__item" :class="{ 'is-active': activeView === 'calendar' }" @click="activeView = 'calendar'">日历</button>
+        </div>
+        <el-button type="primary" @click="handleCreate">
+          <el-icon><Plus /></el-icon> 新建任务
+        </el-button>
+      </div>
     </div>
 
-    <el-card shadow="never" class="table-card">
+    <ScheduleCalendar v-if="activeView === 'calendar'" @select-schedule="handleEditById" />
+    <el-card v-else shadow="never" class="table-card">
       <el-table :data="schedules" v-loading="loading" style="width: 100%">
         <el-table-column prop="id" label="ID" width="80" />
         <el-table-column prop="title" label="任务名称" />
@@ -199,10 +206,12 @@ import { useRouter } from 'vue-router'
 import request from '@/utils/request'
 import CronBuilder from '@/components/CronBuilder.vue'
 import MessageEditor from '@/components/message-editor/index.vue'
+import ScheduleCalendar from './ScheduleCalendar.vue'
 
 const router = useRouter()
 const schedules = ref<any[]>([])
 const loading = ref(false)
+const activeView = ref<'table' | 'calendar'>('table')
 const runNowLoading = ref(false)
 const previewRuns = ref<string[]>([])
 const previewHint = ref('修改时间或规则后，这里会显示未来几次执行时间。')
@@ -311,6 +320,11 @@ const toggleEnable = async (row: any) => {
 const handleCreate = () => {
   resetForm()
   dialogVisible.value = true
+}
+
+const handleEditById = (id: number) => {
+  const row = schedules.value.find((s: any) => s.id === id)
+  if (row) handleEdit(row)
 }
 
 const handleEdit = (row: any) => {
@@ -585,6 +599,33 @@ onBeforeUnmount(() => {
 .page-container {
   max-width: 1200px;
   margin: 0 auto;
+}
+.page-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.view-switch {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--bg-color);
+}
+.view-switch__item {
+  min-width: 60px;
+  padding: 6px 14px;
+  appearance: none;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+.view-switch__item.is-active {
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--primary-color);
+  font-weight: 700;
 }
 .table-card {
   border-radius: 12px;

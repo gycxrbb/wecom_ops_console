@@ -1026,7 +1026,8 @@ def get_dashboard_summary(request: Request, db: Session = Depends(get_db)):
     total_logs = db.query(models.MessageLog).count()
     success_logs = db.query(models.MessageLog).filter(models.MessageLog.success == True).count()
     pending_approval_count = db.query(models.Schedule).filter(models.Schedule.approval_required == 1, models.Schedule.status == 'pending_approval').count()
-    return {
+
+    result = {
         'group_count': db.query(models.Group).count(),
         'template_count': db.query(models.Template).count(),
         'schedule_count': db.query(models.Schedule).filter(models.Schedule.schedule_type != 'none').count(),
@@ -1034,6 +1035,50 @@ def get_dashboard_summary(request: Request, db: Session = Depends(get_db)):
         'success_rate': round((success_logs / total_logs) * 100, 2) if total_logs else 0,
         'pending_approval_count': pending_approval_count,
     }
+
+    # === 教练工作台数据 ===
+    tz = ZoneInfo('Asia/Shanghai')
+    now_local = datetime.now(tz)
+    today_start = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_end = now_local.replace(hour=23, minute=59, second=59, microsecond=999999)
+
+    # 今日待发送：一次性任务 run_at 在今天，且状态为 scheduled/approved
+    today_schedules = db.query(models.Schedule).filter(
+        models.Schedule.schedule_type == 'once',
+        models.Schedule.enabled == 1,
+        models.Schedule.run_at >= today_start,
+        models.Schedule.run_at <= today_end,
+        models.Schedule.status.in_(['scheduled', 'approved']),
+    ).order_by(models.Schedule.run_at).all()
+
+    result['today_schedules'] = [{
+        'id': s.id,
+        'title': s.title,
+        'run_at': s.run_at.isoformat() if s.run_at else None,
+        'msg_type': s.msg_type,
+        'group_ids': json_loads(s.group_ids_json, []),
+    } for s in today_schedules]
+
+    # 最近编辑的运营计划
+    recent_plans = db.query(models.Plan).order_by(models.Plan.updated_at.desc()).limit(5).all()
+    result['recent_plans'] = [{
+        'id': p.id,
+        'name': p.name,
+        'stage': p.stage,
+        'status': p.status,
+        'day_count': len(p.days) if p.days else 0,
+        'updated_at': p.updated_at.isoformat(),
+    } for p in recent_plans]
+
+    # 今日已发送
+    today_sent = db.query(models.Message).filter(
+        models.Message.sent_at >= today_start,
+        models.Message.sent_at <= today_end,
+        models.Message.status == 'sent',
+    ).count()
+    result['today_sent'] = today_sent
+
+    return result
 
 import sqlalchemy
 from sqlalchemy import func

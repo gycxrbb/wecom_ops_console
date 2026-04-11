@@ -41,6 +41,10 @@
         <el-icon><Timer /></el-icon>
         <span>定时任务</span>
       </el-menu-item>
+      <el-menu-item index="/sop-docs">
+        <el-icon><Notebook /></el-icon>
+        <span>飞书文档</span>
+      </el-menu-item>
 
       <div class="menu-group" style="margin-top: 20px;">系统设置</div>
       <el-menu-item index="/logs" v-if="moduleVisible('log')">
@@ -88,7 +92,7 @@
 </template>
 
 <script setup lang="ts">
-import { DataBoard, Promotion, ChatDotRound, Document, Picture, Timer, Tickets, Stamp, User, Lock, CaretBottom } from '@element-plus/icons-vue'
+import { DataBoard, Promotion, ChatDotRound, Document, Picture, Timer, Tickets, Stamp, User, Lock, CaretBottom, Notebook } from '@element-plus/icons-vue'
 import { moduleVisible as checkVisible, type PermissionKey } from '@/utils/permissions'
 
 const props = defineProps<{
