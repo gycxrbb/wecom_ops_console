@@ -1,0 +1,46 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "dev:backend",
+      "type": "shell",
+      "command": "& \"${workspaceFolder}\\scripts\\free-port.ps1\" -Port 8000; & \"${workspaceFolder}\\.venv\\Scripts\\Activate.ps1\";uvicorn app.main:app --reload --host 0.0.0.0 --port 8000",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "isBackground": true,
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "dev-backend",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "dev:frontend",
+      "type": "shell",
+      "command": "& \"${workspaceFolder}\\scripts\\free-port.ps1\" -Port 5173; npm install; npm run dev -- --host 0.0.0.0 --port 5173",
+      "options": {
+        "cwd": "${workspaceFolder}\\frontend"
+      },
+      "isBackground": true,
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "dev-frontend",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "dev:start-all",
+      "dependsOn": [
+        "dev:backend",
+        "dev:frontend"
+      ],
+      "dependsOrder": "parallel",
+      "problemMatcher": []
+    }
+  ]
+}

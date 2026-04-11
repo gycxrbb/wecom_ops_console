@@ -103,6 +103,26 @@
 - Node.js 18+
 - pip, npm
 
+### 推荐启动方式：VS Code 集成终端双开
+
+本项目的推荐开发启动入口是 VS Code task：
+
+1. 在 VS Code 中打开仓库根目录
+2. 执行 `Tasks: Run Task`
+3. 选择 `dev:start-all`
+
+效果：
+
+- 自动新开 2 个 VS Code 集成终端
+- 一个启动后端 FastAPI
+- 一个启动前端 Vite
+- 启动前自动清理 `8000` / `5173` 端口占用
+
+相关文件：
+
+- `.vscode/tasks.json`
+- `scripts/free-port.ps1`
+
 ### 1. 启动后端 FastAPI 服务
 
 ```powershell
