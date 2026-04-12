@@ -54,8 +54,16 @@
 
     <template v-if="activeView === 'plans'">
 
-      <div class="plans-workbench">
+      <div class="plans-workbench" :class="{ 'is-mobile': isMobile }">
+        <!-- 移动端面板切换 -->
+        <div v-if="isMobile" class="mobile-panel-tabs">
+          <button type="button" class="mobile-panel-tab" :class="{ 'is-active': activeMobilePanel === 'nav' }" @click="activeMobilePanel = 'nav'">主题/天</button>
+          <button type="button" class="mobile-panel-tab" :class="{ 'is-active': activeMobilePanel === 'nodes' }" @click="activeMobilePanel = 'nodes'">节点列表</button>
+          <button type="button" class="mobile-panel-tab" :class="{ 'is-active': activeMobilePanel === 'editor' }" @click="activeMobilePanel = 'editor'">编辑器</button>
+        </div>
+
         <WorkbenchLeftNav
+          v-show="!isMobile || activeMobilePanel === 'nav'"
           :plans="plans"
           :current-plan-id="currentPlan?.id ?? null"
           :days="days"
@@ -74,6 +82,7 @@
         />
 
         <WorkbenchCenter
+          v-show="!isMobile || activeMobilePanel === 'nodes'"
           :current-day="currentDay"
           :nodes="nodes"
           :current-node-id="currentNode?.id ?? null"
@@ -91,6 +100,7 @@
         />
 
         <WorkbenchEditor
+          v-show="!isMobile || activeMobilePanel === 'editor'"
           :current-node="currentNode"
           :node-draft="nodeDraft"
           :node-dirty="nodeDirty"
@@ -555,6 +565,7 @@ import WorkbenchCenter from './components/WorkbenchCenter.vue'
 import WorkbenchEditor from './components/WorkbenchEditor.vue'
 import PublishPlanDialog from './components/PublishPlanDialog.vue'
 import request from '@/utils/request'
+import { useMobile } from '@/composables/useMobile'
 
 const storedView = typeof window !== 'undefined'
   ? window.localStorage.getItem('templates-active-view')
@@ -635,6 +646,9 @@ const dayDirty = ref(false)
 const nodeSaving = ref(false)
 const daySaving = ref(false)
 const publishDialogVisible = ref(false)
+
+const { isMobile } = useMobile()
+const activeMobilePanel = ref<'nav' | 'nodes' | 'editor'>('nav')
 
 const cloneJson = <T,>(value: T): T => JSON.parse(JSON.stringify(value))
 
@@ -862,11 +876,13 @@ const handleSelectPlan = async (planId: number) => {
 const handleSelectDay = async (dayId: number) => {
   if (!(await confirmDiscardDraft())) return
   selectDay(dayId)
+  if (isMobile.value) activeMobilePanel.value = 'nodes'
 }
 
 const handleSelectNode = async (nodeId: number) => {
   if (!(await confirmDiscardDraft())) return
   selectNode(nodeId)
+  if (isMobile.value) activeMobilePanel.value = 'editor'
 }
 
 const jumpToFirstPending = async () => {
@@ -1937,6 +1953,30 @@ html.dark .planner-panel__header--collapsible:hover {
   }
 }
 
+.mobile-panel-tabs {
+  display: flex;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--card-bg);
+}
+.mobile-panel-tab {
+  flex: 1;
+  padding: 10px 8px;
+  text-align: center;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.mobile-panel-tab.is-active {
+  color: var(--primary-color);
+  font-weight: 700;
+  background: var(--tpl-accent-soft);
+}
+
 @media (max-width: 760px) {
   .plans-hero {
     flex-direction: column;
@@ -1947,6 +1987,14 @@ html.dark .planner-panel__header--collapsible:hover {
   }
   .plans-hero__actions {
     width: 100%;
+  }
+
+  .plans-workbench {
+    grid-template-columns: 1fr;
+    min-height: auto;
+  }
+  .plans-workbench.is-mobile {
+    gap: 10px;
   }
 
   .editor-quick-actions {

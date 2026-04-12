@@ -247,6 +247,22 @@ onMounted(() => {
   flex-wrap: wrap;
   gap: 12px;
 }
+.m-card-list { display: flex; flex-direction: column; gap: 10px; }
+.m-card {
+  padding: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--card-bg);
+}
+.m-card__row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.m-card__title { font-size: 14px; color: var(--text-primary); }
+.m-card__sub { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+.m-card__tags { margin-top: 6px; }
+.m-card__footer {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 10px; padding-top: 10px;
+  border-top: 1px solid var(--border-color);
+}
 @media (max-width: 768px) {
   .groups-container { padding: 12px; }
 }

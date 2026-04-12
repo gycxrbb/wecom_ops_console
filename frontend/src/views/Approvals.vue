@@ -5,7 +5,24 @@
     </div>
 
     <el-card shadow="never" class="table-card">
-      <el-table :data="approvals" v-loading="loading" style="width: 100%">
+      <!-- 移动端卡片 -->
+      <div v-if="isMobile" v-loading="loading" class="m-card-list">
+        <div v-for="row in approvals" :key="row.id" class="m-card">
+          <div class="m-card__row">
+            <strong class="m-card__title">#{{ row.id }} {{ row.target_type }}</strong>
+            <el-tag :type="getStatusType(row.status)" size="small">{{ formatStatus(row.status) }}</el-tag>
+          </div>
+          <div v-if="row.reason" class="m-card__sub">{{ row.reason }}</div>
+          <div class="m-card__meta">目标ID: {{ row.target_id }} · {{ formatDate(row.created_at) }}</div>
+          <div v-if="row.status === 'pending' && userStore.user?.role === 'admin'" class="m-card__footer">
+            <el-button type="success" size="small" @click="handleAction(row, 'approve')">同意</el-button>
+            <el-button type="danger" size="small" @click="handleAction(row, 'reject')">拒绝</el-button>
+          </div>
+        </div>
+        <el-empty v-if="!loading && !approvals.length" :image-size="48" description="暂无审批记录" />
+      </div>
+      <!-- 桌面端表格 -->
+      <el-table v-else :data="approvals" v-loading="loading" style="width: 100%">
         <el-table-column prop="id" label="ID" width="80" />
         <el-table-column prop="target_type" label="类型" width="120">
           <template #default="scope">
@@ -71,7 +88,9 @@ import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
 import { useUserStore } from '@/stores/user'
+import { useMobile } from '@/composables/useMobile'
 
+const { isMobile } = useMobile()
 const userStore = useUserStore()
 const approvals = ref<any[]>([])
 const loading = ref(false)
@@ -170,6 +189,22 @@ onMounted(() => {
 .table-card {
   border-radius: 12px;
   overflow-x: auto;
+}
+.m-card-list { display: flex; flex-direction: column; gap: 10px; }
+.m-card {
+  padding: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--card-bg);
+}
+.m-card__row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.m-card__title { font-size: 14px; color: var(--text-primary); }
+.m-card__sub { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+.m-card__meta { font-size: 12px; color: var(--text-muted); margin-top: 6px; }
+.m-card__footer {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 10px; padding-top: 10px;
+  border-top: 1px solid var(--border-color);
 }
 @media (max-width: 768px) {
   .page-container {

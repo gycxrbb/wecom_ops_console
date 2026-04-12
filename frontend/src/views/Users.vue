@@ -19,7 +19,24 @@
           class="search-input"
         />
       </div>
-      <el-table :data="filteredUsers" v-loading="loading" style="width: 100%">
+      <!-- 移动端卡片 -->
+      <div v-if="isMobile" v-loading="loading" class="m-card-list">
+        <div v-for="user in filteredUsers" :key="user.id" class="m-card">
+          <div class="m-card__row">
+            <strong class="m-card__title">{{ user.display_name }}</strong>
+            <el-tag :type="user.role === 'admin' ? 'danger' : 'info'" size="small">{{ user.role.toUpperCase() }}</el-tag>
+          </div>
+          <div class="m-card__sub">@{{ user.username }}</div>
+          <div class="m-card__footer">
+            <el-tag :type="user.is_active ? 'success' : 'info'" size="small">{{ user.is_active ? '启用' : '停用' }}</el-tag>
+            <span class="m-card__time">{{ formatDate(user.created_at) }}</span>
+            <el-button style="margin-left:auto" type="primary" link size="small" @click="handleEdit(user)">编辑</el-button>
+          </div>
+        </div>
+        <el-empty v-if="!loading && !filteredUsers.length" :image-size="48" description="暂无用户" />
+      </div>
+      <!-- 桌面端表格 -->
+      <el-table v-else :data="filteredUsers" v-loading="loading" style="width: 100%">
         <el-table-column prop="id" label="ID" width="80" />
         <el-table-column prop="username" label="用户名" />
         <el-table-column prop="display_name" label="显示名称" />
@@ -91,6 +108,9 @@ import { computed, ref, onMounted } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
+import { useMobile } from '@/composables/useMobile'
+
+const { isMobile } = useMobile()
 
 const users = ref<any[]>([])
 const keyword = ref('')
@@ -225,6 +245,22 @@ onMounted(() => {
 .search-input {
   width: min(360px, 100%);
 }
+.m-card-list { display: flex; flex-direction: column; gap: 10px; }
+.m-card {
+  padding: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--card-bg);
+}
+.m-card__row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.m-card__title { font-size: 14px; color: var(--text-primary); }
+.m-card__sub { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+.m-card__footer {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 10px; padding-top: 10px;
+  border-top: 1px solid var(--border-color);
+}
+.m-card__time { font-size: 12px; color: var(--text-muted); }
 @media (max-width: 768px) {
   .page-container {
     padding: 0 4px;

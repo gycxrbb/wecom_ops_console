@@ -40,9 +40,15 @@
 
       <!-- 运营编排：左右分栏 -->
       <el-tab-pane label="运营编排" name="plans">
-        <div class="plan-layout">
+        <!-- 移动端 Tab 切换 -->
+        <div v-if="isMobile" class="mobile-plan-tabs">
+          <button type="button" :class="{ 'is-active': mobilePlanTab === 'list' }" @click="mobilePlanTab = 'list'">计划列表</button>
+          <button type="button" :class="{ 'is-active': mobilePlanTab === 'nodes' }" @click="mobilePlanTab = 'nodes'">节点</button>
+        </div>
+
+        <div class="plan-layout" :class="{ 'is-mobile': isMobile }">
           <!-- 左栏：计划列表 -->
-          <div class="plan-sidebar">
+          <div v-show="!isMobile || mobilePlanTab === 'list'" class="plan-sidebar">
             <div class="plan-sidebar__header">运营计划</div>
             <el-input
               v-model="planSearch"
@@ -75,7 +81,7 @@
           </div>
 
           <!-- 右栏：天数跳转 + 节点列表 -->
-          <div class="plan-main">
+          <div v-show="!isMobile || mobilePlanTab === 'nodes'" class="plan-main">
             <template v-if="selectedPlanDetail">
               <!-- 搜索 -->
               <el-input
@@ -196,6 +202,10 @@ import { Loading } from '@element-plus/icons-vue'
 import { msgTypeLabel } from '@/views/Templates/composables/useTemplates'
 import request from '@/utils/request'
 import type { PropType } from 'vue'
+import { useMobile } from '@/composables/useMobile'
+
+const { isMobile } = useMobile()
+const mobilePlanTab = ref<'list' | 'nodes'>('list')
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -420,6 +430,7 @@ const selectPlan = (plan: any) => {
   } else {
     selectedDayNumber.value = 1
   }
+  if (isMobile.value) mobilePlanTab.value = 'nodes'
 }
 
 // ---------- data fetching ----------
@@ -746,5 +757,28 @@ html.dark .plan-sidebar__item:hover {
   .content-selector__tabs :deep(.el-tabs__content) {
     min-height: 300px;
   }
+}
+
+.mobile-plan-tabs {
+  display: flex;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+.mobile-plan-tabs button {
+  flex: 1;
+  padding: 9px 8px;
+  text-align: center;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+.mobile-plan-tabs button.is-active {
+  color: var(--primary-color);
+  font-weight: 700;
+  background: rgba(34, 197, 94, 0.1);
 }
 </style>

@@ -15,7 +15,33 @@
 
     <ScheduleCalendar v-if="activeView === 'calendar'" @select-schedule="handleEditById" />
     <el-card v-else shadow="never" class="table-card">
-      <el-table :data="schedules" v-loading="loading" style="width: 100%">
+      <!-- 移动端卡片 -->
+      <div v-if="isMobile" v-loading="loading" class="m-card-list">
+        <div v-for="row in schedules" :key="row.id" class="m-card">
+          <div class="m-card__row">
+            <strong class="m-card__title">{{ row.title }}</strong>
+            <el-tag :type="getStatusType(row.status)" size="small">{{ formatStatus(row.status) }}</el-tag>
+          </div>
+          <div class="m-card__meta">
+            <el-tag :type="row.schedule_type === 'cron' ? 'primary' : 'info'" size="small">{{ row.schedule_type === 'cron' ? '周期' : '一次性' }}</el-tag>
+            <span>{{ row.schedule_type === 'cron' ? row.cron_expr : formatDate(row.run_at) }}</span>
+            <span>{{ row.group_count || row.group_ids?.length || 0 }}个群</span>
+          </div>
+          <div v-if="row.last_error" class="m-card__error">{{ row.last_error }}</div>
+          <div class="m-card__footer">
+            <el-switch v-model="row.enabled" @change="toggleEnable(row)" />
+            <el-button link type="primary" size="small" @click="handleEdit(row)">编辑</el-button>
+            <el-button link type="primary" size="small" @click="openContentDialog(row)">内容</el-button>
+            <el-button link type="primary" size="small" :loading="runNowLoading" @click="handleRunNow(row)">执行</el-button>
+            <el-popconfirm title="确定删除？" @confirm="handleDelete(row)">
+              <template #reference><el-button link type="danger" size="small">删除</el-button></template>
+            </el-popconfirm>
+          </div>
+        </div>
+        <el-empty v-if="!loading && !schedules.length" :image-size="48" description="暂无定时任务" />
+      </div>
+      <!-- 桌面端表格 -->
+      <el-table v-else :data="schedules" v-loading="loading" style="width: 100%">
         <el-table-column prop="id" label="ID" width="80" />
         <el-table-column prop="title" label="任务名称" />
         <el-table-column label="目标群组" width="120">
@@ -207,6 +233,9 @@ import request from '@/utils/request'
 import CronBuilder from '@/components/CronBuilder.vue'
 import MessageEditor from '@/components/message-editor/index.vue'
 import ScheduleCalendar from './ScheduleCalendar.vue'
+import { useMobile } from '@/composables/useMobile'
+
+const { isMobile } = useMobile()
 
 const router = useRouter()
 const schedules = ref<any[]>([])
@@ -638,6 +667,28 @@ onBeforeUnmount(() => {
 .table-card {
   border-radius: 12px;
   overflow-x: auto;
+}
+.m-card-list { display: flex; flex-direction: column; gap: 10px; }
+.m-card {
+  padding: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--card-bg);
+}
+.m-card__row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.m-card__title { font-size: 14px; color: var(--text-primary); }
+.m-card__meta {
+  margin-top: 6px; font-size: 12px; color: var(--text-muted);
+  display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+}
+.m-card__error {
+  margin-top: 6px; font-size: 12px; color: #f56c6c;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.m-card__footer {
+  display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+  margin-top: 10px; padding-top: 10px;
+  border-top: 1px solid var(--border-color);
 }
 .next-run-list {
   display: flex;
