@@ -246,6 +246,7 @@ const handleAiPolish = async () => {
   padding: 10px 14px 8px;
   border-bottom: 1px solid var(--border-color);
   background: var(--card-bg);
+  flex-wrap: wrap;
 }
 .text-editor__surface-label {
   font-size: 12px;

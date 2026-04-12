@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     app_secret_key: str = 'change-me'
     jwt_secret_key: str = 'your-256-bit-secret-key-change-me'
     jwt_algorithm: str = 'HS256'
-    jwt_access_token_expire_minutes: int = 1440
+    jwt_access_token_expire_minutes: int = 1440 # 24小时
     admin_username: str = 'admin'
     admin_password: str = 'Admin123456'
     coach_username: str = 'coach'
@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     file_send_retry_delay_seconds: float = 3.0
     host: str = '0.0.0.0'
     port: int = 8000
+    cors_allowed_origins: str = ''  # 逗号分隔，留空则只允许同源
 
 settings = Settings()
 DATA_DIR.mkdir(parents=True, exist_ok=True)

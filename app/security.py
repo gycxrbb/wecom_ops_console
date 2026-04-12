@@ -101,8 +101,8 @@ def authenticate(db: Session, username: str, password: str):
 
 def get_current_user(request: Request, db: Session):
     user_id = None
-    
-    # 1. Try JWT
+
+    # 1. JWT Bearer token
     auth_header = request.headers.get("Authorization")
     if auth_header and auth_header.startswith("Bearer "):
         token = auth_header.split(" ")[1]
@@ -112,22 +112,13 @@ def get_current_user(request: Request, db: Session):
         except PyJWTError:
             pass
 
-    if not user_id:
-        token = request.query_params.get("token")
-        if token:
-            try:
-                payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
-                user_id = payload.get("sub")
-            except PyJWTError:
-                pass
-            
-    # 2. Try session (fallback)
+    # 2. Session fallback
     if not user_id:
         user_id = request.session.get('user_id')
-        
+
     if not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Not authenticated')
-        
+
     user = db.query(models.User).filter(models.User.id == int(user_id), models.User.status == 1).first()
     if not user:
         if 'user_id' in request.session:

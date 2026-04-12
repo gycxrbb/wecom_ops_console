@@ -193,6 +193,15 @@ const confirmDescDialog = () => {
   overscroll-behavior: contain;
 }
 
+@media (max-width: 767px) {
+  .wb-editor {
+    position: static;
+    max-height: none;
+    overflow-y: visible;
+    overscroll-behavior: auto;
+  }
+}
+
 .wb-editor__nav {
   display: flex;
   justify-content: space-between;

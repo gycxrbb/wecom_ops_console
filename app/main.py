@@ -1,5 +1,7 @@
 from contextlib import asynccontextmanager
+import logging
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 from .config import STATIC_DIR, UPLOAD_DIR, FRONTEND_DIR, DATA_DIR, settings
@@ -17,6 +19,8 @@ from .routers.api_sop import router as sop_router
 from .services.seed import seed_all
 from .services.scheduler_service import schedule_service
 import hashlib
+
+_log = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -36,7 +40,26 @@ async def lifespan(app: FastAPI):
     schedule_service.shutdown()
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
+
+# ── 安全默认值检查 ──
+_INSECURE_SECRETS = {'change-me', 'your-256-bit-secret-key-change-me'}
+if settings.app_secret_key in _INSECURE_SECRETS:
+    _log.warning('⚠️  APP_SECRET_KEY 仍为默认值，请在 .env 中设置一个强随机密钥！')
+if settings.jwt_secret_key in _INSECURE_SECRETS:
+    _log.warning('⚠️  JWT_SECRET_KEY 仍为默认值，请在 .env 中设置一个独立的强随机密钥！')
+
 app.add_middleware(SessionMiddleware, secret_key=settings.app_secret_key)
+
+# ── CORS ──
+_cors_origins = [o.strip() for o in settings.cors_allowed_origins.split(',') if o.strip()]
+if _cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins,
+        allow_credentials=True,
+        allow_methods=['*'],
+        allow_headers=['*'],
+    )
 
 
 # === GitHub Webhook 自动部署 ===

@@ -310,4 +310,7 @@ bash /www/wwwroot/wecom-ops-console/deploy.sh
 
 # 查看部署日志
 cat /www/wwwroot/wecom-ops-console/data/deploy.log
+
+# 刷新远程分支跟踪
+git fetch --prune --force
 ```

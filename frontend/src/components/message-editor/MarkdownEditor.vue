@@ -228,7 +228,7 @@ const handleAiPolish = async () => {
 .markdown-editor {
   border: 1px solid var(--border-color);
   border-radius: 12px;
-  overflow: hidden;
+  overflow-x: auto;
 }
 .toolbar {
   display: flex;
@@ -237,6 +237,8 @@ const handleAiPolish = async () => {
   gap: 0;
   background: var(--bg-color);
   border-bottom: 1px solid var(--border-color);
+  overflow-x: auto;
+  flex-wrap: nowrap;
 }
 .toolbar__group {
   display: flex;

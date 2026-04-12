@@ -189,6 +189,14 @@ export default { name: 'WorkbenchLeftNav' }
   overflow: hidden;
 }
 
+@media (max-width: 767px) {
+  .wb-left-nav {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
+}
+
 .wb-left-nav__plan-section {
   display: flex;
   flex-direction: column;

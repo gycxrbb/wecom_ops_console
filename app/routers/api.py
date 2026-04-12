@@ -21,6 +21,7 @@ from ..services.template_engine import default_context, render_value
 from ..services.wecom import WeComService
 from ..services.scheduler_service import schedule_service
 from ..services.crm_admin_auth import CrmAdminAuthUnavailable
+from ..services import login_rate_limiter as rate_limiter
 from ..route_helper import UnifiedResponseRoute
 from ..security import create_access_token, create_refresh_token, authenticate
 
@@ -31,12 +32,22 @@ async def api_login(request: Request, db: Session = Depends(get_db)):
     body = parse_body(await request.json())
     username = body.get('username')
     password = body.get('password')
+    client_ip = get_request_ip(request)
+
+    # 暴力破解防护
+    allowed, retry_after = rate_limiter.check(client_ip, username or '')
+    if not allowed:
+        return {'code': 42900, 'message': f'登录失败次数过多，请 {retry_after} 秒后重试', 'data': {'retry_after': retry_after}}
+
     try:
         user = authenticate(db, username, password)
     except CrmAdminAuthUnavailable:
         return {'code': 50300, 'message': 'CRM 用户库暂时不可用，请稍后重试', 'data': {}}
     if not user:
+        rate_limiter.record_failure(client_ip, username or '')
         return {'code': 40100, 'message': '用户名或密码错误', 'data': {}}
+
+    rate_limiter.reset(client_ip, username or '')
     
     access_token = create_access_token(data={"sub": str(user.id)})
     refresh_token = create_refresh_token(data={"sub": str(user.id)})
