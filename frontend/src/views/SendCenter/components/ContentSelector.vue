@@ -726,4 +726,25 @@ html.dark .plan-sidebar__item:hover {
 .content-selector__tabs :deep(.el-tabs__content) {
   min-height: 460px;
 }
+
+@media (max-width: 768px) {
+  .plan-layout {
+    flex-direction: column;
+    height: auto;
+    max-height: 60vh;
+  }
+  .plan-sidebar {
+    width: 100%;
+    min-width: 0;
+    border-right: none;
+    border-bottom: 1px solid var(--border-color);
+    max-height: 160px;
+  }
+  .plan-main {
+    padding: 12px;
+  }
+  .content-selector__tabs :deep(.el-tabs__content) {
+    min-height: 300px;
+  }
+}
 </style>

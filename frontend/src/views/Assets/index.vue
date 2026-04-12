@@ -531,6 +531,7 @@ onMounted(async () => {
   flex: 1;
   padding: 24px;
   overflow-y: auto;
+  overflow-x: auto;
 }
 
 .assets-header {
@@ -693,6 +694,7 @@ onMounted(async () => {
   }
   .assets-main {
     padding: 16px;
+    overflow-x: auto;
   }
   .assets-header {
     flex-direction: column;
@@ -700,6 +702,15 @@ onMounted(async () => {
   }
   .assets-header__right {
     flex-wrap: wrap;
+  }
+  .batch-action-bar {
+    flex-direction: column;
+    gap: 10px;
+    align-items: stretch;
+  }
+  .batch-action-bar__actions {
+    flex-wrap: wrap;
+    justify-content: center;
   }
 }
 @media (max-width: 480px) {

@@ -73,10 +73,17 @@ onMounted(() => {
   padding: 20px;
   background: var(--card-bg);
   border-radius: 4px;
+  overflow-x: auto;
 }
 pre {
   background: var(--bg-color);
   padding: 10px;
   border-radius: 4px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+@media (max-width: 768px) {
+  .view-container { padding: 12px; }
 }
 </style>

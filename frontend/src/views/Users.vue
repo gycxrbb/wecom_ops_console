@@ -199,6 +199,14 @@ onMounted(() => {
 .page-container {
   max-width: 1200px;
   margin: 0 auto;
+  overflow-x: auto;
+}
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 .page-desc {
   font-size: 13px;
@@ -207,6 +215,7 @@ onMounted(() => {
 }
 .table-card {
   border-radius: 12px;
+  overflow-x: auto;
 }
 .toolbar {
   display: flex;
@@ -215,5 +224,16 @@ onMounted(() => {
 }
 .search-input {
   width: min(360px, 100%);
+}
+@media (max-width: 768px) {
+  .page-container {
+    padding: 0 4px;
+  }
+  .search-input {
+    width: 100%;
+  }
+  .toolbar {
+    justify-content: stretch;
+  }
 }
 </style>

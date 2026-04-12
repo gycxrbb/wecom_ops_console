@@ -212,11 +212,17 @@ onMounted(() => {
   padding: 20px;
   background: var(--card-bg, #fff);
   border-radius: 4px;
+  overflow-x: auto;
 }
 .header-actions {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 20px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+@media (max-width: 768px) {
+  .groups-container { padding: 12px; }
 }
 </style>

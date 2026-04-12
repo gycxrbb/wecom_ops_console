@@ -131,10 +131,14 @@ onMounted(fetchCalendar)
   gap: 8px;
   padding: 14px 18px;
   border-bottom: 1px solid var(--border-color);
+  flex-wrap: wrap;
 }
 .cal-header__title {
   color: var(--text-primary);
   font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .cal-grid {
@@ -256,6 +260,19 @@ onMounted(fetchCalendar)
 @media (max-width: 600px) {
   .cal-grid {
     grid-template-columns: repeat(2, 1fr);
+  }
+  .cal-header {
+    padding: 10px 12px;
+  }
+  .cal-day {
+    padding: 6px;
+    min-height: 70px;
+  }
+  .cal-day__num {
+    font-size: 14px;
+  }
+  .cal-item__title {
+    font-size: 11px;
   }
 }
 </style>

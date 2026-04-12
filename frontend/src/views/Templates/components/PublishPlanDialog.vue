@@ -222,6 +222,15 @@ import { ref } from 'vue'
   width: 100%;
 }
 
+@media (max-width: 600px) {
+  .pub-time-grid {
+    grid-template-columns: 1fr;
+  }
+  .pub-time-label {
+    min-width: 60px;
+  }
+}
+
 .pub-time-row {
   display: flex;
   align-items: center;

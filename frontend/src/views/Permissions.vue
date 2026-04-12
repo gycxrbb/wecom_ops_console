@@ -169,7 +169,7 @@ onMounted(() => {
 }
 .members-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(480px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 16px;
 }
 .member-card {
@@ -237,6 +237,22 @@ onMounted(() => {
 @media (max-width: 600px) {
   .members-grid {
     grid-template-columns: 1fr;
+  }
+  .search-input {
+    width: 100%;
+  }
+  .toolbar {
+    justify-content: stretch;
+  }
+  .member-card__header {
+    padding: 12px 14px;
+    flex-wrap: wrap;
+  }
+  .member-card__body {
+    padding: 12px 14px;
+  }
+  .perm-group__items {
+    gap: 2px 12px;
   }
 }
 </style>

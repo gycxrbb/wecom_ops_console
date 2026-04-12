@@ -338,7 +338,7 @@ onMounted(fetchProfile)
 
 .profile-hero {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(280px, 0.8fr);
+  grid-template-columns: minmax(0, 1.6fr) minmax(200px, 0.8fr);
   gap: 18px;
   padding: 28px;
   border: 1px solid color-mix(in srgb, var(--border-color) 88%, transparent);
@@ -487,7 +487,7 @@ onMounted(fetchProfile)
 
 .profile-workbench {
   display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.95fr);
+  grid-template-columns: minmax(0, 1.45fr) minmax(240px, 0.95fr);
   gap: 18px;
 }
 

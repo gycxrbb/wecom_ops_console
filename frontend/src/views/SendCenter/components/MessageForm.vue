@@ -657,4 +657,13 @@ const tagTypeByMsgType = (msgType: string) => {
     gap: 14px;
   }
 }
+@media (max-width: 767px) {
+  .action-footer__row {
+    flex-direction: column;
+    width: 100%;
+  }
+  .notify-header {
+    flex-wrap: wrap;
+  }
+}
 </style>

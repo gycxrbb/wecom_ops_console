@@ -158,8 +158,22 @@ onMounted(() => {
 .page-container {
   max-width: 1200px;
   margin: 0 auto;
+  overflow-x: auto;
+}
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 .table-card {
   border-radius: 12px;
+  overflow-x: auto;
+}
+@media (max-width: 768px) {
+  .page-container {
+    padding: 0 4px;
+  }
 }
 </style>

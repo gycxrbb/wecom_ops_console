@@ -599,6 +599,14 @@ onBeforeUnmount(() => {
 .page-container {
   max-width: 1200px;
   margin: 0 auto;
+  overflow-x: auto;
+}
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 .page-header__actions {
   display: flex;
@@ -629,6 +637,7 @@ onBeforeUnmount(() => {
 }
 .table-card {
   border-radius: 12px;
+  overflow-x: auto;
 }
 .next-run-list {
   display: flex;
@@ -730,6 +739,10 @@ onBeforeUnmount(() => {
 @media (max-width: 767px) {
   .page-container {
     padding: 0 4px;
+  }
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
   }
   .rule-editor {
     flex-direction: column;

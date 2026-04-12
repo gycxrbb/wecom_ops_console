@@ -375,4 +375,15 @@ const handleDropToRoot = () => {
 .ctx-item:hover {
   background: rgba(34, 197, 94, 0.08);
 }
+
+@media (max-width: 767px) {
+  .folder-sidebar {
+    width: 100%;
+    min-width: unset;
+    border-right: none;
+    border-bottom: 1px solid var(--border-color);
+    border-radius: 16px 16px 0 0;
+    max-height: 200px;
+  }
+}
 </style>

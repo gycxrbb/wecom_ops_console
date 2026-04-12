@@ -422,8 +422,20 @@ onMounted(fetchDashboard)
 
 @media (max-width: 767px) {
   .welcome-section { flex-direction: column; align-items: flex-start; gap: 12px; }
-  .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
   .bottom-grid { grid-template-columns: 1fr; }
   .quick-grid { grid-template-columns: repeat(3, 1fr); }
+  .stat-card { padding: 14px; gap: 10px; }
+  .stat-card__value { font-size: 22px; }
+  .stat-card__icon-wrap { width: 40px; height: 40px; }
+  .welcome-title { font-size: 20px; }
+  .todo-item__type { display: none; }
+}
+@media (max-width: 480px) {
+  .stats-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .quick-grid { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .quick-card { padding: 10px 6px; }
+  .panel__body { padding: 12px; }
+  .todo-item__meta { display: none; }
 }
 </style>

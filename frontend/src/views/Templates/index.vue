@@ -1165,6 +1165,7 @@ onBeforeRouteLeave(async () => {
   display: flex;
   gap: 12px;
   align-items: flex-start;
+  flex-wrap: wrap;
 }
 
 .view-switch-bar {
@@ -1939,6 +1940,13 @@ html.dark .planner-panel__header--collapsible:hover {
 @media (max-width: 760px) {
   .plans-hero {
     flex-direction: column;
+    padding: 18px 16px;
+  }
+  .plans-hero__title {
+    font-size: 24px;
+  }
+  .plans-hero__actions {
+    width: 100%;
   }
 
   .editor-quick-actions {
@@ -1956,6 +1964,9 @@ html.dark .planner-panel__header--collapsible:hover {
 
   .summary-strip {
     flex-wrap: wrap;
+  }
+  .template-preview-dialog {
+    grid-template-columns: 1fr;
   }
 }
 

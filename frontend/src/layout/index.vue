@@ -270,6 +270,67 @@ const getRouteName = () => {
   padding: 0;
 }
 
+/* ---- Global mobile overrides (non-scoped) ---- */
+</style>
+
+<style>
+/* 全局弹窗：小屏幕自适应宽度 */
+@media (max-width: 768px) {
+  .el-dialog {
+    --el-dialog-width: 92% !important;
+    width: 92% !important;
+    margin-top: 5vh !important;
+  }
+  .el-dialog__body {
+    max-height: 70vh;
+    overflow-y: auto;
+  }
+}
+
+/* 全局表格：移动端横向可滚动 */
+@media (max-width: 768px) {
+  .el-table {
+    font-size: 12px;
+  }
+  .el-table th, .el-table td {
+    padding: 6px 0;
+  }
+}
+
+/* 全局表单：移动端 label 改为顶部对齐 */
+@media (max-width: 600px) {
+  .el-form--default-label-width .el-form-item__label,
+  .el-form-item__label {
+    float: none !important;
+    display: block !important;
+    text-align: left !important;
+    padding-bottom: 4px !important;
+    width: auto !important;
+  }
+  .el-form-item__content {
+    margin-left: 0 !important;
+  }
+}
+
+/* 防止 pre 标签横向溢出 */
+pre {
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* 分页器移动端精简 */
+@media (max-width: 600px) {
+  .el-pagination {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .el-pagination .el-pagination__sizes,
+  .el-pagination .el-pagination__jump {
+    display: none;
+  }
+}
+
 /* Animations */
 .fade-transform-enter-active,
 .fade-transform-leave-active {

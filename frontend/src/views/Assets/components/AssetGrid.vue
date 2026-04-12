@@ -568,4 +568,17 @@ const isUnavailable = (item: Asset) => ['source_missing', 'deleted'].includes(it
   border-color: var(--primary-color);
   background: rgba(34, 197, 94, 0.08);
 }
+
+@media (max-width: 768px) {
+  .section-card {
+    padding: 14px;
+  }
+  .image-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 10px;
+  }
+  .preview-panel {
+    grid-template-columns: 1fr;
+  }
+}
 </style>

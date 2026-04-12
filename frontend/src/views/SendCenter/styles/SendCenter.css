@@ -158,6 +158,10 @@ html.dark .card-header {
   .action-footer .el-button {
     width: 100%;
   }
+  .action-footer__row {
+    flex-direction: column;
+    width: 100%;
+  }
 }
 @media (max-width: 480px) {
   .card-body {

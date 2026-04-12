@@ -354,4 +354,25 @@ onMounted(fetchDocs)
   background: #1d1e1f !important;
   border-color: #414243 !important;
 }
+
+@media (max-width: 768px) {
+  .sop-hero {
+    flex-direction: column;
+    padding: 18px 16px;
+  }
+  .sop-hero__title {
+    font-size: 24px;
+  }
+  .sop-filter-bar {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 12px;
+  }
+  .sop-filter-bar .el-input {
+    width: 100% !important;
+  }
+  .sop-doc-grid {
+    grid-template-columns: 1fr;
+  }
+}
 </style>

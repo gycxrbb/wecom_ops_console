@@ -269,6 +269,7 @@ const handleBatchItemSend = async () => {
 .batch-detail-scroll {
   max-height: calc(100vh - 160px);
   overflow-y: auto;
+  overflow-x: auto;
   padding-right: 4px;
 }
 
@@ -293,5 +294,11 @@ const handleBatchItemSend = async () => {
 .card-header-icon--purple {
   background: rgba(144, 116, 255, 0.1);
   color: #9074ff;
+}
+
+@media (max-width: 767px) {
+  .batch-detail-scroll {
+    max-height: calc(100vh - 120px);
+  }
 }
 </style>
