@@ -5,7 +5,7 @@
         <div class="sop-hero__eyebrow">Operation SOP</div>
         <h1 class="sop-hero__title">飞书文档</h1>
       </div>
-      <el-button v-if="isAdmin" type="primary" size="large" @click="openCreate">新增文档</el-button>
+      <el-button v-if="canManageSop" type="primary" size="large" @click="openCreate">新增文档</el-button>
     </div>
 
     <div class="sop-filter-bar">
@@ -43,7 +43,7 @@
         </div>
         <h4 class="sop-doc-card__title">{{ doc.title }}</h4>
         <p v-if="doc.description" class="sop-doc-card__desc">{{ doc.description }}</p>
-        <div v-if="isAdmin" class="sop-doc-card__actions" @click.stop>
+        <div v-if="canManageSop" class="sop-doc-card__actions" @click.stop>
           <el-button link type="primary" @click="openEdit(doc)">编辑</el-button>
           <el-button link type="danger" @click="deleteDoc(doc)">删除</el-button>
         </div>
@@ -101,6 +101,11 @@ interface SopDoc {
 
 const userStore = useUserStore()
 const isAdmin = computed(() => userStore.user?.role === 'admin')
+const canManageSop = computed(() => {
+  if (userStore.user?.role === 'admin') return true
+  const perms: Record<string, any> = (userStore.user as any)?.permissions || {}
+  return !!perms.sop
+})
 
 const docs = ref<SopDoc[]>([])
 const categories = ['运营流程', '话术库', '营养知识', '培训手册', '其他']

@@ -143,7 +143,7 @@ def require_role(user: models.User, *roles: str):
 
 ALL_PERMISSIONS = [
     'send', 'schedule', 'group', 'template',
-    'plan', 'asset', 'log', 'approval',
+    'plan', 'asset', 'log', 'approval', 'sop',
 ]
 
 PERMISSION_LABELS = {
@@ -155,11 +155,12 @@ PERMISSION_LABELS = {
     'asset': '素材管理',
     'log': '发送记录',
     'approval': '审批操作',
+    'sop': '飞书文档',
 }
 
 PERMISSION_GROUPS = {
     '核心业务': ['send', 'schedule'],
-    '数据管理': ['group', 'template', 'plan', 'asset'],
+    '数据管理': ['group', 'template', 'plan', 'asset', 'sop'],
     '系统设置': ['log', 'approval'],
 }
 

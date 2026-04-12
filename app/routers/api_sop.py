@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from ..database import get_db
 from .. import models
-from ..security import get_current_user, require_role
+from ..security import get_current_user, require_permission
 
 router = APIRouter(prefix='/api/v1/sop-documents', tags=['sop-documents'])
 
@@ -60,7 +60,7 @@ def list_categories(request: Request, db: Session = Depends(get_db)):
 @router.post('')
 def create_doc(body: SopDocCreate, request: Request, db: Session = Depends(get_db)):
     user = get_current_user(request, db)
-    require_role(user, 'admin')
+    require_permission(user, 'sop')
     title = body.title.strip()
     if not title:
         raise HTTPException(400, '文档标题不能为空')
@@ -85,7 +85,7 @@ def create_doc(body: SopDocCreate, request: Request, db: Session = Depends(get_d
 @router.put('/{doc_id}')
 def update_doc(doc_id: int, body: SopDocUpdate, request: Request, db: Session = Depends(get_db)):
     user = get_current_user(request, db)
-    require_role(user, 'admin')
+    require_permission(user, 'sop')
     doc = db.query(models.SopDocument).filter(models.SopDocument.id == doc_id).first()
     if not doc:
         raise HTTPException(404, '文档不存在')
@@ -104,7 +104,7 @@ def update_doc(doc_id: int, body: SopDocUpdate, request: Request, db: Session = 
 @router.delete('/{doc_id}')
 def delete_doc(doc_id: int, request: Request, db: Session = Depends(get_db)):
     user = get_current_user(request, db)
-    require_role(user, 'admin')
+    require_permission(user, 'sop')
     doc = db.query(models.SopDocument).filter(models.SopDocument.id == doc_id).first()
     if not doc:
         raise HTTPException(404, '文档不存在')

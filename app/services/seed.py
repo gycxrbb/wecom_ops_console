@@ -164,7 +164,7 @@ def _should_be_test_group(group: models.Group) -> bool:
 
 
 def seed_all(db: Session):
-    all_perms = '{"send":true,"schedule":true,"group":true,"template":true,"plan":true,"asset":true,"log":true,"approval":true}'
+    all_perms = '{"send":true,"schedule":true,"group":true,"template":true,"plan":true,"asset":true,"log":true,"approval":true,"sop":true}'
     if db.query(models.User).count() == 0:
         db.add_all([
             models.User(username=settings.admin_username, display_name='系统管理员', role='admin', auth_source='local', password_hash=hash_password(settings.admin_password)),
@@ -174,9 +174,12 @@ def seed_all(db: Session):
     else:
         # 确保 coach 示例账号拥有全部权限
         coach = db.query(models.User).filter(models.User.username == settings.coach_username).first()
-        if coach and not json_loads(coach.permissions_json, {}):
-            coach.permissions_json = all_perms
-            db.commit()
+        if coach:
+            perms = json_loads(coach.permissions_json, {})
+            if not perms.get('sop'):
+                perms['sop'] = True
+                coach.permissions_json = json_dumps(perms)
+                db.commit()
 
     if db.query(models.Group).count() == 0:
         db.add_all([
