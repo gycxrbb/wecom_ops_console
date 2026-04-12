@@ -1,0 +1,58 @@
+这是一个自动化部署的测试！
+cd /www/wwwroot/wecom-ops-console 
+git remote set-url origin https://ghproxy.cn/https://github.com/gycxrbb/wecom_ops_console.git 
+git pull
+git remote set-url origin https://github.com/gycxrbb/wecom_ops_console.git 
+
+
+# 网络修复
+git config --global http.sslVerify false
+git config --global https.sslVerify false
+echo "nameserver 8.8.8.8" > /etc/resolv.conf
+echo "nameserver 1.1.1.1" >> /etc/resolv.conf
+
+docker compose -f docker-compose.prod.yml build 
+docker compose -f docker-compose.prod.yml up -d
+
+执行脚本：bash /www/wwwroot/wecom-ops-console/deploy.sh
+
+## 七、常用运维命令
+
+```bash
+# 查看容器状态
+docker ps
+
+# 查看应用日志
+docker logs --tail 50 wecom-ops-console
+docker logs -f wecom-ops-console  # 实时跟踪
+
+# 重启容器
+docker restart wecom-ops-console
+
+# 重新构建并启动
+cd /www/wwwroot/wecom-ops-console
+docker compose -f docker-compose.prod.yml build && docker compose -f docker-compose.prod.yml up -d
+
+# 查看 Nginx 配置是否正确
+nginx -t
+
+# 重启 Nginx
+systemctl restart nginx
+
+# 手动部署
+bash /www/wwwroot/wecom-ops-console/deploy.sh
+
+# 查看部署日志
+cat /www/wwwroot/wecom-ops-console/data/deploy.log
+
+# 刷新远程分支跟踪
+git fetch --prune --force
+
+# 查看提交历史
+git log
+
+# 精简查看git 历史
+git log --oneline
+
+# 图形查看git 提交历史
+git log --oneline --graph --all --decorate

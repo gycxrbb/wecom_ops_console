@@ -1,9 +1,0 @@
-这是一个自动化部署的测试！
-cd /www/wwwroot/wecom-ops-console 
-git remote set-url origin https://ghproxy.cn/https://github.com/gycxrbb/wecom_ops_console.git 
-git pull
-git remote set-url origin https://github.com/gycxrbb/wecom_ops_console.git 
-docker compose -f docker-compose.prod.yml build 
-docker compose -f docker-compose.prod.yml up -d
-
-执行脚本：bash /www/wwwroot/wecom-ops-console/deploy.sh

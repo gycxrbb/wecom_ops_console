@@ -1,18 +1,13 @@
 import { createApp } from 'vue'
-import ElementPlus from 'element-plus'
-import 'element-plus/dist/index.css'
 import 'element-plus/theme-chalk/dark/css-vars.css'
 import './style.css'
 import { createPinia } from 'pinia'
 import router from './router'
 import App from './App.vue'
 
-console.log("main.ts executing")
-
 const app = createApp(App)
 app.use(createPinia())
 app.use(router)
-app.use(ElementPlus)
 
 app.config.errorHandler = (err, instance, info) => {
   console.error("Vue Global Error:", err, info)
@@ -27,4 +22,3 @@ window.addEventListener('unhandledrejection', (event) => {
 })
 
 app.mount('#app')
-console.log("App mounted")

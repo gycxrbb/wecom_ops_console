@@ -19,7 +19,7 @@ const router = createRouter({
       children: [
         { path: 'dashboard', name: 'Dashboard', component: () => import('@/views/Dashboard.vue'), meta: { requiresAuth: true, title: '看板' } },
         { path: 'send', name: 'SendCenter', component: () => import('@/views/SendCenter/index.vue'), meta: { requiresAuth: true, title: '发送中心', permission: 'send' as PermissionKey } },
-        { path: 'groups', name: 'Groups', component: () => import('@/views/Groups.vue'), meta: { requiresAuth: true, title: '群管理', permission: 'group' as PermissionKey } },
+        { path: 'groups', name: 'Groups', component: () => import('@/views/Groups/index.vue'), meta: { requiresAuth: true, title: '群管理', permission: 'group' as PermissionKey } },
         { path: 'templates', name: 'Templates', component: () => import('@/views/Templates/index.vue'), meta: { requiresAuth: true, title: '模板中心', permission: 'template' as PermissionKey } },
         { path: 'assets', name: 'Assets', component: () => import('@/views/Assets/index.vue'), meta: { requiresAuth: true, title: '素材库', permission: 'asset' as PermissionKey } },
         { path: 'schedules', name: 'Schedules', component: () => import('@/views/Schedules.vue'), meta: { requiresAuth: true, title: '定时任务', permission: 'schedule' as PermissionKey } },
