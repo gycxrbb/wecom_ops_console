@@ -491,7 +491,6 @@ def list_groups(request: Request, db: Session = Depends(get_db)):
 @router.post('/groups')
 async def upsert_group(request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
-    require_role(user, 'admin')
     require_permission(user, 'group')
     data = parse_body(await request.body())
     group_id = data.get('id')
@@ -511,7 +510,6 @@ async def upsert_group(request: Request, db: Session = Depends(get_db)):
 @router.delete('/groups/{group_id}')
 def delete_group(group_id: int, request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
-    require_role(user, 'admin')
     require_permission(user, 'group')
     group = db.query(models.Group).filter(models.Group.id == group_id).first()
     if not group:
