@@ -80,6 +80,11 @@ onMounted(() => {
   } else {
     document.documentElement.classList.remove('dark')
   }
+  // 初次访问自动刷新一次，确保加载最新资源
+  if (!sessionStorage.getItem('login_refreshed')) {
+    sessionStorage.setItem('login_refreshed', '1')
+    window.location.reload()
+  }
 })
 
 // 时钟

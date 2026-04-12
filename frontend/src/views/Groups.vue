@@ -5,7 +5,29 @@
       <el-button type="primary" @click="openCreate">新增群</el-button>
     </div>
 
-    <el-table :data="groups" style="width: 100%" v-loading="loading">
+    <!-- 移动端卡片视图 -->
+    <div v-if="isMobile" v-loading="loading" class="m-card-list">
+      <div v-for="row in groups" :key="row.id" class="m-card">
+        <div class="m-card__row">
+          <strong class="m-card__title">{{ row.name }}</strong>
+          <el-tag :type="row.webhook_configured ? 'success' : 'danger'" size="small">
+            {{ row.webhook_configured ? '已配置' : '未配置' }}
+          </el-tag>
+        </div>
+        <div v-if="row.alias" class="m-card__sub">{{ row.alias }}</div>
+        <div v-if="parseTags(row.tags).length" class="m-card__tags">
+          <el-tag v-for="tag in parseTags(row.tags)" :key="tag" size="small" style="margin-right:4px">{{ tag }}</el-tag>
+        </div>
+        <div class="m-card__footer">
+          <el-switch v-model="row.is_enabled" @change="toggleStatus(row)" />
+          <el-button type="primary" link size="small" @click="editGroup(row)">编辑</el-button>
+          <el-button type="danger" link size="small" @click="deleteGroup(row)">删除</el-button>
+        </div>
+      </div>
+      <el-empty v-if="!loading && !groups.length" :image-size="48" description="暂无群组" />
+    </div>
+    <!-- 桌面端表格视图 -->
+    <el-table v-else :data="groups" style="width: 100%" v-loading="loading">
       <el-table-column prop="name" label="群名称" min-width="120" />
       <el-table-column prop="alias" label="别名" min-width="100" />
       <el-table-column label="标签" min-width="120">
@@ -89,6 +111,9 @@
 import { ref, onMounted, reactive } from 'vue'
 import request from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useMobile } from '@/composables/useMobile'
+
+const { isMobile } = useMobile()
 
 const groups = ref<any[]>([])
 const loading = ref(false)
