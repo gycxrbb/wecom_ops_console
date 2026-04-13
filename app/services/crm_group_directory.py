@@ -19,6 +19,7 @@ _log = logging.getLogger(__name__)
 
 _CACHE_TTL = 120  # 2 分钟
 _cache: dict[str, tuple[Any, float]] = {}
+_indexes_ensured = False
 
 
 def _get_cached(key: str) -> Any | None:
@@ -65,6 +66,58 @@ def _get_connection() -> pymysql.connections.Connection:
         raise CrmAdminAuthUnavailable(str(exc)) from exc
 
 
+def _ensure_indexes(conn) -> None:
+    """检查并创建 CRM 表必要索引（幂等，仅首次连接时执行）
+
+    MySQL 5.x 不支持 CREATE INDEX IF NOT EXISTS，改用先查后建。
+    """
+    global _indexes_ensured
+    if _indexes_ensured:
+        return
+
+    desired = {
+        'customer_groups': [
+            ('ix_cg_group_id', 'group_id'),
+            ('ix_cg_customer_id', 'customer_id'),
+        ],
+        'customers': [
+            ('ix_customers_total_points', 'total_points'),
+        ],
+    }
+
+    with conn.cursor() as cur:
+        for table, idx_list in desired.items():
+            try:
+                cur.execute(
+                    "SELECT INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s "
+                    "AND INDEX_NAME != 'PRIMARY'",
+                    (table,)
+                )
+                existing = {r['INDEX_NAME'] for r in cur.fetchall()}
+            except Exception as exc:
+                _log.warning('CRM 索引检查跳过 (%s): %s', table, exc)
+                continue
+
+            for idx_name, column in idx_list:
+                if idx_name in existing:
+                    continue
+                try:
+                    cur.execute(
+                        f'ALTER TABLE `{table}` ADD INDEX `{idx_name}` (`{column}`)'
+                    )
+                    _log.info('CRM 索引已创建: %s on %s(%s)', idx_name, table, column)
+                except Exception as exc:
+                    _log.warning('CRM 索引创建跳过: %s', exc)
+
+    try:
+        conn.commit()
+    except Exception:
+        pass
+    _indexes_ensured = True
+    _log.info('CRM 索引检查完成')
+
+
 def fetch_crm_groups() -> dict[str, Any]:
     """返回所有外部群列表 + 成员数 + 积分汇总"""
     if not crm_group_enabled():
@@ -77,13 +130,14 @@ def fetch_crm_groups() -> dict[str, Any]:
     conn = None
     try:
         conn = _get_connection()
+        _ensure_indexes(conn)
         with conn.cursor() as cur:
             cur.execute('''
                 SELECT g.id, g.name,
                        COUNT(DISTINCT cg.customer_id) AS member_count,
                        COALESCE(SUM(c.points), 0)      AS points_sum,
                        COALESCE(SUM(c.total_points), 0) AS total_points_sum
-                FROM groups g
+                FROM `groups` g
                 LEFT JOIN customer_groups cg ON cg.group_id = g.id
                 LEFT JOIN customers c ON c.id = cg.customer_id
                 GROUP BY g.id, g.name
@@ -132,7 +186,7 @@ def fetch_crm_group_members(group_id: int) -> dict[str, Any]:
         conn = _get_connection()
         with conn.cursor() as cur:
             # 群名
-            cur.execute('SELECT id, name FROM groups WHERE id = %s LIMIT 1', (group_id,))
+            cur.execute('SELECT id, name FROM `groups` WHERE id = %s LIMIT 1', (group_id,))
             grp = cur.fetchone()
             if not grp:
                 return {'available': True, 'group_id': group_id, 'group_name': '', 'members': []}
@@ -172,6 +226,134 @@ def fetch_crm_group_members(group_id: int) -> dict[str, Any]:
             conn.close()
 
 
+def fetch_crm_individual_leaderboard(
+    page: int = 1,
+    page_size: int = 20,
+) -> dict[str, Any]:
+    """个人积分榜单（按累计积分降序），带分页，标注所属群组"""
+    if not crm_group_enabled():
+        return {'available': False, 'list': [], 'pagination': {'page': page, 'page_size': page_size, 'total': 0}}
+
+    cache_key = f'crm_lb_ind_{page}_{page_size}'
+    cached = _get_cached(cache_key)
+    if cached is not None:
+        return cached
+
+    conn = None
+    try:
+        conn = _get_connection()
+        with conn.cursor() as cur:
+            cur.execute('SELECT COUNT(*) AS cnt FROM customers')
+            total = int(cur.fetchone()['cnt'])
+
+            offset = (page - 1) * page_size
+            cur.execute('''
+                SELECT c.id, c.name, c.points, c.total_points,
+                       GROUP_CONCAT(g.name SEPARATOR '、') AS group_names
+                FROM customers c
+                LEFT JOIN customer_groups cg ON cg.customer_id = c.id
+                LEFT JOIN `groups` g ON g.id = cg.group_id
+                GROUP BY c.id, c.name, c.points, c.total_points
+                ORDER BY c.total_points DESC, c.name
+                LIMIT %s OFFSET %s
+            ''', (page_size, offset))
+            rows = cur.fetchall()
+
+        items = []
+        for idx, r in enumerate(rows):
+            items.append({
+                'id': r['id'],
+                'name': r['name'],
+                'points': float(r.get('points', 0) or 0),
+                'total_points': float(r.get('total_points', 0) or 0),
+                'group_names': r.get('group_names') or '',
+                'rank': offset + idx + 1,
+            })
+
+        result = {
+            'available': True,
+            'list': items,
+            'pagination': {'page': page, 'page_size': page_size, 'total': total},
+        }
+        _set_cached(cache_key, result)
+        return result
+    except CrmAdminAuthUnavailable:
+        return {'available': False, 'list': [], 'pagination': {'page': page, 'page_size': page_size, 'total': 0}}
+    except Exception as exc:
+        _log.warning('CRM 个人榜单查询失败: %s', exc)
+        return {'available': False, 'list': [], 'pagination': {'page': page, 'page_size': page_size, 'total': 0}}
+    finally:
+        if conn:
+            conn.close()
+
+
+def fetch_crm_group_leaderboard(
+    page: int = 1,
+    page_size: int = 20,
+) -> dict[str, Any]:
+    """群组积分榜单（按累计总积分降序），带分页"""
+    if not crm_group_enabled():
+        return {'available': False, 'list': [], 'pagination': {'page': page, 'page_size': page_size, 'total': 0}}
+
+    cache_key = f'crm_lb_grp_{page}_{page_size}'
+    cached = _get_cached(cache_key)
+    if cached is not None:
+        return cached
+
+    conn = None
+    try:
+        conn = _get_connection()
+        with conn.cursor() as cur:
+            cur.execute('SELECT COUNT(*) AS cnt FROM `groups`')
+            total = int(cur.fetchone()['cnt'])
+
+            offset = (page - 1) * page_size
+            cur.execute('''
+                SELECT g.id, g.name,
+                       COUNT(DISTINCT cg.customer_id) AS member_count,
+                       COALESCE(SUM(c.points), 0)      AS points_sum,
+                       COALESCE(SUM(c.total_points), 0) AS total_points_sum
+                FROM `groups` g
+                LEFT JOIN customer_groups cg ON cg.group_id = g.id
+                LEFT JOIN customers c ON c.id = cg.customer_id
+                GROUP BY g.id, g.name
+                ORDER BY total_points_sum DESC, g.name
+                LIMIT %s OFFSET %s
+            ''', (page_size, offset))
+            rows = cur.fetchall()
+
+        items = []
+        for idx, r in enumerate(rows):
+            mc = int(r.get('member_count', 0) or 0)
+            ps = float(r.get('points_sum', 0) or 0)
+            tps = float(r.get('total_points_sum', 0) or 0)
+            items.append({
+                'id': r['id'],
+                'name': r['name'],
+                'member_count': mc,
+                'points_sum': ps,
+                'total_points_sum': tps,
+                'avg_points': round(ps / mc, 1) if mc > 0 else 0,
+                'rank': offset + idx + 1,
+            })
+
+        result = {
+            'available': True,
+            'list': items,
+            'pagination': {'page': page, 'page_size': page_size, 'total': total},
+        }
+        _set_cached(cache_key, result)
+        return result
+    except CrmAdminAuthUnavailable:
+        return {'available': False, 'list': [], 'pagination': {'page': page, 'page_size': page_size, 'total': 0}}
+    except Exception as exc:
+        _log.warning('CRM 群组榜单查询失败: %s', exc)
+        return {'available': False, 'list': [], 'pagination': {'page': page, 'page_size': page_size, 'total': 0}}
+    finally:
+        if conn:
+            conn.close()
+
+
 def fetch_crm_group_stats() -> dict[str, Any]:
     """全局统计：总群数、总客户数、总积分"""
     if not crm_group_enabled():
@@ -185,7 +367,7 @@ def fetch_crm_group_stats() -> dict[str, Any]:
     try:
         conn = _get_connection()
         with conn.cursor() as cur:
-            cur.execute('SELECT COUNT(*) AS cnt FROM groups')
+            cur.execute('SELECT COUNT(*) AS cnt FROM `groups`')
             grp_count = cur.fetchone()['cnt']
             cur.execute('SELECT COUNT(*) AS cnt FROM customers')
             cust_count = cur.fetchone()['cnt']

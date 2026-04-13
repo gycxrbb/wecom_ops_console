@@ -47,15 +47,19 @@
               />
             </el-form-item>
             <el-form-item label="描述">
-              <el-input
-                type="textarea"
-                :rows="2"
-                :model-value="article.description"
-                @update:model-value="updateArticle(idx, 'description', $event)"
-                placeholder="图文描述（可选）"
-                maxlength="128"
-                show-word-limit
-              />
+              <div class="desc-expandable" @click="openDescDialog(idx)">
+                <el-input
+                  :model-value="article.description"
+                  type="textarea"
+                  :rows="2"
+                  readonly
+                  class="desc-expandable__input"
+                  placeholder="点击编辑描述（可选）"
+                />
+                <div class="desc-expandable__hint">
+                  <el-icon :size="14"><FullScreen /></el-icon>
+                </div>
+              </div>
             </el-form-item>
             <el-form-item label="链接" required>
               <el-input
@@ -72,9 +76,14 @@
                   placeholder="请输入公网可访问的 https:// 图片地址"
                   style="flex: 1"
                 />
+                <el-button @click="openAssetPicker(idx)" class="cover-asset-btn">
+                  <el-icon><Picture /></el-icon>
+                  从素材库
+                </el-button>
               </div>
               <div class="cover-hint">
-                企业微信图文封面必须是公网可访问的 `http(s)` 图片地址，本地上传或素材库相对地址不能直接用于 `picurl`。
+                <p><strong>链接</strong>：填写你想要推送的内容的公网 https 网址（如文章链接）。</p>
+                <p><strong>封面图</strong>：可直接输入公网 https 图片地址，也可从素材库选择（素材库已接入七牛云，均为公网 https 地址）。</p>
               </div>
               <el-image
                 v-if="article.picurl"
@@ -96,12 +105,44 @@
       <el-icon><Plus /></el-icon>
       添加图文卡片 ({{ articles.length }}/8)
     </el-button>
+
+    <!-- 描述展开编辑弹窗 -->
+    <el-dialog
+      v-model="descDialogVisible"
+      title="编辑描述"
+      width="600px"
+      :close-on-click-modal="false"
+      append-to-body
+      destroy-on-close
+    >
+      <el-input
+        ref="descDialogInputRef"
+        v-model="descDialogValue"
+        type="textarea"
+        :rows="10"
+        maxlength="128"
+        show-word-limit
+        placeholder="输入图文描述（可选）"
+      />
+      <template #footer>
+        <el-button @click="descDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="confirmDescDialog">确定</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 封面图素材选择器 -->
+    <AssetPicker
+      v-model:visible="assetPickerVisible"
+      accept-type="image"
+      @select="handleAssetSelect"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
-import { Top, Bottom, Delete, Plus } from '@element-plus/icons-vue'
+import { ref, computed, watch, nextTick } from 'vue'
+import { Top, Bottom, Delete, Plus, FullScreen, Picture } from '@element-plus/icons-vue'
+import AssetPicker from './AssetPicker.vue'
 
 const props = defineProps<{ modelValue: Record<string, any> }>()
 const emit = defineEmits<{ (e: 'update:modelValue', val: Record<string, any>): void }>()
@@ -147,6 +188,38 @@ const updateArticle = (idx: number, field: string, value: string) => {
   )
   emitUpdate(newArticles)
 }
+
+// ---- 描述展开编辑 ----
+const descDialogVisible = ref(false)
+const descDialogValue = ref('')
+const descDialogIdx = ref(0)
+const descDialogInputRef = ref<InstanceType<typeof import('element-plus')['ElInput']>>()
+
+const openDescDialog = (idx: number) => {
+  descDialogIdx.value = idx
+  descDialogValue.value = articles.value[idx]?.description || ''
+  descDialogVisible.value = true
+  nextTick(() => descDialogInputRef.value?.focus())
+}
+
+const confirmDescDialog = () => {
+  updateArticle(descDialogIdx.value, 'description', descDialogValue.value)
+  descDialogVisible.value = false
+}
+
+// ---- 封面图素材选择 ----
+const assetPickerVisible = ref(false)
+const assetPickerIdx = ref(0)
+
+const openAssetPicker = (idx: number) => {
+  assetPickerIdx.value = idx
+  assetPickerVisible.value = true
+}
+
+const handleAssetSelect = (asset: any) => {
+  const url = asset.url || asset.preview_url || ''
+  updateArticle(assetPickerIdx.value, 'picurl', url)
+}
 </script>
 
 <style scoped>
@@ -174,11 +247,50 @@ const updateArticle = (idx: number, field: string, value: string) => {
 }
 .cover-input-area {
   width: 100%;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.cover-asset-btn {
+  flex-shrink: 0;
 }
 .cover-hint {
   margin-top: 8px;
   font-size: 12px;
   color: #909399;
-  line-height: 1.5;
+  line-height: 1.6;
+}
+.cover-hint p {
+  margin: 0 0 4px;
+}
+.cover-hint strong {
+  color: var(--el-text-color-regular);
+}
+
+/* 描述展开编辑 */
+.desc-expandable {
+  position: relative;
+  cursor: pointer;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.desc-expandable:hover {
+  box-shadow: 0 0 0 1px var(--el-color-primary-light-5);
+}
+.desc-expandable__input :deep(.el-textarea__inner) {
+  cursor: pointer;
+  padding-right: 28px;
+}
+.desc-expandable__hint {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  color: var(--el-text-color-placeholder);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+.desc-expandable:hover .desc-expandable__hint {
+  opacity: 1;
 }
 </style>

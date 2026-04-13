@@ -23,7 +23,19 @@ export const buildAssetDownloadHeaders = () => {
 
 export const copyAssetPublicUrl = async (url?: string) => {
   if (!url) throw new Error('素材还没有可用的公网地址')
-  await navigator.clipboard.writeText(url)
+  if (navigator.clipboard) {
+    await navigator.clipboard.writeText(url)
+  } else {
+    // HTTP 环境下 navigator.clipboard 不可用，用 execCommand fallback
+    const textarea = document.createElement('textarea')
+    textarea.value = url
+    textarea.style.position = 'fixed'
+    textarea.style.opacity = '0'
+    document.body.appendChild(textarea)
+    textarea.select()
+    document.execCommand('copy')
+    document.body.removeChild(textarea)
+  }
 }
 
 export const formatAssetDateTime = (dateStr?: string) => {

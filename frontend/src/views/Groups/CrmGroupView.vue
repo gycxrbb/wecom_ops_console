@@ -11,58 +11,75 @@
       style="margin-bottom: 16px"
     />
 
-    <!-- 统计摘要 -->
-    <div v-if="available && stats" class="crm-stats-bar">
-      <div class="crm-stat-item">
-        <span class="crm-stat-value">{{ stats.total_groups }}</span>
-        <span class="crm-stat-label">外部群</span>
+    <!-- 骨架屏 -->
+    <div v-if="loading && !available" class="crm-skeleton">
+      <div class="crm-skeleton__stats">
+        <div v-for="i in 3" :key="i" class="crm-skeleton__stat" />
       </div>
-      <div class="crm-stat-item">
-        <span class="crm-stat-value">{{ stats.total_customers }}</span>
-        <span class="crm-stat-label">客户总数</span>
-      </div>
-      <div class="crm-stat-item">
-        <span class="crm-stat-value">{{ formatPoints(stats.total_points) }}</span>
-        <span class="crm-stat-label">累计总积分</span>
-      </div>
-      <el-button plain size="small" :icon="RefreshRight" @click="handleRefresh" :loading="loading">刷新</el-button>
+      <div v-for="i in 5" :key="i" class="crm-skeleton__row" />
     </div>
 
-    <div v-if="available">
-      <!-- 移动端卡片 -->
-      <div v-if="isMobile" v-loading="loading" class="m-card-list">
-        <div v-for="g in groups" :key="g.id" class="m-card" @click="openMembers(g)">
-          <div class="m-card__row">
-            <strong class="m-card__title">{{ g.name }}</strong>
-            <el-tag size="small">{{ g.member_count }} 人</el-tag>
+    <!-- 正式内容 -->
+    <Transition name="crm-fade">
+      <div v-if="available" class="crm-content">
+        <!-- 统计摘要 -->
+        <div v-if="stats" class="crm-stats-bar">
+          <div class="crm-stat-item">
+            <span class="crm-stat-value">{{ stats.total_groups }}</span>
+            <span class="crm-stat-label">外部群</span>
           </div>
-          <div class="m-card__stats">
-            <span>总积分 {{ formatPoints(g.total_points_sum) }}</span>
-            <span>人均 {{ g.avg_points }}</span>
+          <div class="crm-stat-item">
+            <span class="crm-stat-value">{{ stats.total_customers }}</span>
+            <span class="crm-stat-label">客户总数</span>
+          </div>
+          <div class="crm-stat-item">
+            <span class="crm-stat-value">{{ formatPoints(stats.total_points) }}</span>
+            <span class="crm-stat-label">累计总积分</span>
+          </div>
+          <div class="crm-stats-actions">
+            <el-button plain size="small" :icon="RefreshRight" @click="handleRefresh" :loading="loading">刷新</el-button>
+            <button class="lb-trigger-btn" @click="leaderboardVisible = true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5C7 4 7 7 7 7"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5C17 4 17 7 17 7"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>
+              <span>积分榜单</span>
+            </button>
           </div>
         </div>
-        <el-empty v-if="!loading && !groups.length" :image-size="48" description="暂无外部群数据" />
-      </div>
 
-      <!-- 桌面端表格 -->
-      <el-table v-else :data="groups" style="width: 100%" v-loading="loading" @row-click="openMembers" highlight-current-row cursor="pointer">
-        <el-table-column prop="name" label="群名称" min-width="140" />
-        <el-table-column prop="member_count" label="成员数" width="100" align="center">
-          <template #default="{ row }">
-            <el-tag size="small">{{ row.member_count }} 人</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="当前总积分" width="130" align="right">
-          <template #default="{ row }">{{ formatPoints(row.points_sum) }}</template>
-        </el-table-column>
-        <el-table-column label="累计总积分" width="130" align="right">
-          <template #default="{ row }">{{ formatPoints(row.total_points_sum) }}</template>
-        </el-table-column>
-        <el-table-column label="人均积分" width="110" align="right">
-          <template #default="{ row }">{{ row.avg_points }}</template>
-        </el-table-column>
-      </el-table>
-    </div>
+        <!-- 移动端卡片 -->
+        <div v-if="isMobile" v-loading="loading" class="m-card-list">
+          <div v-for="g in groups" :key="g.id" class="m-card" @click="openMembers(g)">
+            <div class="m-card__row">
+              <strong class="m-card__title">{{ g.name }}</strong>
+              <el-tag size="small">{{ g.member_count }} 人</el-tag>
+            </div>
+            <div class="m-card__stats">
+              <span>总积分 {{ formatPoints(g.total_points_sum) }}</span>
+              <span>人均 {{ g.avg_points }}</span>
+            </div>
+          </div>
+          <el-empty v-if="!loading && !groups.length" :image-size="48" description="暂无外部群数据" />
+        </div>
+
+        <!-- 桌面端表格 -->
+        <el-table v-else :data="groups" style="width: 100%" v-loading="loading" @row-click="openMembers" highlight-current-row cursor="pointer">
+          <el-table-column prop="name" label="群名称" min-width="140" />
+          <el-table-column prop="member_count" label="成员数" width="100" align="center">
+            <template #default="{ row }">
+              <el-tag size="small">{{ row.member_count }} 人</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="当前总积分" width="130" align="right">
+            <template #default="{ row }">{{ formatPoints(row.points_sum) }}</template>
+          </el-table-column>
+          <el-table-column label="累计总积分" width="130" align="right">
+            <template #default="{ row }">{{ formatPoints(row.total_points_sum) }}</template>
+          </el-table-column>
+          <el-table-column label="人均积分" width="110" align="right">
+            <template #default="{ row }">{{ row.avg_points }}</template>
+          </el-table-column>
+        </el-table>
+      </div>
+    </Transition>
 
     <!-- 成员详情弹窗 -->
     <el-dialog v-model="memberDialogVisible" :title="`${currentGroupName} — 成员列表`" width="640px" destroy-on-close>
@@ -79,6 +96,11 @@
         共 {{ members.length }} 人，当前积分合计 {{ memberPointsSum }}，累计合计 {{ memberTotalSum }}
       </div>
     </el-dialog>
+
+    <!-- 积分榜单弹窗 -->
+    <el-dialog v-model="leaderboardVisible" title="积分榜单" width="860px" destroy-on-close top="5vh">
+      <CrmLeaderboard />
+    </el-dialog>
   </div>
 </template>
 
@@ -87,6 +109,7 @@ import { ref, computed, onMounted } from 'vue'
 import { RefreshRight } from '@element-plus/icons-vue'
 import request from '@/utils/request'
 import { useMobile } from '@/composables/useMobile'
+import CrmLeaderboard from './CrmLeaderboard.vue'
 
 const { isMobile } = useMobile()
 
@@ -99,6 +122,9 @@ const members = ref<any[]>([])
 const memberLoading = ref(false)
 const memberDialogVisible = ref(false)
 const currentGroupName = ref('')
+const leaderboardVisible = ref(false)
+
+const memberCache = new Map<number, any[]>()
 
 const memberPointsSum = computed(() => members.value.reduce((s, m) => s + m.points, 0))
 const memberTotalSum = computed(() => members.value.reduce((s, m) => s + m.total_points, 0))
@@ -116,7 +142,6 @@ const fetchGroups = async () => {
     groups.value = res.groups || []
   } catch {
     available.value = false
-    groups.value = []
   } finally {
     loading.value = false
   }
@@ -133,11 +158,20 @@ const fetchStats = async () => {
 const openMembers = async (row: any) => {
   currentGroupName.value = row.name
   memberDialogVisible.value = true
+
+  if (memberCache.has(row.id)) {
+    members.value = memberCache.get(row.id)!
+    memberLoading.value = false
+    return
+  }
+
   memberLoading.value = true
   members.value = []
   try {
     const res: any = await request.get(`/v1/crm-groups/${row.id}/members`)
-    members.value = res.members || []
+    const list = res.members || []
+    memberCache.set(row.id, list)
+    members.value = list
   } catch {
     members.value = []
   } finally {
@@ -147,6 +181,7 @@ const openMembers = async (row: any) => {
 
 const handleRefresh = async () => {
   try { await request.post('/v1/crm-groups/refresh-cache') } catch { /* ignore */ }
+  memberCache.clear()
   await Promise.all([fetchGroups(), fetchStats()])
 }
 
@@ -162,6 +197,43 @@ onMounted(() => {
   border-radius: 4px;
 }
 
+.crm-fade-enter-active { transition: opacity 0.3s ease, transform 0.3s ease; }
+.crm-fade-enter-from { opacity: 0; transform: translateY(8px); }
+
+.crm-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.crm-skeleton__stats {
+  display: flex;
+  gap: 24px;
+  padding: 14px 18px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background: var(--card-bg);
+}
+.crm-skeleton__stat {
+  width: 60px;
+  height: 40px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--border-color) 25%, transparent 50%, var(--border-color) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+.crm-skeleton__row {
+  height: 48px;
+  border-radius: 8px;
+  background: linear-gradient(90deg, var(--border-color) 25%, transparent 50%, var(--border-color) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
 .crm-stats-bar {
   display: flex;
   align-items: center;
@@ -171,6 +243,12 @@ onMounted(() => {
   border-radius: 12px;
   border: 1px solid var(--border-color);
   background: var(--card-bg);
+}
+.crm-stats-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 .crm-stat-item {
   display: flex;
@@ -186,6 +264,30 @@ onMounted(() => {
   font-size: 12px;
   color: var(--text-muted);
   margin-top: 2px;
+}
+
+.lb-trigger-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: linear-gradient(135deg, #FFD700 0%, #FFA000 100%);
+  color: #5D4037;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+.lb-trigger-btn:hover {
+  box-shadow: 0 2px 8px rgba(255, 193, 7, 0.4);
+  transform: translateY(-1px);
+}
+.lb-trigger-btn svg {
+  width: 16px;
+  height: 16px;
 }
 
 .m-card-list { display: flex; flex-direction: column; gap: 10px; }
@@ -218,6 +320,10 @@ onMounted(() => {
   background: #1d1e1f !important;
   border-color: #414243 !important;
 }
+:global(html.dark) .lb-trigger-btn {
+  background: linear-gradient(135deg, #B8860B 0%, #8B6914 100%);
+  color: #FFF8E1;
+}
 :global(html.dark) .member-summary {
   background: rgba(74, 222, 128, 0.08);
 }
@@ -229,5 +335,6 @@ onMounted(() => {
     padding: 12px;
   }
   .crm-stat-value { font-size: 18px; }
+  .crm-stats-actions { margin-left: 0; width: 100%; justify-content: center; }
 }
 </style>
