@@ -259,6 +259,24 @@
 
 ## Bug #28: 前端构建被 tsconfig 的 ignoreDeprecations 配置拦住
 
+## Bug #29: 运营需要高频发送表情图时，普通素材目录入口过深导致图片消息配置效率低
+
+- **日期**: 2026-04-14
+- **现象**: 运营想把常用提醒类表情图作为独立图片消息发送，但现有素材库只有通用目录与未分类入口，发送中心选图时需要逐层翻找，且文件夹容易被误改或误删。
+- **根因**: 素材库缺少面向高频运营场景的固定入口，发送中心的 `AssetPicker` 也没有为“表情包”类静态图片提供快捷筛选路径。
+- **复现条件**: 在发送中心选择 `image` 消息，尝试从素材库快速找到常用表情图并发送。
+- **解决方案**: 后端为素材库自动保底一个根级系统文件夹“表情包”，并禁止其重命名/删除/移动；前端在素材库页和素材选择弹窗中增加“表情包”快捷入口，让运营直接进入该目录上传和选用静态表情图。
+- **关联文件**: app/routers/api_folders.py, frontend/src/views/Assets/index.vue, frontend/src/views/Assets/components/FolderSidebar.vue, frontend/src/views/Assets/composables/useFolders.ts, frontend/src/components/message-editor/AssetPicker.vue
+
+## Bug #30: 发送中心只能把表情图当普通图片处理，运营容易误以为支持 GIF 动图发送
+
+- **日期**: 2026-04-14
+- **现象**: 发送中心虽然能选图片素材，但运营同学看不出“表情包”是独立的发送场景，也容易误解为企微支持直接发 GIF 动图。
+- **根因**: 消息类型枚举里没有“表情包”这一业务语义，图片编辑器提示文案也没有明确告知企微机器人只能按静态图片发送。
+- **复现条件**: 在发送中心准备发送表情图，或让运营同学首次使用“表情包”目录发送素材。
+- **解决方案**: 在前后端消息类型中新增 `emotion` 作为 `image` 的业务别名；发送中心、预览、批量标签和模板类型统一显示“表情包”；图片编辑器在 `emotion` 模式下改为明确提示“企微不能直接发 GIF，需先保存静态图再上传素材库”。
+- **关联文件**: frontend/src/views/Templates/composables/useTemplates.ts, frontend/src/components/message-editor/index.vue, frontend/src/components/message-editor/ImageEditor.vue, frontend/src/views/SendCenter/components/MessageForm.vue, frontend/src/views/SendCenter/composables/useSendLogic.ts, frontend/src/views/SendCenter/components/PreviewCard.vue, frontend/src/views/SendCenter/index.vue, frontend/src/views/SendCenter/components/ContentSelector.vue, app/services/wecom.py, app/routers/api.py
+
 - **日期**: 2026-04-09
 - **现象**: 执行 `npm run build` 时，`vue-tsc -b` 在读取 `frontend/tsconfig.json` 阶段直接报 `TS5103: Invalid value for '--ignoreDeprecations'`。
 - **根因**: 当前环境里的 TypeScript / vue-tsc 组合不接受仓库里现有的 `ignoreDeprecations: \"5.0\"` 配置，导致即使业务代码正确也会被构建门禁拦下。

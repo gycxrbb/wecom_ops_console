@@ -20,6 +20,13 @@
       <ImageEditor
         v-else-if="msgType === 'image'"
         :model-value="contentJson"
+        variant="image"
+        @update:model-value="handleVisualUpdate"
+      />
+      <ImageEditor
+        v-else-if="msgType === 'emotion'"
+        :model-value="contentJson"
+        variant="emotion"
         @update:model-value="handleVisualUpdate"
       />
       <FileEditor

@@ -74,9 +74,10 @@ class WeComService:
 
     @classmethod
     def build_payload(cls, msg_type: str, content: dict):
+        normalized_type = 'image' if msg_type == 'emotion' else msg_type
         if msg_type == 'raw_json':
             return content
-        if msg_type == 'text':
+        if normalized_type == 'text':
             payload = {
                 'msgtype': 'text',
                 'text': {
@@ -86,11 +87,11 @@ class WeComService:
                 },
             }
             return payload
-        if msg_type == 'markdown':
+        if normalized_type == 'markdown':
             return {'msgtype': 'markdown', 'markdown': {'content': content.get('content', '')}}
-        if msg_type == 'news':
+        if normalized_type == 'news':
             return {'msgtype': 'news', 'news': {'articles': content.get('articles', [])}}
-        if msg_type == 'image':
+        if normalized_type == 'image':
             raw = cls._read_asset_bytes(content, image=True)
             return {
                 'msgtype': 'image',
@@ -99,9 +100,9 @@ class WeComService:
                     'md5': hashlib.md5(raw).hexdigest(),
                 },
             }
-        if msg_type == 'file':
+        if normalized_type == 'file':
             return {'msgtype': 'file', 'file': {'media_id': content.get('media_id', '')}}
-        if msg_type == 'template_card':
+        if normalized_type == 'template_card':
             card = content.get('template_card') if isinstance(content, dict) and content.get('template_card') else content
             return {'msgtype': 'template_card', 'template_card': card}
         raise ValueError(f'不支持的消息类型: {msg_type}')

@@ -276,7 +276,7 @@ def build_context(user: models.User, group: models.Group | None = None, extra: d
 def render_message_content(msg_type: str, content_json: dict, variables_json: dict, user: models.User, group: models.Group | None, now: datetime | None = None):
     ctx = build_context(user=user, group=group, extra=variables_json, now=now)
     rendered = render_value(content_json, ctx)
-    if msg_type == 'image' and isinstance(rendered, dict) and rendered.get('asset_id'):
+    if msg_type in {'image', 'emotion'} and isinstance(rendered, dict) and rendered.get('asset_id'):
         rendered['asset_id'] = int(rendered['asset_id'])
     if msg_type == 'file' and isinstance(rendered, dict) and rendered.get('asset_id'):
         rendered['asset_id'] = int(rendered['asset_id'])
@@ -284,7 +284,7 @@ def render_message_content(msg_type: str, content_json: dict, variables_json: di
 
 
 def attach_asset_paths(db: Session, msg_type: str, content: dict):
-    if msg_type not in {'image', 'file', 'video'}:
+    if msg_type not in {'image', 'emotion', 'file', 'video'}:
         return content
     content = dict(content)
     asset_id = content.get('asset_id')
@@ -309,7 +309,7 @@ def attach_asset_paths(db: Session, msg_type: str, content: dict):
     content['file_path'] = asset.storage_path
     content['file_name'] = asset.name
     content['file_url'] = asset.public_url or asset.url or ''
-    if msg_type == 'image':
+    if msg_type in {'image', 'emotion'}:
         content['image_path'] = asset.storage_path
         content['image_url'] = asset.public_url or asset.url or ''
     return content
@@ -354,7 +354,7 @@ async def _send_to_single_group(
 ) -> dict:
     """向单个群发送消息（含重试），使用独立 DB session 避免并发锁冲突。"""
     from ..database import SessionLocal
-    is_file_type = msg_type in {'file', 'image'}
+    is_file_type = msg_type in {'file', 'image', 'emotion'}
     db = SessionLocal()
     try:
         rendered_content = render_message_content(msg_type, content_json, variables_json, user, group)
@@ -437,7 +437,7 @@ async def _send_to_single_group(
 
 
 async def do_send_to_groups(db: Session, groups: list[models.Group], msg_type: str, content_json: dict, variables_json: dict, user: models.User, schedule: models.Schedule | None = None, run_mode: str = 'immediate'):
-    is_file_type = msg_type in {'file', 'image'}
+    is_file_type = msg_type in {'file', 'image', 'emotion'}
     max_retries = settings.file_send_max_retries if is_file_type else settings.send_max_retries
     retry_delay = settings.file_send_retry_delay_seconds if is_file_type else settings.send_retry_delay_seconds
     cached_media_id: dict[int, str] = {}
@@ -604,6 +604,54 @@ def list_assets(request: Request, folder_id: str = None, db: Session = Depends(g
     assets = query.all()
     return [serialize_material(a) for a in assets]
 
+
+@router.post('/assets/prepare-upload')
+async def prepare_asset_upload(request: Request, db: Session = Depends(get_db)):
+    get_user_or_401(request, db)
+    require_permission(request, db, 'asset')
+    body = await request.json()
+    filename = str(body.get('filename', '')).strip()
+    mime_type = str(body.get('mime_type', 'application/octet-stream'))
+    if not filename:
+        raise HTTPException(400, '缺少 filename')
+    config = storage_facade.prepare_client_upload(filename, mime_type)
+    if not config:
+        return {'mode': 'server'}
+    return config
+
+
+@router.post('/assets/confirm-upload')
+async def confirm_asset_upload(request: Request, db: Session = Depends(get_db)):
+    get_user_or_401(request, db)
+    require_permission(request, db, 'asset')
+    body = await request.json()
+    object_key = str(body.get('object_key', '')).strip()
+    public_url = str(body.get('public_url', '')).strip()
+    name = str(body.get('name', '')).strip()
+    folder_id = body.get('folder_id')
+    file_size = int(body.get('file_size', 0))
+    mime_type = str(body.get('mime_type', 'application/octet-stream'))
+    if not object_key or not name:
+        raise HTTPException(400, '缺少 object_key 或 name')
+    material_type = 'image' if mime_type.startswith('image/') else 'file'
+    asset = models.Material(
+        name=name,
+        material_type=material_type,
+        mime_type=mime_type,
+        file_size=file_size,
+        folder_id=int(folder_id) if folder_id and str(folder_id) not in ('', 'null', 'undefined') else None,
+        storage_provider='qiniu',
+        storage_status='ready',
+        storage_key=object_key,
+        public_url=public_url,
+        bucket_name=storage_facade.active_provider.config.bucket if hasattr(storage_facade.active_provider, 'config') else '',
+    )
+    db.add(asset)
+    db.commit()
+    db.refresh(asset)
+    return serialize_material(asset)
+
+
 @router.post('/assets')
 async def upload_asset(request: Request, file: UploadFile = File(...), folder_id: str = Form(None), db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
@@ -708,6 +756,23 @@ def delete_asset(asset_id: int, request: Request, db: Session = Depends(get_db))
     asset.deleted_at = datetime.utcnow()
     db.commit()
     return {'ok': True}
+
+
+@router.patch('/assets/{asset_id}/rename')
+async def rename_asset(asset_id: int, request: Request, db: Session = Depends(get_db)):
+    user = get_user_or_401(request, db)
+    require_permission(user, 'asset')
+    asset = db.query(models.Material).filter(models.Material.id == asset_id).first()
+    if not asset:
+        raise HTTPException(404, '素材不存在')
+    body = await request.json()
+    name = str(body.get('name', '')).strip()
+    if not name:
+        raise HTTPException(400, '文件名不能为空')
+    asset.name = name
+    db.commit()
+    db.refresh(asset)
+    return serialize_material(asset)
 
 
 @router.patch('/assets/{asset_id}/move')

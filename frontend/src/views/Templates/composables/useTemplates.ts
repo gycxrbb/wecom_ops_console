@@ -22,6 +22,7 @@ const defaultContentByType: Record<string, any> = {
   markdown: { content: '' },
   news: { articles: [] },
   image: { asset_id: undefined, asset_name: '', asset_url: '', image_path: '' },
+  emotion: { asset_id: undefined, asset_name: '', asset_url: '', image_path: '' },
   file: { asset_id: undefined, asset_name: '', media_id: '' },
   template_card: { template_card: { card_type: 'text_notice', main_title: { title: '' } } }
 }
@@ -32,6 +33,7 @@ export const msgTypeOptions = [
   { value: 'text', label: '文本' },
   { value: 'markdown', label: 'Markdown' },
   { value: 'image', label: '图片' },
+  { value: 'emotion', label: '表情包' },
   { value: 'news', label: '图文' },
   { value: 'file', label: '文件' },
   { value: 'template_card', label: '模板卡片' }

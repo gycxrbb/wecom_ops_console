@@ -7,6 +7,7 @@ export interface Folder {
   name: string
   sort_order: number
   parent_id: number | null
+  is_system?: boolean
   asset_count: number
   child_count: number
   created_at: string

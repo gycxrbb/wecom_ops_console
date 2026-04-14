@@ -3,8 +3,8 @@
     <el-form label-width="100px" size="small">
       <el-form-item label="图片素材">
         <div class="asset-row">
-          <el-input :model-value="selectedLabel" readonly placeholder="请选择素材库中的图片" />
-          <el-button type="primary" @click="assetPickerVisible = true">选择图片</el-button>
+          <el-input :model-value="selectedLabel" readonly :placeholder="placeholderText" />
+          <el-button type="primary" @click="assetPickerVisible = true">{{ selectButtonText }}</el-button>
           <el-button v-if="modelValue.asset_id" @click="clearAsset">清空</el-button>
         </div>
       </el-form-item>
@@ -17,13 +17,12 @@
       class="preview-image"
     />
 
-    <div class="field-hint">
-      发送图片消息时，系统会根据所选素材自动读取图片文件并转换为企业微信需要的内容，不需要手动填写服务器路径。
-    </div>
+    <div class="field-hint">{{ hintText }}</div>
 
     <AssetPicker
       v-model:visible="assetPickerVisible"
       accept-type="image"
+      :preferred-folder="props.variant === 'emotion' ? 'emotion' : 'all'"
       @select="handleAssetSelect"
     />
   </div>
@@ -34,7 +33,9 @@ import { computed, ref } from 'vue'
 import AssetPicker from './AssetPicker.vue'
 import { buildAssetAuthUrl } from '@/utils/assets'
 
-const props = defineProps<{ modelValue: Record<string, any> }>()
+const props = withDefaults(defineProps<{ modelValue: Record<string, any>; variant?: 'image' | 'emotion' }>(), {
+  variant: 'image'
+})
 const emit = defineEmits<{ (e: 'update:modelValue', val: Record<string, any>): void }>()
 
 const assetPickerVisible = ref(false)
@@ -50,6 +51,13 @@ const selectedLabel = computed(() => {
 })
 
 const previewUrl = computed(() => buildAssetAuthUrl(props.modelValue.asset_url || ''))
+const placeholderText = computed(() => props.variant === 'emotion' ? '请选择素材库中的表情包静态图' : '请选择素材库中的图片')
+const selectButtonText = computed(() => props.variant === 'emotion' ? '选择表情包' : '选择图片')
+const hintText = computed(() => (
+  props.variant === 'emotion'
+    ? '企微群机器人不支持直接发送 GIF 动图，表情包会按静态图片发送。建议运营同学先在企微或微信客户端保存想要的表情图，再上传到素材库的“表情包”目录后选择发送。'
+    : '发送图片消息时，系统会根据所选素材自动读取图片文件并转换为企业微信需要的内容，不需要手动填写服务器路径。'
+))
 
 const handleAssetSelect = (asset: any) => {
   emit('update:modelValue', {

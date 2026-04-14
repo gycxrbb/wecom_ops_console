@@ -43,10 +43,10 @@
                   <div class="markdown-body" v-html="markdownHtml"></div>
                 </template>
 
-                <template v-else-if="msgType === 'image'">
+                <template v-else-if="msgType === 'image' || msgType === 'emotion'">
                   <div class="image-mock">
                     <img v-if="imageUrl" :src="imageUrl" alt="image preview" class="image-mock__img" />
-                    <div v-else class="image-mock__placeholder">图片素材预览</div>
+                    <div v-else class="image-mock__placeholder">{{ msgType === 'emotion' ? '表情包静态图预览' : '图片素材预览' }}</div>
                   </div>
                 </template>
 

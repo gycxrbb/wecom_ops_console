@@ -11,6 +11,8 @@ from .api import get_user_or_401, require_role
 
 router = APIRouter(prefix='/api/v1/asset-folders', tags=['asset-folders'])
 
+SYSTEM_EMOTION_FOLDER_NAME = '表情包'
+
 
 class FolderCreate(BaseModel):
     name: str
@@ -24,12 +26,36 @@ class FolderMove(BaseModel):
     parent_id: int | None = None
 
 
+def is_system_folder(folder: models.AssetFolder) -> bool:
+    return folder.parent_id is None and folder.name == SYSTEM_EMOTION_FOLDER_NAME
+
+
+def ensure_system_folders(db: Session) -> None:
+    exists = db.query(models.AssetFolder).filter(
+        models.AssetFolder.name == SYSTEM_EMOTION_FOLDER_NAME,
+        models.AssetFolder.parent_id == None,
+    ).first()
+    if exists:
+        return
+
+    max_order = db.query(func.max(models.AssetFolder.sort_order)).scalar() or 0
+    folder = models.AssetFolder(
+        name=SYSTEM_EMOTION_FOLDER_NAME,
+        sort_order=max_order + 1,
+        parent_id=None,
+        owner_id=None,
+    )
+    db.add(folder)
+    db.commit()
+
+
 def serialize_folder(folder: models.AssetFolder, asset_count: int = 0, child_count: int = 0) -> dict:
     return {
         'id': folder.id,
         'name': folder.name,
         'sort_order': folder.sort_order,
         'parent_id': folder.parent_id,
+        'is_system': is_system_folder(folder),
         'asset_count': asset_count,
         'child_count': child_count,
         'created_at': folder.created_at.isoformat(),
@@ -39,6 +65,7 @@ def serialize_folder(folder: models.AssetFolder, asset_count: int = 0, child_cou
 @router.get('')
 def list_folders(request: Request, db: Session = Depends(get_db)):
     get_user_or_401(request, db)
+    ensure_system_folders(db)
     folders = db.query(models.AssetFolder).order_by(models.AssetFolder.sort_order, models.AssetFolder.id).all()
     counts = dict(
         db.query(models.Material.folder_id, func.count(models.Material.id))
@@ -60,6 +87,7 @@ def list_folders(request: Request, db: Session = Depends(get_db)):
 def create_folder(body: FolderCreate, request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
     require_role(user, 'admin', 'coach')
+    ensure_system_folders(db)
     name = body.name.strip()
     parent_id = body.parent_id
     if not name:
@@ -85,9 +113,12 @@ def create_folder(body: FolderCreate, request: Request, db: Session = Depends(ge
 def rename_folder(folder_id: int, body: FolderRename, request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
     require_role(user, 'admin', 'coach')
+    ensure_system_folders(db)
     folder = db.query(models.AssetFolder).filter(models.AssetFolder.id == folder_id).first()
     if not folder:
         raise HTTPException(404, '文件夹不存在')
+    if is_system_folder(folder):
+        raise HTTPException(400, '系统文件夹不支持重命名')
     name = body.name.strip()
     if not name:
         raise HTTPException(400, '文件夹名称不能为空')
@@ -109,9 +140,12 @@ def rename_folder(folder_id: int, body: FolderRename, request: Request, db: Sess
 def delete_folder(folder_id: int, request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
     require_role(user, 'admin', 'coach')
+    ensure_system_folders(db)
     folder = db.query(models.AssetFolder).filter(models.AssetFolder.id == folder_id).first()
     if not folder:
         raise HTTPException(404, '文件夹不存在')
+    if is_system_folder(folder):
+        raise HTTPException(400, '系统文件夹不支持删除')
     count = db.query(func.count(models.Material.id)).filter(models.Material.folder_id == folder_id).scalar()
     if count > 0:
         raise HTTPException(400, f'该文件夹下还有 {count} 个素材，请先移动或删除')
@@ -127,9 +161,12 @@ def delete_folder(folder_id: int, request: Request, db: Session = Depends(get_db
 def move_folder(folder_id: int, body: FolderMove, request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
     require_role(user, 'admin', 'coach')
+    ensure_system_folders(db)
     folder = db.query(models.AssetFolder).filter(models.AssetFolder.id == folder_id).first()
     if not folder:
         raise HTTPException(404, '文件夹不存在')
+    if is_system_folder(folder):
+        raise HTTPException(400, '系统文件夹不支持移动')
 
     parent_id = body.parent_id
     if parent_id == folder_id:

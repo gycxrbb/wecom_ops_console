@@ -11,30 +11,53 @@
     <el-tabs v-model="activeTab" class="content-selector__tabs">
       <!-- 模板库 -->
       <el-tab-pane label="模板库" name="templates">
-        <el-input
-          v-model="templateSearch"
-          placeholder="搜索模板名称、分类、描述..."
-          clearable
-          prefix-icon="Search"
-          class="content-selector__search"
-        />
-        <div v-if="filteredTemplates.length" class="content-selector__list">
-          <div
-            v-for="t in filteredTemplates"
-            :key="'tpl-' + t.id"
-            class="content-selector__item"
-            :class="{ 'is-selected': isSelected('template', t.id) }"
-            @click="selectTemplate(t)"
-          >
-            <div class="content-selector__item-main">
-              <span class="content-selector__item-name">{{ t.name }}</span>
-              <span v-if="t.category" class="content-selector__item-desc">{{ t.category }}</span>
-            </div>
-            <el-tag size="small" :type="tagTypeByMsgType(t.msg_type)">{{ msgTypeLabel(t.msg_type) }}</el-tag>
+        <div class="tpl-filter-bar">
+          <div class="tpl-type-chips">
+            <button
+              type="button"
+              class="tpl-type-chip"
+              :class="{ 'is-active': templateTypeFilter === '' }"
+              @click="templateTypeFilter = ''"
+            >全部</button>
+            <button
+              v-for="opt in templateTypeOptions"
+              :key="opt.value"
+              type="button"
+              class="tpl-type-chip"
+              :class="{ 'is-active': templateTypeFilter === opt.value }"
+              @click="templateTypeFilter = opt.value"
+            >{{ opt.label }}</button>
           </div>
+          <el-input
+            v-model="templateSearch"
+            placeholder="搜索模板..."
+            clearable
+            prefix-icon="Search"
+            size="small"
+            class="tpl-filter-bar__search"
+          />
+        </div>
+        <div v-if="filteredTemplates.length" class="content-selector__list">
+          <template v-for="group in templateGroups" :key="group.type">
+            <div v-if="group.items.length" class="tpl-group">
+              <div class="tpl-group__header">{{ group.label }} <span class="tpl-group__count">{{ group.items.length }}</span></div>
+              <div
+                v-for="t in group.items"
+                :key="'tpl-' + t.id"
+                class="content-selector__item"
+                :class="{ 'is-selected': isSelected('template', t.id) }"
+                @click="selectTemplate(t)"
+              >
+                <div class="content-selector__item-main">
+                  <span class="content-selector__item-name">{{ t.name }}</span>
+                  <span v-if="t.category" class="content-selector__item-desc">{{ t.category }}</span>
+                </div>
+              </div>
+            </div>
+          </template>
         </div>
         <div v-else class="content-selector__empty">
-          <span>暂无模板</span>
+          <span>{{ templateTypeFilter ? '该类型暂无模板' : '暂无模板' }}</span>
         </div>
       </el-tab-pane>
 
@@ -199,7 +222,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { Loading } from '@element-plus/icons-vue'
-import { msgTypeLabel } from '@/views/Templates/composables/useTemplates'
+import { msgTypeLabel, msgTypeOptions } from '@/views/Templates/composables/useTemplates'
 import request from '@/utils/request'
 import type { PropType } from 'vue'
 import { useMobile } from '@/composables/useMobile'
@@ -223,6 +246,7 @@ const visible = computed({
 
 const activeTab = ref('templates')
 const templateSearch = ref('')
+const templateTypeFilter = ref('')
 const plans = ref<any[]>([])
 const plansLoading = ref(false)
 const planDetailMap = ref<Record<number, any>>({})
@@ -235,15 +259,46 @@ const checkedNodeIds = ref<Set<number>>(new Set())
 
 // ---------- computed ----------
 
+const templateTypeOptions = msgTypeOptions
+
 const filteredTemplates = computed(() => {
+  let list = props.templates as any[]
+  if (templateTypeFilter.value) {
+    list = list.filter((t: any) => t.msg_type === templateTypeFilter.value)
+  }
   const kw = templateSearch.value.trim().toLowerCase()
-  if (!kw) return props.templates
-  return props.templates.filter((t: any) =>
-    t.name?.toLowerCase().includes(kw) ||
-    t.category?.toLowerCase().includes(kw) ||
-    t.description?.toLowerCase().includes(kw) ||
-    msgTypeLabel(t.msg_type)?.toLowerCase().includes(kw)
-  )
+  if (kw) {
+    list = list.filter((t: any) =>
+      t.name?.toLowerCase().includes(kw) ||
+      t.category?.toLowerCase().includes(kw) ||
+      t.description?.toLowerCase().includes(kw)
+    )
+  }
+  return list
+})
+
+const templateGroups = computed(() => {
+  const grouped = new Map<string, any[]>()
+  for (const t of filteredTemplates.value) {
+    const type = t.msg_type || 'unknown'
+    if (!grouped.has(type)) grouped.set(type, [])
+    grouped.get(type)!.push(t)
+  }
+  const order = msgTypeOptions.map(o => o.value)
+  const result: { type: string; label: string; items: any[] }[] = []
+  for (const type of order) {
+    const items = grouped.get(type)
+    if (items) {
+      result.push({ type, label: msgTypeLabel(type), items })
+    }
+  }
+  // 剩余未知类型
+  for (const [type, items] of grouped) {
+    if (!order.includes(type)) {
+      result.push({ type, label: msgTypeLabel(type), items })
+    }
+  }
+  return result
 })
 
 const selectedPlan = computed(() =>
@@ -379,7 +434,7 @@ const confirmBatchSelect = () => {
 
 const tagTypeByMsgType = (msgType: string) => {
   const map: Record<string, string> = {
-    text: '', markdown: 'success', image: 'warning', news: 'danger', file: 'info', template_card: ''
+    text: '', markdown: 'success', image: 'warning', emotion: 'warning', news: 'danger', file: 'info', template_card: ''
   }
   return map[msgType] || ''
 }
@@ -438,6 +493,7 @@ const selectPlan = (plan: any) => {
 const onOpen = () => {
   activeTab.value = 'templates'
   templateSearch.value = ''
+  templateTypeFilter.value = ''
   nodeSearch.value = ''
   planSearch.value = ''
   selectedPlanId.value = null
@@ -484,6 +540,65 @@ const fetchPlanDetail = async (planId: number) => {
 </script>
 
 <style scoped>
+/* ---- 模板类型筛选 ---- */
+.tpl-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.tpl-type-chips {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+.tpl-type-chip {
+  appearance: none;
+  border: 1px solid var(--border-color);
+  background: var(--card-bg, #fff);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.tpl-type-chip:hover {
+  border-color: var(--el-color-primary);
+  color: var(--el-color-primary);
+}
+.tpl-type-chip.is-active {
+  background: var(--el-color-primary);
+  border-color: var(--el-color-primary);
+  color: #fff;
+}
+.tpl-filter-bar__search {
+  flex: 1;
+  min-width: 140px;
+}
+.tpl-group {
+  margin-bottom: 6px;
+}
+.tpl-group__header {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 6px 14px 4px;
+  position: sticky;
+  top: 0;
+  background: var(--card-bg, #fff);
+  z-index: 1;
+}
+.tpl-group__count {
+  font-weight: 400;
+  color: var(--text-muted);
+  opacity: 0.6;
+  margin-left: 2px;
+}
+
 .content-selector__search {
   margin-bottom: 12px;
 }

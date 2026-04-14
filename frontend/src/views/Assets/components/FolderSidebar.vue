@@ -69,7 +69,7 @@
           <el-icon :size="16"><FolderIcon /></el-icon>
           <span class="folder-name">{{ folder.name }}</span>
           <span class="folder-count">{{ folder.asset_count }}</span>
-          <div class="folder-hover-actions">
+          <div v-if="!folder.is_system" class="folder-hover-actions">
             <el-button size="small" text @click.stop="$emit('create-child', folder)">
               <el-icon :size="14"><Plus /></el-icon>
             </el-button>
@@ -90,9 +90,12 @@
         class="folder-context-menu"
         :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }"
       >
-        <div class="ctx-item" @click="$emit('create-child', contextMenu.folder); contextMenu.visible = false">新建子文件夹</div>
-        <div class="ctx-item" @click="$emit('rename', contextMenu.folder); contextMenu.visible = false">重命名</div>
-        <div class="ctx-item danger" @click="$emit('delete', contextMenu.folder); contextMenu.visible = false">删除</div>
+        <template v-if="contextMenu.folder && !contextMenu.folder.is_system">
+          <div class="ctx-item" @click="$emit('create-child', contextMenu.folder); contextMenu.visible = false">新建子文件夹</div>
+          <div class="ctx-item" @click="$emit('rename', contextMenu.folder); contextMenu.visible = false">重命名</div>
+          <div class="ctx-item danger" @click="$emit('delete', contextMenu.folder); contextMenu.visible = false">删除</div>
+        </template>
+        <div v-else class="ctx-item is-disabled">系统文件夹仅支持使用</div>
       </div>
     </teleport>
   </div>
@@ -370,6 +373,11 @@ const handleDropToRoot = () => {
   font-size: 13px;
   cursor: pointer;
   transition: background 0.15s;
+}
+
+.ctx-item.is-disabled {
+  color: var(--text-muted);
+  cursor: default;
 }
 
 .ctx-item:hover {

@@ -50,6 +50,12 @@ class StorageFacade:
         provider = self.get_provider(provider_name)
         return provider.upload(payload)
 
+    def prepare_client_upload(self, filename: str, mime_type: str) -> dict | None:
+        """如果 active provider 支持客户端直传，返回直传配置；否则返回 None。"""
+        if isinstance(self.active_provider, QiniuStorageProvider):
+            return self.active_provider.prepare_client_upload(filename, mime_type)
+        return None
+
     def upload(self, payload: UploadPayload) -> StorageResult:
         try:
             return self.active_provider.upload(payload)

@@ -159,6 +159,57 @@ class QiniuStorageProvider(StorageProvider):
             },
         )
 
+    def prepare_client_upload(self, filename: str, mime_type: str) -> dict:
+        """生成客户端直传所需的 token 和元信息，跳过服务器中转。"""
+        self._ensure_ready()
+        object_key = self._object_key(filename)
+        token = self._upload_token(object_key)
+        public_url = self._public_url(object_key)
+        if self.config.private_bucket:
+            public_url = self._signed_url(public_url)
+        return {
+            'mode': 'qiniu',
+            'upload_url': self._upload_host,
+            'token': token,
+            'object_key': object_key,
+            'public_url': public_url,
+            'bucket': self.config.bucket,
+        }
+        self._ensure_ready()
+        object_key = self._object_key(payload.filename)
+        token = self._upload_token(object_key)
+        files = {'file': (Path(payload.filename).name, payload.content, payload.mime_type or 'application/octet-stream')}
+        data = {'token': token, 'key': object_key}
+        resp = self._post_upload(self._upload_host, data=data, files=files)
+        if resp.status_code == 400:
+            body = resp.json()
+            hint_host = self._extract_region_upload_host(body.get('error', ''))
+            if hint_host and hint_host != self._upload_host:
+                resp = self._post_upload(hint_host, data=data, files=files)
+        resp.raise_for_status()
+        body = resp.json()
+        if body.get('error'):
+            raise RuntimeError(f"七牛上传失败: {body.get('error')}")
+
+        public_url = self._public_url(object_key)
+        if self.config.private_bucket:
+            public_url = self._signed_url(public_url)
+
+        return StorageResult(
+            provider=self.provider_name,
+            object_key=object_key,
+            public_url=public_url,
+            original_filename=Path(payload.filename).name,
+            stored_filename=Path(object_key).name,
+            mime_type=payload.mime_type,
+            file_size=len(payload.content),
+            bucket=self.config.bucket,
+            extra={
+                'hash': body.get('hash', ''),
+                'key': body.get('key', object_key),
+            },
+        )
+
     @staticmethod
     def _post_upload(upload_host: str, *, data: dict, files: dict) -> httpx.Response:
         return httpx.post(upload_host, data=data, files=files, timeout=60)

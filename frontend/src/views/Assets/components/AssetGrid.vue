@@ -48,6 +48,9 @@
             <el-button size="small" link type="warning" @click="handleMove(item)">
               <el-icon><Rank /></el-icon> 移动
             </el-button>
+            <el-button size="small" link @click="openRename(item)">
+              <el-icon><Edit /></el-icon> 重命名
+            </el-button>
             <el-popconfirm title="确定要删除该素材吗？删除后不可恢复。" @confirm="handleDelete(item)" :disabled="props.deletingIds?.has(item.id)">
               <template #reference>
                 <el-button size="small" link type="danger" :loading="props.deletingIds?.has(item.id)">
@@ -101,6 +104,7 @@
               <el-button link type="primary" :disabled="isUnavailable(scope.row)" @click="handleDownload(scope.row)">下载</el-button>
               <el-button link :disabled="!scope.row.public_url || isUnavailable(scope.row)" @click="handleCopyUrl(scope.row)">复制地址</el-button>
               <el-button link type="warning" @click="handleMove(scope.row)">移动</el-button>
+              <el-button link @click="openRename(scope.row)">重命名</el-button>
               <el-popconfirm title="确定要删除该素材吗？删除后不可恢复。" @confirm="handleDelete(scope.row)" :disabled="props.deletingIds?.has(scope.row.id)">
                 <template #reference>
                   <el-button link type="danger" :loading="props.deletingIds?.has(scope.row.id)">删除</el-button>
@@ -163,7 +167,15 @@
             </div>
           </div>
           <div class="preview-panel__meta">
-            <div class="preview-title">{{ previewAsset.name }}</div>
+            <div class="preview-name-row">
+              <el-input
+                v-model="previewName"
+                size="small"
+                maxlength="100"
+                class="preview-name-input"
+              />
+              <el-button size="small" type="primary" :disabled="previewName === previewAsset.name || !previewName.trim()" @click="handleRenameFromPreview">保存</el-button>
+            </div>
             <div class="preview-meta">类型：{{ previewAsset.mime_type || previewAsset.material_type }}</div>
             <div class="preview-meta">大小：{{ formatSize(previewAsset.file_size) }}</div>
             <div class="preview-meta">上传时间：{{ formatDate(previewAsset.created_at) }}</div>
@@ -188,7 +200,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Download, Delete, Rank, FolderOpened, Link, Document } from '@element-plus/icons-vue'
+import { Download, Delete, Rank, FolderOpened, Link, Document, Edit } from '@element-plus/icons-vue'
 import { Folder as FolderIcon } from '@element-plus/icons-vue'
 import { buildAssetAuthUrl, copyAssetPublicUrl, formatAssetDateTime } from '@/utils/assets'
 import type { Asset } from '../composables/useAssets'
@@ -203,7 +215,7 @@ const props = defineProps<{
   selectedIds?: number[]
 }>()
 
-const emit = defineEmits(['download', 'delete', 'move', 'toggle-select'])
+const emit = defineEmits(['download', 'delete', 'move', 'rename', 'toggle-select'])
 
 const fileTableRef = ref<InstanceType<typeof import('element-plus')['ElTable']>>()
 
@@ -286,6 +298,7 @@ const handleDownload = (item: Asset) => emit('download', item)
 const handleDelete = (item: Asset) => emit('delete', item)
 const openPreview = (item: Asset) => {
   previewAsset.value = item
+  previewName.value = item.name
   previewDialogVisible.value = true
 }
 
@@ -317,6 +330,22 @@ const confirmMove = () => {
     emit('move', moveAssetId.value, moveTargetId.value)
   }
   moveDialogVisible.value = false
+}
+
+// ---- Rename ----
+const previewName = ref('')
+
+const openRename = (item: Asset) => {
+  previewAsset.value = item
+  previewName.value = item.name
+  previewDialogVisible.value = true
+}
+
+const handleRenameFromPreview = () => {
+  const name = previewName.value.trim()
+  if (!name || !previewAsset.value) return
+  emit('rename', previewAsset.value.id, name)
+  previewAsset.value = { ...previewAsset.value, name }
 }
 
 const formatSize = (bytes: number) => {
@@ -515,6 +544,15 @@ const isUnavailable = (item: Asset) => ['source_missing', 'deleted'].includes(it
   font-weight: 700;
   color: var(--text-primary);
   margin-bottom: 10px;
+}
+.preview-name-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.preview-name-input {
+  flex: 1;
 }
 
 .preview-meta {

@@ -39,6 +39,9 @@
           </button>
         </div>
         <div class="assets-header__right">
+          <el-button plain type="warning" @click="jumpToEmotionFolder">
+            <el-icon><Picture /></el-icon> 表情包
+          </el-button>
           <el-button
             :type="batchMode ? 'primary' : 'default'"
             plain
@@ -69,6 +72,7 @@
             </el-button>
           </el-upload>
         </div>
+        <div class="paste-hint">支持 <kbd>{{ modKey }}</kbd>+<kbd>V</kbd> 直接粘贴图片或文件到当前目录</div>
       </div>
 
       <div class="assets-summary">
@@ -126,6 +130,7 @@
           @download="handleDownload"
           @delete="handleDelete"
           @move="handleMove"
+          @rename="handleRename"
           @toggle-select="toggleSelect"
         />
       </div>
@@ -192,8 +197,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { FolderAdd, FolderOpened, Upload, Operation } from '@element-plus/icons-vue'
+import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
+import { FolderAdd, FolderOpened, Upload, Operation, Picture } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Folder as FolderIcon } from '@element-plus/icons-vue'
 import { useAssets } from './composables/useAssets'
@@ -207,7 +212,7 @@ import type { Folder } from './composables/useFolders'
 
 const {
   assets, loading, imageAssets, fileAssets,
-  fetchAssets, uploadAsset, deleteAsset, moveAsset, downloadAsset,
+  fetchAssets, uploadAsset, deleteAsset, moveAsset, renameAsset, downloadAsset,
   batchDeleteAssets, batchMoveAssets
 } = useAssets()
 
@@ -236,6 +241,8 @@ const folderDialogInitialName = ref('')
 const editingFolder = ref<Folder | null>(null)
 const creatingParentFolder = ref<Folder | null>(null)
 
+const modKey = computed(() => /Mac|iPod|iPhone|iPad/.test(navigator.platform) ? 'Cmd' : 'Ctrl')
+
 const totalAssetCount = computed(() => assets.value.length)
 const uncategorizedCount = computed(() => assets.value.filter(a => a.folder_id == null).length)
 
@@ -243,6 +250,10 @@ const currentFolder = computed(() => {
   if (activeFolderId.value === 'all' || activeFolderId.value === 'uncategorized') return null
   return folders.value.find(folder => String(folder.id) === activeFolderId.value) || null
 })
+
+const emotionFolder = computed(() => (
+  folders.value.find(folder => folder.is_system && folder.name === '表情包') || null
+))
 
 const childFolders = computed(() => {
   const parentId = currentFolder.value?.id ?? null
@@ -274,6 +285,9 @@ const currentFolderName = computed(() => {
 const currentFolderDescription = computed(() => {
   if (activeFolderId.value === 'all') return '图片和文件统一浏览，也可以进入具体文件夹继续细分管理。'
   if (activeFolderId.value === 'uncategorized') return '还没有归档到任何文件夹的素材。'
+  if (currentFolder.value?.is_system && currentFolder.value.name === '表情包') {
+    return '运营常用静态表情图专区，建议统一上传 PNG、JPG 或 WebP，再作为独立图片消息发送。'
+  }
   if (childFolders.value.length) return '当前目录下包含子文件夹和素材，可以继续向下整理。'
   return '当前目录下的素材列表。'
 })
@@ -289,6 +303,14 @@ const handleFolderSelect = (id: string) => {
   } else {
     fetchAssets(id)
   }
+}
+
+const jumpToEmotionFolder = () => {
+  if (!emotionFolder.value) {
+    ElMessage.warning('表情包文件夹正在初始化，请稍后重试')
+    return
+  }
+  handleFolderSelect(String(emotionFolder.value.id))
 }
 
 const handleFileChange = async (uploadFile: any) => {
@@ -457,6 +479,15 @@ const handleMove = async (assetId: number, folderId: number | null) => {
   }
 }
 
+const handleRename = async (assetId: number, name: string) => {
+  try {
+    await renameAsset(assetId, name)
+    await refreshCurrentAssets()
+  } catch (e) {
+    console.error(e)
+  }
+}
+
 const openCreateDialog = () => {
   folderDialogMode.value = 'create'
   folderDialogInitialName.value = ''
@@ -509,8 +540,53 @@ const handleFolderDialogConfirm = async (name: string) => {
   await Promise.all([fetchFolders(), refreshCurrentAssets()])
 }
 
+// ---- 粘贴上传 ----
+const handlePaste = async (event: ClipboardEvent) => {
+  // 如果焦点在输入框/文本域中，不拦截粘贴
+  const tag = (event.target as HTMLElement)?.tagName
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+
+  const files = event.clipboardData?.files
+  if (!files || files.length === 0) return
+
+  event.preventDefault()
+  if (uploading.value) return
+
+  let folderId: number | null = null
+  if (activeFolderId.value !== 'all' && activeFolderId.value !== 'uncategorized') {
+    folderId = Number(activeFolderId.value)
+  }
+
+  uploading.value = true
+  uploadProgress.value = { done: 0, total: files.length }
+  try {
+    for (let i = 0; i < files.length; i++) {
+      let file = files[i]
+      // 截图等无文件名的情况，生成一个带时间戳的文件名
+      if (!file.name || file.name === 'image.png') {
+        const ext = file.type?.split('/')[1] || 'png'
+        const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+        file = new File([file], `粘贴上传_${ts}.${ext}`, { type: file.type || 'image/png' })
+      }
+      await uploadAsset(file, folderId, true)
+      uploadProgress.value = { done: i + 1, total: files.length }
+    }
+    await Promise.all([refreshCurrentAssets(), fetchFolders()])
+    ElMessage.success(`已通过粘贴上传 ${files.length} 个文件`)
+  } catch {
+    ElMessage.error('粘贴上传失败')
+  } finally {
+    uploading.value = false
+  }
+}
+
 onMounted(async () => {
+  document.addEventListener('paste', handlePaste)
   await Promise.all([fetchFolders(), fetchAssets()])
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('paste', handlePaste)
 })
 </script>
 
@@ -547,6 +623,26 @@ onMounted(async () => {
   gap: 10px;
   flex-wrap: wrap;
   justify-content: flex-end;
+  align-items: center;
+}
+
+.paste-hint {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0.7;
+  text-align: right;
+  margin-top: 2px;
+}
+.paste-hint kbd {
+  display: inline-block;
+  padding: 0 4px;
+  font-size: 10px;
+  font-family: inherit;
+  background: var(--bg-color);
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  line-height: 1.6;
 }
 
 .assets-breadcrumbs {

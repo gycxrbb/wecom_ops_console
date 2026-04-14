@@ -10,6 +10,7 @@ const defaultContentByType: Record<string, any> = {
   markdown: { content: '' },
   news: { articles: [] },
   image: { asset_id: undefined, asset_name: '', asset_url: '', image_path: '' },
+  emotion: { asset_id: undefined, asset_name: '', asset_url: '', image_path: '' },
   file: { asset_id: undefined, asset_name: '', media_id: '' },
   template_card: { template_card: { card_type: 'text_notice', main_title: { title: '' } } },
 }
@@ -309,7 +310,7 @@ export function useSendLogic() {
         group_ids: form.groups.length > 0 ? [...form.groups] : undefined
       })
       const nextPreview = { ...res }
-      if (form.msg_type === 'image') {
+      if (form.msg_type === 'image' || form.msg_type === 'emotion') {
         nextPreview.rendered_content = {
           ...(nextPreview.rendered_content || {}),
           asset_url: buildAssetAuthUrl(form.contentJson?.asset_url || '')
@@ -336,7 +337,7 @@ export function useSendLogic() {
     const c = form.contentJson
     if (!c) return false
     if (form.msg_type === 'text' || form.msg_type === 'markdown') return !!(c.content || '').trim()
-    if (form.msg_type === 'image') return !!c.asset_id
+    if (form.msg_type === 'image' || form.msg_type === 'emotion') return !!c.asset_id
     if (form.msg_type === 'file') return !!c.asset_id
     if (form.msg_type === 'news') return Array.isArray(c.articles) && c.articles.length > 0
     if (form.msg_type === 'template_card') return !!c.template_card

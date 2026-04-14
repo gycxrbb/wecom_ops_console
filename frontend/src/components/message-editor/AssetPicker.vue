@@ -33,6 +33,15 @@
         >
           未分类
         </button>
+        <button
+          v-if="emotionFolder"
+          type="button"
+          class="folder-shortcut folder-shortcut--emotion"
+          :class="{ 'is-active': currentFolderId === String(emotionFolder.id) }"
+          @click="handleEmotionFolderSelect"
+        >
+          表情包
+        </button>
 
         <el-tree
           v-if="folderTree.length"
@@ -80,6 +89,31 @@
               {{ uploading ? uploadButtonText : '上传到当前目录' }}
             </el-button>
           </el-upload>
+        </div>
+
+        <div v-if="showEmotionTools" class="asset-picker__emotion-tools">
+          <div class="asset-picker__emotion-tools-row">
+            <el-input
+              v-model="searchKeyword"
+              placeholder="搜索表情包名称..."
+              clearable
+              size="small"
+              class="asset-picker__emotion-search"
+            />
+            <span class="asset-picker__emotion-tip">最近使用会优先排在前面</span>
+          </div>
+          <div class="asset-picker__emotion-chips">
+            <button
+              v-for="chip in emotionCategoryChips"
+              :key="chip.value"
+              type="button"
+              class="emotion-chip"
+              :class="{ 'is-active': activeEmotionCategory === chip.value }"
+              @click="activeEmotionCategory = chip.value"
+            >
+              {{ chip.label }}
+            </button>
+          </div>
         </div>
 
         <div class="upload-hint">{{ uploadHint }}</div>
@@ -137,7 +171,10 @@
                 />
                 <el-icon v-else :size="32"><Document /></el-icon>
               </div>
-              <div class="asset-name">{{ item.name }}</div>
+              <div class="asset-name-row">
+                <div class="asset-name">{{ item.name }}</div>
+                <span v-if="isRecentEmotion(item.id)" class="asset-badge">最近使用</span>
+              </div>
               <div class="asset-meta">{{ formatSize(item.file_size) }}</div>
             </div>
           </div>
@@ -176,6 +213,7 @@ import { ASSET_UPLOAD_HINT, buildAssetAuthUrl, validateAssetUpload } from '@/uti
 const props = defineProps<{
   visible: boolean
   acceptType?: 'image' | 'file' | 'all'
+  preferredFolder?: 'emotion' | 'all'
 }>()
 
 const emit = defineEmits<{
@@ -187,6 +225,7 @@ interface Folder {
   id: number
   name: string
   parent_id: number | null
+  is_system?: boolean
   asset_count: number
   child_count: number
 }
@@ -201,14 +240,81 @@ const selectedId = ref<number | null>(null)
 const selectedAsset = ref<any>(null)
 const currentFolderId = ref<string>('all')
 const uploadHint = ASSET_UPLOAD_HINT
+const searchKeyword = ref('')
+const activeEmotionCategory = ref('all')
+
+const EMOTION_RECENTS_KEY = 'emotion-picker-recents'
+const emotionCategoryChips = [
+  { value: 'all', label: '全部' },
+  { value: 'morning', label: '早安' },
+  { value: 'reminder', label: '提醒' },
+  { value: 'checkin', label: '打卡' },
+  { value: 'encourage', label: '鼓励' },
+  { value: 'night', label: '晚安' },
+]
+const emotionCategoryKeywords: Record<string, string[]> = {
+  morning: ['早安', '早上好', 'morning', '早餐'],
+  reminder: ['提醒', '喝水', '注意', '催', '提示'],
+  checkin: ['打卡', '签到', '记录', '提交', '完成'],
+  encourage: ['加油', '真棒', '鼓励', '点赞', '坚持', '优秀'],
+  night: ['晚安', '休息', '睡觉', 'night'],
+}
+
+const readEmotionRecents = (): number[] => {
+  try {
+    const raw = window.localStorage.getItem(EMOTION_RECENTS_KEY)
+    const parsed = raw ? JSON.parse(raw) : []
+    return Array.isArray(parsed) ? parsed.filter(id => Number.isFinite(id)).map(Number) : []
+  } catch {
+    return []
+  }
+}
+
+const writeEmotionRecents = (ids: number[]) => {
+  try {
+    window.localStorage.setItem(EMOTION_RECENTS_KEY, JSON.stringify(ids.slice(0, 12)))
+  } catch {
+    // ignore localStorage errors
+  }
+}
+
+const recentEmotionIds = ref<number[]>(readEmotionRecents())
+
+const matchesEmotionCategory = (name: string, category: string) => {
+  if (category === 'all') return true
+  const normalized = name.toLowerCase()
+  return (emotionCategoryKeywords[category] || []).some(keyword => normalized.includes(keyword.toLowerCase()))
+}
 
 const filteredList = computed(() => {
   let available = assets.value.filter((item: any) => item.storage_status !== 'source_missing')
   if (currentFolderId.value === 'uncategorized') {
     available = available.filter((item: any) => item.folder_id == null)
   }
-  if (listFilter.value === 'all') return available
-  return available.filter((item: any) => item.material_type === listFilter.value)
+  if (listFilter.value !== 'all') {
+    available = available.filter((item: any) => item.material_type === listFilter.value)
+  }
+
+  const keyword = searchKeyword.value.trim().toLowerCase()
+  if (keyword) {
+    available = available.filter((item: any) => String(item.name || '').toLowerCase().includes(keyword))
+  }
+
+  if (showEmotionTools.value && activeEmotionCategory.value !== 'all') {
+    available = available.filter((item: any) => matchesEmotionCategory(String(item.name || ''), activeEmotionCategory.value))
+  }
+
+  if (showEmotionTools.value) {
+    const rankMap = new Map(recentEmotionIds.value.map((id, index) => [id, index]))
+    available = [...available].sort((a: any, b: any) => {
+      const aRank = rankMap.has(a.id) ? rankMap.get(a.id)! : Number.MAX_SAFE_INTEGER
+      const bRank = rankMap.has(b.id) ? rankMap.get(b.id)! : Number.MAX_SAFE_INTEGER
+      if (aRank !== bRank) return aRank - bRank
+      return String(a.name || '').localeCompare(String(b.name || ''), 'zh-CN')
+    })
+  }
+
+  return available
 })
 
 const folderTree = computed(() => buildFolderTree(folders.value))
@@ -221,6 +327,9 @@ const currentFolder = computed(() => (
     ? null
     : folders.value.find(folder => String(folder.id) === currentFolderId.value) || null
 ))
+const emotionFolder = computed(() => (
+  folders.value.find(folder => folder.is_system && folder.name === '表情包') || null
+))
 const childFolders = computed(() => {
   if (currentFolderId.value === 'uncategorized') return []
   const parentId = currentFolder.value?.id ?? null
@@ -229,8 +338,12 @@ const childFolders = computed(() => {
 const currentFolderLabel = computed(() => {
   if (currentFolderId.value === 'all') return '全部素材'
   if (currentFolderId.value === 'uncategorized') return '未分类'
+  if (currentFolder.value?.is_system && currentFolder.value.name === '表情包') return '表情包'
   return currentFolder.value?.name || '当前目录'
 })
+const showEmotionTools = computed(() => (
+  props.preferredFolder === 'emotion' && currentFolder.value?.is_system && currentFolder.value.name === '表情包'
+))
 const folderBreadcrumbs = computed(() => {
   const chain: Folder[] = []
   let cursor = currentFolder.value
@@ -342,10 +455,19 @@ const handleUpload = async (options: any) => {
 
 const confirmSelect = () => {
   if (selectedAsset.value) {
+    if (showEmotionTools.value && Number.isFinite(selectedAsset.value.id)) {
+      recentEmotionIds.value = [
+        selectedAsset.value.id,
+        ...recentEmotionIds.value.filter(id => id !== selectedAsset.value.id),
+      ].slice(0, 12)
+      writeEmotionRecents(recentEmotionIds.value)
+    }
     emit('select', selectedAsset.value)
     emit('update:visible', false)
   }
 }
+
+const isRecentEmotion = (assetId: number) => showEmotionTools.value && recentEmotionIds.value.includes(assetId)
 
 const handleFolderSelect = async (folderId: string) => {
   currentFolderId.value = folderId
@@ -358,15 +480,45 @@ const handleFolderNodeClick = async (folder: Folder) => {
   await handleFolderSelect(String(folder.id))
 }
 
+const handleEmotionFolderSelect = async () => {
+  if (!emotionFolder.value) {
+    ElMessage.warning('表情包文件夹正在初始化，请稍后重试')
+    return
+  }
+  if (props.acceptType === 'image') {
+    listFilter.value = 'image'
+  }
+  await handleFolderSelect(String(emotionFolder.value.id))
+}
+
+const openPreferredFolder = async () => {
+  if (props.preferredFolder === 'emotion') {
+    if (props.acceptType === 'image') {
+      listFilter.value = 'image'
+    }
+    if (emotionFolder.value) {
+      await handleFolderSelect(String(emotionFolder.value.id))
+      return
+    }
+  }
+  await fetchAssets('all')
+}
+
 watch(() => props.visible, (val) => {
   if (val) {
     selectedId.value = null
     selectedAsset.value = null
     listFilter.value = props.acceptType || 'all'
     currentFolderId.value = 'all'
+    searchKeyword.value = ''
+    activeEmotionCategory.value = 'all'
     uploading.value = false
     uploadingFileName.value = ''
-    void Promise.all([fetchFolders(), fetchAssets('all')])
+    recentEmotionIds.value = readEmotionRecents()
+    void (async () => {
+      await fetchFolders()
+      await openPreferredFolder()
+    })()
   }
 })
 </script>
@@ -413,6 +565,19 @@ watch(() => props.visible, (val) => {
   border-color: var(--el-color-primary-light-5);
   background: var(--el-color-primary-light-9);
   color: var(--el-color-primary);
+}
+
+.folder-shortcut--emotion {
+  border-color: rgba(245, 158, 11, 0.22);
+  background: rgba(245, 158, 11, 0.08);
+  color: #b45309;
+}
+
+.folder-shortcut--emotion:hover,
+.folder-shortcut--emotion.is-active {
+  border-color: rgba(245, 158, 11, 0.3);
+  background: rgba(245, 158, 11, 0.14);
+  color: #92400e;
 }
 
 .folder-tree {
@@ -475,6 +640,52 @@ watch(() => props.visible, (val) => {
   background: var(--el-fill-color-light);
   color: var(--el-text-color-secondary);
   font-size: 12px;
+}
+
+.asset-picker__emotion-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.asset-picker__emotion-tools-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.asset-picker__emotion-search {
+  max-width: 280px;
+}
+
+.asset-picker__emotion-tip {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+.asset-picker__emotion-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.emotion-chip {
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--el-text-color-secondary);
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+.emotion-chip:hover,
+.emotion-chip.is-active {
+  border-color: rgba(245, 158, 11, 0.3);
+  background: rgba(245, 158, 11, 0.14);
+  color: #92400e;
 }
 
 .upload-hint {
@@ -622,6 +833,23 @@ watch(() => props.visible, (val) => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.asset-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: center;
+}
+
+.asset-badge {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.12);
+  color: #b45309;
+  font-size: 10px;
+  line-height: 1.5;
 }
 
 .asset-meta {

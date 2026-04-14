@@ -50,6 +50,37 @@ export function useAssets() {
       if (!silent) ElMessage.warning(validation.message)
       throw new Error(validation.message)
     }
+
+    // 尝试客户端直传
+    try {
+      const prepareRes: any = await request.post('/v1/assets/prepare-upload', {
+        filename: file.name,
+        mime_type: file.type || 'application/octet-stream',
+      })
+      if (prepareRes.mode === 'qiniu' && prepareRes.upload_url && prepareRes.token) {
+        // 客户端直传七牛
+        const qiniuForm = new FormData()
+        qiniuForm.append('token', prepareRes.token)
+        qiniuForm.append('key', prepareRes.object_key)
+        qiniuForm.append('file', file)
+        await fetch(prepareRes.upload_url, { method: 'POST', body: qiniuForm })
+        // 确认上传，创建数据库记录
+        await request.post('/v1/assets/confirm-upload', {
+          object_key: prepareRes.object_key,
+          public_url: prepareRes.public_url,
+          name: file.name,
+          folder_id: folderId ?? null,
+          file_size: file.size,
+          mime_type: file.type || 'application/octet-stream',
+        })
+        if (!silent) ElMessage.success('上传成功')
+        return
+      }
+    } catch {
+      // 直传失败，回退到服务器中转
+    }
+
+    // 服务器中转上传（fallback）
     const formData = new FormData()
     formData.append('file', file)
     if (folderId != null) formData.append('folder_id', String(folderId))
@@ -67,6 +98,11 @@ export function useAssets() {
   const moveAsset = async (assetId: number, folderId: number | null) => {
     await request.patch(`/v1/assets/${assetId}/move`, { folder_id: folderId })
     ElMessage.success('移动成功')
+  }
+
+  const renameAsset = async (id: number, name: string) => {
+    await request.patch(`/v1/assets/${id}/rename`, { name })
+    ElMessage.success('重命名成功')
   }
 
   const downloadAsset = async (row: Asset) => {
@@ -119,7 +155,7 @@ export function useAssets() {
 
   return {
     assets, loading, imageAssets, fileAssets,
-    fetchAssets, uploadAsset, deleteAsset, moveAsset, downloadAsset,
+    fetchAssets, uploadAsset, deleteAsset, moveAsset, renameAsset, downloadAsset,
     batchDeleteAssets, batchMoveAssets
   }
 }

@@ -228,7 +228,7 @@ const handleRemoveBatchItem = (index: number) => {
 
 const tagTypeByMsgType = (msgType: string) => {
   const map: Record<string, string> = {
-    text: '', markdown: 'success', image: 'warning', news: 'danger', file: 'info', template_card: ''
+    text: '', markdown: 'success', image: 'warning', emotion: 'warning', news: 'danger', file: 'info', template_card: ''
   }
   return map[msgType] || ''
 }

@@ -90,6 +90,7 @@
             <el-option label="文本" value="text" />
             <el-option label="Markdown" value="markdown" />
             <el-option label="图片" value="image" />
+            <el-option label="表情包" value="emotion" />
             <el-option label="图文" value="news" />
             <el-option label="文件" value="file" />
             <el-option label="模板卡片" value="template_card" />
@@ -339,7 +340,7 @@ const showNotifySection = computed(() => {
 
 const tagTypeByMsgType = (msgType: string) => {
   const map: Record<string, string> = {
-    text: '', markdown: 'success', image: 'warning', news: 'danger', file: 'info', template_card: ''
+    text: '', markdown: 'success', image: 'warning', emotion: 'warning', news: 'danger', file: 'info', template_card: ''
   }
   return map[msgType] || ''
 }
