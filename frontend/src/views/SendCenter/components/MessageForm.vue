@@ -169,6 +169,10 @@
                 @click.stop="$emit('removeBatchItem', index)"
               ><Close /></el-icon>
             </div>
+            <!-- 失败时显示错误原因 -->
+            <div v-if="item.status === 'failed' && item.error" class="batch-queue__item-error" @click.stop>
+              {{ item.error }}
+            </div>
             <transition name="el-zoom-in-top">
               <div v-if="item.remarkEnabled" class="batch-queue__remark" @click.stop>
                 <el-input
@@ -212,21 +216,76 @@
           <el-button size="small" text type="danger" @click="$emit('clearQueue')">清空</el-button>
         </div>
         <div class="manual-queue__list">
+          <!-- 推送预告项（队列头部） -->
+          <div v-if="notifyEnabled" class="manual-queue__item manual-queue__item--notify"
+            :class="{
+              'is-active': activeManualQueueIndex === -1,
+              'is-sending': notifySendStatus === 'sending',
+              'is-success': notifySendStatus === 'success',
+              'is-failed': notifySendStatus === 'failed'
+            }"
+            @click="$emit('selectManualQueueItem', -1)"
+          >
+            <span class="manual-queue__index manual-queue__index--notify">📢</span>
+            <span class="manual-queue__name">推送预告</span>
+            <el-tag size="small" type="success">Markdown</el-tag>
+            <span class="manual-queue__status">
+              <el-icon v-if="notifySendStatus === 'sending'" class="is-loading"><Loading /></el-icon>
+              <el-icon v-else-if="notifySendStatus === 'success'" style="color: #67c23a"><CircleCheckFilled /></el-icon>
+              <el-icon v-else-if="notifySendStatus === 'failed'" style="color: #f56c6c"><CircleCloseFilled /></el-icon>
+            </span>
+          </div>
           <div
             v-for="(item, idx) in manualQueue"
             :key="item.id"
-            class="manual-queue__item"
-            :class="{ 'is-sending': item.status === 'sending', 'is-success': item.status === 'success', 'is-failed': item.status === 'failed' }"
+            class="manual-queue__item-wrapper"
           >
-            <span class="manual-queue__index">{{ idx + 1 }}</span>
-            <span class="manual-queue__name" :title="item.title">{{ item.title }}</span>
-            <el-tag size="small" :type="tagTypeByMsgType(item.msg_type)">{{ msgTypeLabel(item.msg_type) }}</el-tag>
-            <span v-if="item.status === 'sending'" class="manual-queue__status"><el-icon class="is-loading"><Loading /></el-icon></span>
-            <span v-else-if="item.status === 'success'" class="manual-queue__status manual-queue__status--success"><el-icon><CircleCheckFilled /></el-icon></span>
-            <span v-else-if="item.status === 'failed'" class="manual-queue__status manual-queue__status--failed"><el-icon><CircleCloseFilled /></el-icon></span>
-            <el-button v-if="item.status === 'pending'" size="small" text @click="$emit('removeQueueItem', idx)">
-              <el-icon><Close /></el-icon>
-            </el-button>
+            <div
+              class="manual-queue__item"
+              :class="{
+                'is-active': activeManualQueueIndex === idx,
+                'is-sending': item.status === 'sending',
+                'is-success': item.status === 'success',
+                'is-failed': item.status === 'failed'
+              }"
+              @click="$emit('selectManualQueueItem', idx)"
+            >
+              <span class="manual-queue__index">{{ idx + 1 }}</span>
+              <span class="manual-queue__name" :title="item.title">{{ item.title }}</span>
+              <el-tag size="small" :type="tagTypeByMsgType(item.msg_type)">{{ msgTypeLabel(item.msg_type) }}</el-tag>
+              <span v-if="item.status === 'sending'" class="manual-queue__status"><el-icon class="is-loading"><Loading /></el-icon></span>
+              <span v-else-if="item.status === 'success'" class="manual-queue__status manual-queue__status--success"><el-icon><CircleCheckFilled /></el-icon></span>
+              <span v-else-if="item.status === 'failed'" class="manual-queue__status manual-queue__status--failed"><el-icon><CircleCloseFilled /></el-icon></span>
+              <button
+                v-if="item.status === 'pending' && !isManualSending"
+                type="button"
+                class="manual-queue__remark-btn"
+                :class="{ 'is-active': item.remarkEnabled }"
+                @click="$emit('toggleQueueRemark', idx)"
+                title="添加备注"
+              >备注</button>
+              <el-icon
+                v-if="item.status === 'pending' && !isManualSending"
+                class="manual-queue__remove"
+                @click="$emit('removeQueueItem', idx)"
+              ><Close /></el-icon>
+            </div>
+            <!-- 失败时显示错误原因 -->
+            <div v-if="item.status === 'failed' && item.error" class="manual-queue__error" @click.stop>
+              {{ item.error }}
+            </div>
+            <transition name="el-zoom-in-top">
+              <div v-if="item.remarkEnabled" class="manual-queue__remark" @click.stop>
+                <el-input
+                  type="textarea"
+                  :rows="3"
+                  :model-value="item.remark"
+                  @update:model-value="$emit('updateQueueRemark', idx, $event)"
+                  placeholder="备注内容（Markdown 格式）..."
+                  class="manual-queue__remark-input"
+                />
+              </div>
+            </transition>
           </div>
         </div>
       </div>
@@ -283,38 +342,44 @@
         </template>
         <template v-else>
           <div class="action-footer__row">
-            <el-button size="large" type="primary" @click="$emit('send')" :loading="isSending">
-              <template #icon><el-icon><Position /></el-icon></template>
-              立即发送
-            </el-button>
-            <el-button size="large" type="warning" plain @click="$emit('sendTest')" :loading="isTestSending">
-              测试群发送
-            </el-button>
-            <el-button size="large" @click="$emit('addToQueue')">
-              <template #icon><el-icon><CirclePlus /></el-icon></template>
-              添加到队列
-            </el-button>
+            <!-- 左侧：当前消息操作 -->
+            <div class="action-footer__group">
+              <el-button size="large" type="primary" @click="$emit('send')" :loading="isSending">
+                <template #icon><el-icon><Position /></el-icon></template>
+                立即发送
+              </el-button>
+              <el-button size="large" plain @click="$emit('sendTest')" :loading="isTestSending">
+                测试群发送
+              </el-button>
+            </div>
+            <!-- 右侧：队列操作 -->
+            <div class="action-footer__group">
+              <el-button size="large" @click="$emit('addToQueue')">
+                <template #icon><el-icon><CirclePlus /></el-icon></template>
+                新增消息
+              </el-button>
+              <el-button
+                v-if="manualQueue.length > 0"
+                size="large"
+                type="success"
+                @click="$emit('sendQueue')"
+                :loading="isManualSending"
+                :disabled="isManualSending"
+              >
+                <template #icon><el-icon><Position /></el-icon></template>
+                队列发送 ({{ manualQueue.length }})
+              </el-button>
+            </div>
           </div>
-          <div v-if="manualQueue.length > 0" class="action-footer__row" style="margin-top: 8px;">
+          <div v-if="manualQueue.length > 0" class="action-footer__sub">
             <el-button
-              size="large"
-              type="success"
-              @click="$emit('sendQueue')"
-              :loading="isManualSending"
-              :disabled="isManualSending"
-            >
-              <template #icon><el-icon><Position /></el-icon></template>
-              队列发送 ({{ manualQueue.length }})
-            </el-button>
-            <el-button
-              size="large"
-              type="warning"
-              plain
+              size="small"
+              text
               @click="$emit('sendQueue', true)"
               :loading="isManualSending"
               :disabled="isManualSending"
             >
-              测试群发送
+              测试队列发送
             </el-button>
           </div>
         </template>
@@ -354,7 +419,8 @@ const props = defineProps({
   notifySendStatus: { type: String as PropType<'hidden' | 'pending' | 'sending' | 'success' | 'failed'>, default: 'hidden' },
   // 手动队列
   manualQueue: { type: Array as PropType<BatchQueueItem[]>, default: () => [] },
-  isManualSending: { type: Boolean, default: false }
+  isManualSending: { type: Boolean, default: false },
+  activeManualQueueIndex: { type: Number as PropType<number | null>, default: null }
 })
 
 defineEmits([
@@ -366,7 +432,9 @@ defineEmits([
   // 预告通知
   'update:notifyEnabled', 'update:notifyCustomText',
   // 手动队列
-  'addToQueue', 'removeQueueItem', 'clearQueue', 'sendQueue'
+  'addToQueue', 'removeQueueItem', 'clearQueue', 'sendQueue',
+  'toggleQueueRemark', 'updateQueueRemark',
+  'selectManualQueueItem'
 ])
 
 const contentSelectorVisible = ref(false)
@@ -392,6 +460,7 @@ const toggleSelectAllGroups = () => {
 
 const showNotifySection = computed(() => {
   if (props.isBatchMode && props.batchQueue.length > 0) return true
+  if (!props.isBatchMode && props.manualQueue.length > 0) return true
   if (!props.isBatchMode && props.selectedContentLabel) return true
   return false
 })
@@ -730,7 +799,7 @@ const tagTypeByMsgType = (msgType: string) => {
   color: var(--text-secondary);
 }
 .manual-queue__list {
-  max-height: 200px;
+  max-height: 260px;
   overflow-y: auto;
 }
 .manual-queue__item {
@@ -744,8 +813,20 @@ const tagTypeByMsgType = (msgType: string) => {
 }
 .manual-queue__item:last-child { border-bottom: none; }
 .manual-queue__item:hover { background: rgba(0, 0, 0, 0.02); }
+.manual-queue__item.is-active {
+  background: rgba(64, 158, 255, 0.06);
+  border-left: 3px solid var(--primary-color, #409eff);
+}
 .manual-queue__item.is-success { background: rgba(34, 197, 94, 0.04); }
 .manual-queue__item.is-failed { background: rgba(239, 68, 68, 0.04); }
+.manual-queue__item--notify {
+  background: rgba(103, 194, 58, 0.06);
+  border-bottom: 1px solid var(--border-color);
+}
+.manual-queue__index--notify {
+  background: none;
+  font-size: 14px;
+}
 .manual-queue__index {
   width: 20px;
   height: 20px;
@@ -769,6 +850,65 @@ const tagTypeByMsgType = (msgType: string) => {
 .manual-queue__status { font-size: 16px; flex-shrink: 0; }
 .manual-queue__status--success { color: var(--el-color-success); }
 .manual-queue__status--failed { color: var(--el-color-danger); }
+.manual-queue__remark-btn {
+  appearance: none;
+  border: 1px solid var(--border-color);
+  background: none;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+.manual-queue__remark-btn:hover { border-color: var(--primary-color); color: var(--primary-color); }
+.manual-queue__remark-btn.is-active { border-color: var(--primary-color); color: var(--primary-color); background: rgba(34, 197, 94, 0.06); }
+.manual-queue__remove {
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  flex-shrink: 0;
+  transition: color 0.15s;
+}
+.manual-queue__remove:hover { color: var(--el-color-danger); }
+.manual-queue__remark {
+  padding: 8px 14px;
+  background: var(--bg-color);
+  border-bottom: 1px solid var(--border-color);
+}
+.manual-queue__remark-input :deep(.el-textarea__inner) {
+  font-size: 13px;
+}
+.manual-queue__error {
+  padding: 6px 14px 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--el-color-danger);
+  background: rgba(245, 108, 108, 0.06);
+  border-bottom: 1px solid var(--border-color);
+  word-break: break-all;
+}
+.manual-queue__item-wrapper:last-child .manual-queue__item {
+  border-bottom: none;
+}
+/* Batch queue error text */
+.batch-queue__item-error {
+  padding: 6px 14px 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--el-color-danger);
+  background: rgba(245, 108, 108, 0.06);
+  border-bottom: 1px solid var(--border-color);
+  word-break: break-all;
+}
+
+/* Action Footer Groups */
+.action-footer__group {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
 
 /* Responsive */
 @media (max-width: 1100px) {

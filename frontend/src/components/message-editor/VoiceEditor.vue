@@ -3,7 +3,7 @@
     <el-form label-width="100px" size="small">
       <el-form-item label="语音素材">
         <div class="asset-row">
-          <el-input :model-value="selectedLabel" readonly placeholder="请选择素材库中的 AMR 语音" />
+          <el-input :model-value="selectedLabel" readonly placeholder="请选择素材库中的语音素材（可上传 mp3，系统自动转 AMR）" />
           <el-button type="primary" @click="assetPickerVisible = true">选择语音</el-button>
           <el-button v-if="modelValue.asset_id" @click="clearAsset">清空</el-button>
         </div>
@@ -11,12 +11,13 @@
     </el-form>
 
     <div class="field-hint">
-      企业微信群机器人语音消息需要先上传素材并拿到 `media_id`。系统会自动完成上传，但素材建议使用 `AMR` 格式、大小不超过 `2MB`，且单条语音时长不要超过 `60 秒`。
+      企业微信群机器人语音消息最终必须发送 `AMR`。你可以把 `mp3 / wav / m4a` 等常见音频先传到素材库的“语音”文件夹，系统会自动转成 `AMR` 后再发送。正式发送仍受企微限制：文件不超过 `2MB`、时长不超过 `60 秒`。
     </div>
 
     <AssetPicker
       v-model:visible="assetPickerVisible"
       accept-type="file"
+      preferred-folder="voice"
       @select="handleAssetSelect"
     />
   </div>

@@ -4,6 +4,8 @@ from .. import models
 from ..config import settings
 from ..security import hash_password, json_dumps, json_loads, decrypt_webhook
 
+CRM_DEMO_URL = 'https://crm.mengfugui.com'
+
 SYSTEM_TEMPLATES = [
     {
         'name': '08:00 早安打卡',
@@ -56,14 +58,14 @@ SYSTEM_TEMPLATES = [
         'variables_json': {'topic': '211餐盘 + 餐后走'},
     },
     {
-        'name': '14:00 图文讲解',
+        'name': '14:00 惯能H5 图文讲解',
         'category': '图文',
         'msg_type': 'news',
-        'description': '适合文章、海报、课程页',
+        'description': '适合 CRM 内容页、惯能 H5、活动页跳转',
         'content_json': {
             'articles': [
                 {
-                    'title': '{{ topic }} 常见误区与修正方法',
+                    'title': '惯能 H5 · {{ topic }}',
                     'description': '{{ summary }}',
                     'url': '{{ article_url }}',
                     'picurl': '{{ image_url }}'
@@ -72,8 +74,8 @@ SYSTEM_TEMPLATES = [
         },
         'variables_json': {
             'topic': '211餐盘 + 餐后走',
-            'summary': '为什么看起来吃得少，餐后波动还是很高？这张图帮你快速定位。',
-            'article_url': 'https://example.com/course',
+            'summary': '打开 CRM 内容页查看今日 H5 讲解，运营同学可直接替换成当天课程页或活动页。',
+            'article_url': CRM_DEMO_URL,
             'image_url': 'https://picsum.photos/640/360'
         },
     },
@@ -155,9 +157,9 @@ SYSTEM_TEMPLATES = [
             'deadline': '今天 20:30',
             'quote_title': '填写建议',
             'quote_text': '建议按“执行动作 / 卡点 / 下一步”三段填写，方便教练点评。',
-            'quote_url': 'https://example.com/tips',
-            'detail_url': 'https://example.com/detail',
-            'form_url': 'https://example.com/form'
+            'quote_url': f'{CRM_DEMO_URL}/tips',
+            'detail_url': CRM_DEMO_URL,
+            'form_url': CRM_DEMO_URL
         },
     },
     {
@@ -202,14 +204,14 @@ SYSTEM_TEMPLATES = [
             'image_text_title': '餐后走 10 分钟，为什么更容易坚持？',
             'image_text_desc': '把“降低执行门槛、提升反馈感、增加连续性”三件事浓缩成一张图，运营同学可直接替换成当天主题。',
             'image_url': 'https://picsum.photos/seed/wecom-card-inline/240/240',
-            'detail_url': 'https://example.com/lesson-card',
+            'detail_url': CRM_DEMO_URL,
             'quote_title': '运营建议',
             'quote_text': '如果今天需要带配图做讲解，优先用图文展示模板卡片，复用门槛更低。',
-            'quote_url': 'https://example.com/ops-guide',
+            'quote_url': CRM_DEMO_URL,
             'audience': '今天还没完成学习打卡的同学',
             'action': '先看图再回群里回复一句“我今天准备怎么做”',
             'deadline': '今天 21:00',
-            'form_url': 'https://example.com/checkin'
+            'form_url': CRM_DEMO_URL
         },
     },
 ]

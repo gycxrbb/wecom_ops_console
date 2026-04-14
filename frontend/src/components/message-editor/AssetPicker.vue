@@ -42,6 +42,15 @@
         >
           表情包
         </button>
+        <button
+          v-if="voiceFolder"
+          type="button"
+          class="folder-shortcut folder-shortcut--voice"
+          :class="{ 'is-active': currentFolderId === String(voiceFolder.id) }"
+          @click="handleVoiceFolderSelect"
+        >
+          语音
+        </button>
 
         <el-tree
           v-if="folderTree.length"
@@ -89,7 +98,7 @@
               {{ uploading ? uploadButtonText : '上传到当前目录' }}
             </el-button>
           </el-upload>
-          <div class="paste-hint">支持 <kbd>{{ modKey }}</kbd>+<kbd>V</kbd> 粘贴图片或文件</div>
+          <div class="paste-hint">支持 <kbd>{{ modKey }}</kbd>+<kbd>V</kbd> 粘贴图片、文件或音频</div>
         </div>
 
         <div v-if="showEmotionTools" class="asset-picker__emotion-tools">
@@ -117,7 +126,14 @@
           </div>
         </div>
 
-        <div class="upload-hint">{{ uploadHint }}</div>
+        <div class="upload-hint">
+          <template v-if="showVoiceHint">
+            语音文件夹支持上传 `mp3 / wav / m4a / aac / ogg / opus / flac / wma / amr`，系统会自动转成 `AMR` 后再入库。
+          </template>
+          <template v-else>
+            {{ uploadHint }}
+          </template>
+        </div>
 
         <transition name="upload-status-fade">
           <div v-if="uploading" class="asset-picker__upload-status">
@@ -226,7 +242,7 @@ import { ASSET_UPLOAD_HINT, buildAssetAuthUrl, validateAssetUpload } from '@/uti
 const props = defineProps<{
   visible: boolean
   acceptType?: 'image' | 'file' | 'all'
-  preferredFolder?: 'emotion' | 'all'
+  preferredFolder?: 'emotion' | 'voice' | 'all'
 }>()
 
 const emit = defineEmits<{
@@ -343,6 +359,9 @@ const currentFolder = computed(() => (
 const emotionFolder = computed(() => (
   folders.value.find(folder => folder.is_system && folder.name === '表情包') || null
 ))
+const voiceFolder = computed(() => (
+  folders.value.find(folder => folder.is_system && folder.name === '语音') || null
+))
 const childFolders = computed(() => {
   if (currentFolderId.value === 'uncategorized') return []
   const parentId = currentFolder.value?.id ?? null
@@ -352,10 +371,14 @@ const currentFolderLabel = computed(() => {
   if (currentFolderId.value === 'all') return '全部素材'
   if (currentFolderId.value === 'uncategorized') return '未分类'
   if (currentFolder.value?.is_system && currentFolder.value.name === '表情包') return '表情包'
+  if (currentFolder.value?.is_system && currentFolder.value.name === '语音') return '语音'
   return currentFolder.value?.name || '当前目录'
 })
 const showEmotionTools = computed(() => (
   props.preferredFolder === 'emotion' && currentFolder.value?.is_system && currentFolder.value.name === '表情包'
+))
+const showVoiceHint = computed(() => (
+  props.preferredFolder === 'voice' && currentFolder.value?.is_system && currentFolder.value.name === '语音'
 ))
 const folderBreadcrumbs = computed(() => {
   const chain: Folder[] = []
@@ -484,6 +507,33 @@ const isRecentEmotion = (assetId: number) => showEmotionTools.value && recentEmo
 
 const modKey = computed(() => /Mac|iPod|iPhone|iPad/.test(navigator.platform) ? 'Cmd' : 'Ctrl')
 
+const AUDIO_MIME_EXTENSION_MAP: Record<string, string> = {
+  'audio/amr': 'amr',
+  'audio/3gpp': 'amr',
+  'audio/mpeg': 'mp3',
+  'audio/mp3': 'mp3',
+  'audio/wav': 'wav',
+  'audio/x-wav': 'wav',
+  'audio/m4a': 'm4a',
+  'audio/x-m4a': 'm4a',
+  'audio/mp4': 'm4a',
+  'audio/aac': 'aac',
+  'audio/ogg': 'ogg',
+  'audio/opus': 'opus',
+  'audio/flac': 'flac',
+  'audio/x-ms-wma': 'wma',
+}
+
+const getNormalizedPasteExtension = (file: File) => {
+  const mime = (file.type || '').split(';', 1)[0].trim().toLowerCase()
+  if (AUDIO_MIME_EXTENSION_MAP[mime]) return AUDIO_MIME_EXTENSION_MAP[mime]
+
+  const rawExt = (file.name?.split('.').pop() || '').trim().toLowerCase()
+  if (rawExt === 'mpeg') return 'mp3'
+  return rawExt || 'png'
+}
+
+
 // --- 粘贴命名 ---
 const pasteNameVisible = ref(false)
 const pasteNameInput = ref('')
@@ -499,7 +549,7 @@ const handlePaste = (e: ClipboardEvent) => {
   const items: { file: File; ext: string }[] = []
   for (let i = 0; i < files.length; i++) {
     const f = files[i]
-    const ext = f.type?.split('/')[1] || f.name?.split('.').pop() || 'png'
+    const ext = getNormalizedPasteExtension(f)
     items.push({ file: f, ext })
   }
   if (!items.length) return
@@ -560,6 +610,15 @@ const handleEmotionFolderSelect = async () => {
   await handleFolderSelect(String(emotionFolder.value.id))
 }
 
+const handleVoiceFolderSelect = async () => {
+  if (!voiceFolder.value) {
+    ElMessage.warning('语音文件夹正在初始化，请稍后重试')
+    return
+  }
+  listFilter.value = 'file'
+  await handleFolderSelect(String(voiceFolder.value.id))
+}
+
 const openPreferredFolder = async () => {
   if (props.preferredFolder === 'emotion') {
     if (props.acceptType === 'image') {
@@ -567,6 +626,13 @@ const openPreferredFolder = async () => {
     }
     if (emotionFolder.value) {
       await handleFolderSelect(String(emotionFolder.value.id))
+      return
+    }
+  }
+  if (props.preferredFolder === 'voice') {
+    listFilter.value = 'file'
+    if (voiceFolder.value) {
+      await handleFolderSelect(String(voiceFolder.value.id))
       return
     }
   }
@@ -647,6 +713,19 @@ watch(() => props.visible, (val) => {
   border-color: rgba(245, 158, 11, 0.3);
   background: rgba(245, 158, 11, 0.14);
   color: #92400e;
+}
+
+.folder-shortcut--voice {
+  border-color: rgba(59, 130, 246, 0.22);
+  background: rgba(59, 130, 246, 0.08);
+  color: #1d4ed8;
+}
+
+.folder-shortcut--voice:hover,
+.folder-shortcut--voice.is-active {
+  border-color: rgba(59, 130, 246, 0.3);
+  background: rgba(59, 130, 246, 0.14);
+  color: #1e40af;
 }
 
 .folder-tree {

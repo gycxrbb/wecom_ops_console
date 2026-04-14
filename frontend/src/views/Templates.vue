@@ -234,6 +234,7 @@ import { Search } from '@element-plus/icons-vue'
 import request from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import MessageEditor from '@/components/message-editor/index.vue'
+import { CRM_DEMO_URL, createTemplateCardExample, templateCardExampleVariables } from '@/components/message-editor/templateCardPresets'
 
 type TemplateItem = {
   id: number
@@ -262,16 +263,31 @@ const msgTypeOptions = [
   { value: 'image', label: '图片' },
   { value: 'news', label: '图文' },
   { value: 'file', label: '文件' },
+  { value: 'voice', label: '语音' },
   { value: 'template_card', label: '模板卡片' }
 ]
 
 const defaultContentByType: Record<string, any> = {
   text: { content: '', mentioned_list: [], mentioned_mobile_list: [] },
   markdown: { content: '' },
-  news: { articles: [] },
+  news: {
+    articles: [
+      {
+        title: '惯能 H5 · 今日内容导读',
+        description: '打开 CRM 内容页查看今天的 H5 讲解示例，运营同学可直接改标题、描述和封面图。',
+        url: CRM_DEMO_URL,
+        picurl: 'https://picsum.photos/seed/guanneng-h5-news/640/360',
+      },
+    ],
+  },
   image: { asset_id: undefined, asset_name: '', asset_url: '', image_path: '' },
   file: { asset_id: undefined, asset_name: '', media_id: '' },
-  template_card: { template_card: { card_type: 'text_notice', main_title: { title: '' } } }
+  voice: { asset_id: undefined, asset_name: '', media_id: '' },
+  template_card: createTemplateCardExample('text_notice')
+}
+
+const defaultVariablesByType: Record<string, any> = {
+  template_card: { ...templateCardExampleVariables.text_notice }
 }
 
 const variableEnabledTypes = new Set(['text', 'markdown', 'news', 'template_card'])
@@ -407,9 +423,9 @@ const createFromTemplate = (row: TemplateItem) => {
 
 const handleMsgTypeChange = (type: string) => {
   form.contentJson = { ...(defaultContentByType[type] || {}) }
-  if (!supportsVariables(type)) {
-    form.variablesJson = {}
-  }
+  form.variablesJson = supportsVariables(type)
+    ? { ...(defaultVariablesByType[type] || {}) }
+    : {}
 }
 
 const focusTemplateCard = async (id: number, msgType: string) => {

@@ -12,6 +12,7 @@ from .api import get_user_or_401, require_role
 router = APIRouter(prefix='/api/v1/asset-folders', tags=['asset-folders'])
 
 SYSTEM_EMOTION_FOLDER_NAME = '表情包'
+SYSTEM_VOICE_FOLDER_NAME = '语音'
 
 
 class FolderCreate(BaseModel):
@@ -27,25 +28,26 @@ class FolderMove(BaseModel):
 
 
 def is_system_folder(folder: models.AssetFolder) -> bool:
-    return folder.parent_id is None and folder.name == SYSTEM_EMOTION_FOLDER_NAME
+    return folder.parent_id is None and folder.name in {SYSTEM_EMOTION_FOLDER_NAME, SYSTEM_VOICE_FOLDER_NAME}
 
 
 def ensure_system_folders(db: Session) -> None:
-    exists = db.query(models.AssetFolder).filter(
-        models.AssetFolder.name == SYSTEM_EMOTION_FOLDER_NAME,
-        models.AssetFolder.parent_id == None,
-    ).first()
-    if exists:
-        return
-
     max_order = db.query(func.max(models.AssetFolder.sort_order)).scalar() or 0
-    folder = models.AssetFolder(
-        name=SYSTEM_EMOTION_FOLDER_NAME,
-        sort_order=max_order + 1,
-        parent_id=None,
-        owner_id=None,
-    )
-    db.add(folder)
+    for name in [SYSTEM_EMOTION_FOLDER_NAME, SYSTEM_VOICE_FOLDER_NAME]:
+        exists = db.query(models.AssetFolder).filter(
+            models.AssetFolder.name == name,
+            models.AssetFolder.parent_id == None,
+        ).first()
+        if exists:
+            continue
+        max_order += 1
+        folder = models.AssetFolder(
+            name=name,
+            sort_order=max_order,
+            parent_id=None,
+            owner_id=None,
+        )
+        db.add(folder)
     db.commit()
 
 

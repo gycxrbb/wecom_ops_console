@@ -25,7 +25,7 @@ class SopDocUpdate(BaseModel):
     description: str | None = None
 
 
-VALID_CATEGORIES = ['运营流程', '话术库', '营养知识', '培训手册', '其他']
+VALID_CATEGORIES = ['运营流程', '话术库',"经验库", '营养知识', '培训手册', '其他']
 
 
 def serialize_doc(doc: models.SopDocument) -> dict:

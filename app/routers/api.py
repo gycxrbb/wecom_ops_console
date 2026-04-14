@@ -16,6 +16,7 @@ from ..config import settings
 from ..database import get_db
 from ..security import decrypt_webhook, encrypt_webhook, get_current_user, json_dumps, json_loads, require_role, require_permission, hash_password
 from ..services.material_storage_service import build_storage_result_from_material, log_material_storage_event
+from ..services.audio_transcode import AudioTranscodeError, guess_audio_extension, is_amr_filename, is_supported_audio_upload, transcode_audio_to_amr
 from ..services.storage import UploadPayload, storage_facade
 from ..services.template_engine import default_context, render_value
 from ..services.wecom import WeComService
@@ -146,6 +147,7 @@ def serialize_material(material: models.Material):
         'preview_url': preview_url,
         'download_url': download_url,
         'created_at': created_at.isoformat(),
+        'tags': json.loads(material.tags) if material.tags else [],
     }
 
 def get_request_ip(request: Request) -> str:
@@ -616,8 +618,8 @@ def list_assets(request: Request, folder_id: str = None, db: Session = Depends(g
 
 @router.post('/assets/prepare-upload')
 async def prepare_asset_upload(request: Request, db: Session = Depends(get_db)):
-    get_user_or_401(request, db)
-    require_permission(request, db, 'asset')
+    user = get_user_or_401(request, db)
+    require_permission(user, 'asset')
     body = await request.json()
     filename = str(body.get('filename', '')).strip()
     mime_type = str(body.get('mime_type', 'application/octet-stream'))
@@ -631,8 +633,8 @@ async def prepare_asset_upload(request: Request, db: Session = Depends(get_db)):
 
 @router.post('/assets/confirm-upload')
 async def confirm_asset_upload(request: Request, db: Session = Depends(get_db)):
-    get_user_or_401(request, db)
-    require_permission(request, db, 'asset')
+    user = get_user_or_401(request, db)
+    require_permission(user, 'asset')
     body = await request.json()
     object_key = str(body.get('object_key', '')).strip()
     public_url = str(body.get('public_url', '')).strip()
@@ -666,17 +668,34 @@ async def upload_asset(request: Request, file: UploadFile = File(...), folder_id
     user = get_user_or_401(request, db)
     require_permission(user, 'asset')
     raw = await file.read()
-    asset_type = 'image' if (file.content_type or '').startswith('image/') else 'file'
     fid = int(folder_id) if folder_id and folder_id.isdigit() else None
+    folder = db.query(models.AssetFolder).filter(models.AssetFolder.id == fid).first() if fid else None
+    is_voice_folder = bool(folder and folder.parent_id is None and folder.name == '语音')
+    upload_filename = Path(file.filename).name
+    upload_mime_type = file.content_type or 'application/octet-stream'
+
+    if is_voice_folder:
+        normalized_audio_ext = guess_audio_extension(upload_filename, upload_mime_type)
+        if not is_supported_audio_upload(upload_filename, upload_mime_type):
+            raise HTTPException(400, '语音文件夹只支持上传常见音频文件，系统会自动转成 AMR')
+        if normalized_audio_ext and Path(upload_filename).suffix.lower() != normalized_audio_ext:
+            upload_filename = f'{Path(upload_filename).stem or "voice"}{normalized_audio_ext}'
+        if not is_amr_filename(upload_filename):
+            try:
+                raw, upload_filename, upload_mime_type = transcode_audio_to_amr(raw, upload_filename)
+            except AudioTranscodeError as exc:
+                raise HTTPException(400, str(exc))
+
+    asset_type = 'image' if upload_mime_type.startswith('image/') else 'file'
     storage_result = storage_facade.upload(
         UploadPayload(
             content=raw,
-            filename=Path(file.filename).name,
-            mime_type=file.content_type or 'application/octet-stream',
+            filename=upload_filename,
+            mime_type=upload_mime_type,
         )
     )
     asset = models.Material(
-        name=Path(file.filename).name,
+        name=upload_filename,
         source_filename=Path(file.filename).name,
         material_type=asset_type,
         storage_path=storage_result.local_path,
@@ -688,7 +707,7 @@ async def upload_asset(request: Request, file: UploadFile = File(...), folder_id
         domain=urlparse(storage_result.public_url).netloc if storage_result.public_url else '',
         storage_status='ready',
         provider_etag=storage_result.extra.get('hash', ''),
-        mime_type=file.content_type or 'application/octet-stream',
+        mime_type=upload_mime_type,
         file_size=storage_result.file_size,
         file_hash=hashlib.sha256(raw).hexdigest(),
         folder_id=fid,
@@ -779,6 +798,23 @@ async def rename_asset(asset_id: int, request: Request, db: Session = Depends(ge
     if not name:
         raise HTTPException(400, '文件名不能为空')
     asset.name = name
+    db.commit()
+    db.refresh(asset)
+    return serialize_material(asset)
+
+
+@router.patch('/assets/{asset_id}/tags')
+async def update_asset_tags(asset_id: int, request: Request, db: Session = Depends(get_db)):
+    user = get_user_or_401(request, db)
+    require_permission(user, 'asset')
+    asset = db.query(models.Material).filter(models.Material.id == asset_id).first()
+    if not asset:
+        raise HTTPException(404, '素材不存在')
+    body = await request.json()
+    tags = body.get('tags', [])
+    if not isinstance(tags, list):
+        raise HTTPException(400, 'tags 必须是数组')
+    asset.tags = json.dumps([str(t).strip() for t in tags if str(t).strip()])
     db.commit()
     db.refresh(asset)
     return serialize_material(asset)

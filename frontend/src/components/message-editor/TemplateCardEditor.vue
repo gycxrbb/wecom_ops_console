@@ -118,13 +118,17 @@
       </el-form-item>
 
       <!-- 跳转链接 -->
-      <el-form-item label="跳转链接">
+      <el-form-item :label="cardType === 'news_notice' ? '详情地址' : '查看详情'">
         <el-input
           :model-value="cardUrl"
           @update:model-value="updateNested('card_action', 'url', $event)"
-          placeholder="https://example.com"
+          :placeholder="cardType === 'news_notice' ? '点击整张卡片后打开的详情地址' : '点击“查看详情”后打开的地址'"
         />
       </el-form-item>
+
+      <div class="field-inline-hint">
+        预览里的主按钮和整张卡片都会优先打开这里配置的地址。
+      </div>
 
       <!-- 按钮列表 -->
       <el-form-item label="按钮">
@@ -304,6 +308,12 @@ const updateButton = (idx: number, field: string, value: any) => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+.field-inline-hint {
+  margin: -6px 0 12px 90px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
 }
 .horizontal-item, .button-item {
   display: flex;

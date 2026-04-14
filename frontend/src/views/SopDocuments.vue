@@ -108,7 +108,7 @@ const canManageSop = computed(() => {
 })
 
 const docs = ref<SopDoc[]>([])
-const categories = ['运营流程', '话术库', '营养知识', '培训手册', '其他']
+const categories = ['运营流程', '话术库',"经验库", '营养知识', '培训手册', '其他']
 const activeCategory = ref('全部')
 const searchKeyword = ref('')
 const dialogVisible = ref(false)

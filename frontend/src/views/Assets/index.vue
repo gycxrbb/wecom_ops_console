@@ -42,6 +42,9 @@
           <el-button plain type="warning" @click="jumpToEmotionFolder">
             <el-icon><Picture /></el-icon> 表情包
           </el-button>
+          <el-button plain class="voice-shortcut-btn" @click="jumpToVoiceFolder">
+            <el-icon><Upload /></el-icon> 语音
+          </el-button>
           <el-button
             :type="batchMode ? 'primary' : 'default'"
             plain
@@ -72,7 +75,7 @@
             </el-button>
           </el-upload>
         </div>
-        <div class="paste-hint">支持 <kbd>{{ modKey }}</kbd>+<kbd>V</kbd> 直接粘贴图片或文件到当前目录</div>
+        <div class="paste-hint">支持 <kbd>{{ modKey }}</kbd>+<kbd>V</kbd> 直接粘贴图片、文件或音频到当前目录</div>
       </div>
 
       <div class="assets-summary">
@@ -120,9 +123,32 @@
       </div>
 
       <div v-loading="loading">
+        <!-- 表情包分类筛选 -->
+        <div v-if="isEmotionFolder" class="emotion-filter">
+          <div class="emotion-filter__row">
+            <el-input
+              v-model="emotionSearch"
+              placeholder="搜索表情包名称..."
+              clearable
+              size="small"
+              class="emotion-filter__search"
+            />
+          </div>
+          <div class="emotion-chips">
+            <button
+              v-for="chip in emotionCategoryChips"
+              :key="chip.value"
+              type="button"
+              class="emotion-chip"
+              :class="{ 'is-active': emotionCategory === chip.value }"
+              @click="emotionCategory = chip.value"
+            >{{ chip.label }}</button>
+          </div>
+        </div>
+
         <AssetGrid
-          :image-assets="imageAssets"
-          :file-assets="fileAssets"
+          :image-assets="displayImageAssets"
+          :file-assets="displayFileAssets"
           :folders="folders"
           :deleting-ids="deletingIds"
           :batch-mode="batchMode"
@@ -247,6 +273,56 @@ const uploadButtonText = computed(() => {
   const { done, total } = uploadProgress.value
   return total > 1 ? `上传中 ${done}/${total}` : '上传中...'
 })
+
+// ---- 表情包分类筛选 ----
+const emotionCategoryChips = [
+  { value: 'all', label: '全部' },
+  { value: 'morning', label: '早安' },
+  { value: 'reminder', label: '提醒' },
+  { value: 'checkin', label: '打卡' },
+  { value: 'encourage', label: '鼓励' },
+  { value: 'night', label: '晚安' },
+]
+const emotionCategoryKeywords: Record<string, string[]> = {
+  morning: ['早安', '早上好', 'morning', '早餐'],
+  reminder: ['提醒', '喝水', '注意', '催', '提示'],
+  checkin: ['打卡', '签到', '记录', '提交', '完成'],
+  encourage: ['加油', '真棒', '鼓励', '点赞', '坚持', '优秀'],
+  night: ['晚安', '休息', '睡觉', 'night'],
+}
+const emotionCategory = ref('all')
+const emotionSearch = ref('')
+
+const isEmotionFolder = computed(() =>
+  currentFolder.value?.is_system && currentFolder.value.name === '表情包'
+)
+
+const matchesEmotionCategory = (name: string) => {
+  if (emotionCategory.value === 'all') return true
+  const keywords = emotionCategoryKeywords[emotionCategory.value] || []
+  const lower = name.toLowerCase()
+  return keywords.some(k => lower.includes(k.toLowerCase()))
+}
+
+const emotionFilteredAssets = computed(() => {
+  if (!isEmotionFolder.value) return assets.value
+  let list = assets.value
+  // 分类关键字过滤
+  if (emotionCategory.value !== 'all') {
+    list = list.filter((a: any) => matchesEmotionCategory(a.name || ''))
+  }
+  // 搜索
+  const q = emotionSearch.value.trim().toLowerCase()
+  if (q) {
+    list = list.filter((a: any) => (a.name || '').toLowerCase().includes(q))
+  }
+  return list
+})
+
+const isImage = (item: any) => item.material_type === 'image' || (item.mime_type || '').startsWith('image/')
+const displayImageAssets = computed(() => emotionFilteredAssets.value.filter(isImage))
+const displayFileAssets = computed(() => emotionFilteredAssets.value.filter((item: any) => !isImage(item)))
+
 const folderDialogVisible = ref(false)
 const folderDialogMode = ref<'create' | 'rename'>('create')
 const folderDialogInitialName = ref('')
@@ -254,6 +330,33 @@ const editingFolder = ref<Folder | null>(null)
 const creatingParentFolder = ref<Folder | null>(null)
 
 const modKey = computed(() => /Mac|iPod|iPhone|iPad/.test(navigator.platform) ? 'Cmd' : 'Ctrl')
+
+const AUDIO_MIME_EXTENSION_MAP: Record<string, string> = {
+  'audio/amr': 'amr',
+  'audio/3gpp': 'amr',
+  'audio/mpeg': 'mp3',
+  'audio/mp3': 'mp3',
+  'audio/wav': 'wav',
+  'audio/x-wav': 'wav',
+  'audio/m4a': 'm4a',
+  'audio/x-m4a': 'm4a',
+  'audio/mp4': 'm4a',
+  'audio/aac': 'aac',
+  'audio/ogg': 'ogg',
+  'audio/opus': 'opus',
+  'audio/flac': 'flac',
+  'audio/x-ms-wma': 'wma',
+}
+
+const getNormalizedPasteExtension = (file: File) => {
+  const mime = (file.type || '').split(';', 1)[0].trim().toLowerCase()
+  if (AUDIO_MIME_EXTENSION_MAP[mime]) return AUDIO_MIME_EXTENSION_MAP[mime]
+
+  const rawExt = (file.name?.split('.').pop() || '').trim().toLowerCase()
+  if (rawExt === 'mpeg') return 'mp3'
+  return rawExt || 'png'
+}
+
 
 const totalAssetCount = computed(() => assets.value.length)
 const uncategorizedCount = computed(() => assets.value.filter(a => a.folder_id == null).length)
@@ -265,6 +368,9 @@ const currentFolder = computed(() => {
 
 const emotionFolder = computed(() => (
   folders.value.find(folder => folder.is_system && folder.name === '表情包') || null
+))
+const voiceFolder = computed(() => (
+  folders.value.find(folder => folder.is_system && folder.name === '语音') || null
 ))
 
 const childFolders = computed(() => {
@@ -300,6 +406,9 @@ const currentFolderDescription = computed(() => {
   if (currentFolder.value?.is_system && currentFolder.value.name === '表情包') {
     return '运营常用静态表情图专区，建议统一上传 PNG、JPG 或 WebP，再作为独立图片消息发送。'
   }
+  if (currentFolder.value?.is_system && currentFolder.value.name === '语音') {
+    return '语音专区支持上传 mp3、wav、m4a 等常见音频，系统会自动转成企微需要的 AMR 后再入库。'
+  }
   if (childFolders.value.length) return '当前目录下包含子文件夹和素材，可以继续向下整理。'
   return '当前目录下的素材列表。'
 })
@@ -323,6 +432,14 @@ const jumpToEmotionFolder = () => {
     return
   }
   handleFolderSelect(String(emotionFolder.value.id))
+}
+
+const jumpToVoiceFolder = () => {
+  if (!voiceFolder.value) {
+    ElMessage.warning('语音文件夹正在初始化，请稍后重试')
+    return
+  }
+  handleFolderSelect(String(voiceFolder.value.id))
 }
 
 const handleFileChange = async (uploadFile: any) => {
@@ -579,7 +696,7 @@ const handlePaste = async (event: ClipboardEvent) => {
   const items: { file: File; ext: string }[] = []
   for (let i = 0; i < files.length; i++) {
     const f = files[i]
-    const ext = f.type?.split('/')[1] || f.name?.split('.').pop() || 'png'
+    const ext = getNormalizedPasteExtension(f)
     items.push({ file: f, ext })
   }
 
@@ -675,6 +792,23 @@ onBeforeUnmount(() => {
   align-items: center;
 }
 
+.voice-shortcut-btn {
+  border-color: rgba(59, 130, 246, 0.22);
+  background: rgba(59, 130, 246, 0.08);
+  color: #1d4ed8;
+}
+
+.voice-shortcut-btn:hover,
+.voice-shortcut-btn:focus-visible {
+  border-color: rgba(59, 130, 246, 0.32);
+  background: rgba(59, 130, 246, 0.14);
+  color: #1e40af;
+}
+
+.voice-shortcut-btn :deep(.el-icon) {
+  color: inherit;
+}
+
 .paste-hint {
   grid-column: 1 / -1;
   font-size: 11px;
@@ -692,6 +826,50 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border-color);
   border-radius: 3px;
   line-height: 1.6;
+}
+
+/* 表情包分类筛选 */
+.emotion-filter {
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background: var(--card-bg);
+}
+.emotion-filter__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.emotion-filter__search {
+  max-width: 240px;
+}
+.emotion-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.emotion-chip {
+  appearance: none;
+  border: 1px solid var(--border-color);
+  padding: 4px 14px;
+  border-radius: 16px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.emotion-chip.is-active {
+  background: rgba(34, 197, 94, 0.1);
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+  font-weight: 500;
+}
+.emotion-chip:hover:not(.is-active) {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
 }
 
 .assets-breadcrumbs {

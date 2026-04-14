@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     send_retry_delay_seconds: float = 1.0
     file_send_max_retries: int = 3
     file_send_retry_delay_seconds: float = 3.0
+    ffmpeg_binary: str = 'ffmpeg'
     host: str = '0.0.0.0'
     port: int = 8000
     cors_allowed_origins: str = ''  # 逗号分隔，留空则只允许同源

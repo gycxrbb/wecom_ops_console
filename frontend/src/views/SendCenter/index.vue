@@ -29,6 +29,7 @@
           :notifySendStatus="notifySendStatus"
           :manualQueue="manualQueue"
           :isManualSending="isManualSending"
+          :activeManualQueueIndex="activeManualQueueIndex"
           @contentSelect="handleContentSelect"
           @clearContent="handleClearContent"
           @msgTypeChange="handleMsgTypeChange"
@@ -51,24 +52,28 @@
           @removeQueueItem="removeFromManualQueue"
           @clearQueue="clearManualQueue"
           @sendQueue="handleSendQueue"
+          @toggleQueueRemark="toggleManualQueueRemark"
+          @updateQueueRemark="updateManualQueueRemark"
+          @selectManualQueueItem="handleSelectManualQueueItem"
         />
       </el-col>
 
       <!-- Right column: Preview & Timeline -->
       <el-col :xs="24" :lg="10">
-        <!-- 单条模式：常规预览和定时 -->
+        <!-- 单条模式：常规预览和定时（form 已与活跃队列项同步） -->
         <template v-if="!isBatchMode">
           <PreviewCard
             :previewData="previewData"
             :previewError="previewError"
-            :msgType="form.msg_type"
+            :msgType="previewingNotify ? 'markdown' : form.msg_type"
             :isPreviewing="isPreviewing"
-            :contentJson="form.contentJson"
+            :contentJson="previewingNotify ? { content: notifyCustomText } : form.contentJson"
+            @preview="previewingNotify ? handleNotifyPreview : handlePreview"
           />
           <ScheduleCard
             :scheduleForm="scheduleForm"
             :isScheduling="isScheduling"
-            @schedule="handleSchedule"
+            @schedule="activeManualQueueItem ? handleManualQueueItemSchedule : handleSchedule"
           />
         </template>
 
@@ -102,6 +107,7 @@
               :msgType="activeBatchItem.msg_type"
               :isPreviewing="isBatchItemPreviewing"
               :contentJson="activeBatchItem.contentJson"
+              @preview="handleBatchItemPreview"
             />
 
             <div class="card-panel">
@@ -183,6 +189,7 @@ const {
   notifyCustomText,
   notifyAutoText,
   notifySendStatus,
+  previewingNotify,
   isBatchMode,
   isBatchSending,
   batchProgress,
@@ -203,6 +210,7 @@ const {
   handleBatchItemVariablesUpdate,
   handleBatchItemPreview,
   handleBatchItemSchedule,
+  handleNotifyPreview,
   // 单条操作
   handleMsgTypeChange,
   handleContentSelect,
@@ -217,7 +225,12 @@ const {
   addToManualQueue,
   removeFromManualQueue,
   clearManualQueue,
-  sendManualQueue
+  sendManualQueue,
+  toggleManualQueueRemark,
+  updateManualQueueRemark,
+  activeManualQueueIndex,
+  activeManualQueueItem,
+  selectManualQueueItem
 } = useSendLogic()
 
 const handleContentUpdate = (val: Record<string, any>) => {
@@ -230,6 +243,43 @@ const handleVariablesUpdate = (val: Record<string, any>) => {
 
 const handleSendQueue = (testGroupOnly = false) => {
   sendManualQueue(testGroupOnly)
+}
+
+const handleSelectManualQueueItem = (index: number) => {
+  selectManualQueueItem(index)
+  if (index === -1) {
+    handleNotifyPreview()
+  }
+}
+
+const handleManualQueueItemSchedule = async () => {
+  const item = activeManualQueueItem.value
+  if (!item) return
+  if (form.groups.length === 0) {
+    return ElMessage.warning('请至少选择一个群组')
+  }
+  if (!scheduleForm.title) {
+    return ElMessage.warning('请填写任务标题')
+  }
+  try {
+    await request.post('/v1/schedules', {
+      title: scheduleForm.title,
+      group_ids: [...form.groups],
+      schedule_type: scheduleForm.schedule_type,
+      run_at: scheduleForm.run_at || null,
+      cron_expr: scheduleForm.cron_expr || null,
+      timezone: scheduleForm.timezone || 'Asia/Shanghai',
+      approval_required: scheduleForm.approval_required,
+      skip_weekends: scheduleForm.skip_weekends,
+      skip_dates: [...scheduleForm.skip_dates],
+      msg_type: item.msg_type,
+      content_json: item.contentJson,
+      variables_json: item.variablesJson
+    })
+    ElMessage.success('定时任务创建成功')
+  } catch (e: any) {
+    ElMessage.error('创建定时任务失败: ' + String(e))
+  }
 }
 
 const handleRemoveBatchItem = (index: number) => {

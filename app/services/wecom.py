@@ -40,6 +40,21 @@ class WeComService:
             extra={},
         )
 
+    @staticmethod
+    def _ensure_static_image(raw: bytes) -> bytes:
+        """检测 GIF/动态图，转为 PNG 第一帧。企微图片消息不支持动画。"""
+        if raw[:6] not in (b'GIF87a', b'GIF89a'):
+            return raw
+        try:
+            from PIL import Image
+            img = Image.open(BytesIO(raw))
+            img = img.convert('RGBA') if img.mode in ('RGBA', 'LA', 'P') else img.convert('RGB')
+            buf = BytesIO()
+            img.save(buf, format='PNG')
+            return buf.getvalue()
+        except Exception:
+            return raw
+
     @classmethod
     def _read_asset_bytes(cls, content: dict, *, image: bool = False) -> bytes:
         handle = cls._storage_result_from_content(content)
@@ -93,6 +108,8 @@ class WeComService:
             return {'msgtype': 'news', 'news': {'articles': content.get('articles', [])}}
         if normalized_type == 'image':
             raw = cls._read_asset_bytes(content, image=True)
+            # GIF 不支持，转 PNG 第一帧
+            raw = cls._ensure_static_image(raw)
             return {
                 'msgtype': 'image',
                 'image': {

@@ -5,6 +5,9 @@
         <el-icon :size="16"><Monitor /></el-icon>
       </div>
       <h3 class="card-header-title">预览结果</h3>
+      <el-button size="small" :loading="isPreviewing" @click="$emit('preview')" class="preview-btn">
+        <el-icon><View /></el-icon> 预览
+      </el-button>
       <el-radio-group v-model="mode" size="small" class="preview-switch">
         <el-radio-button label="mock">模拟效果</el-radio-button>
         <el-radio-button label="json">JSON</el-radio-button>
@@ -72,7 +75,13 @@
 
                 <template v-else-if="msgType === 'news'">
                   <div class="news-list">
-                    <div v-for="(article, index) in articles" :key="index" class="news-item">
+                    <div
+                      v-for="(article, index) in articles"
+                      :key="index"
+                      class="news-item"
+                      :class="{ 'news-item--clickable': !!article.url }"
+                      @click="openExternalUrl(article.url)"
+                    >
                       <div class="news-item__cover">
                         <img v-if="article.picurl" :src="article.picurl" alt="cover" class="news-item__cover-img" />
                         <div v-else class="news-item__cover-placeholder">图文封面</div>
@@ -81,16 +90,87 @@
                         <div class="news-item__title">{{ article.title || '未填写标题' }}</div>
                         <div class="news-item__desc">{{ article.description || '未填写描述' }}</div>
                         <div class="news-item__url">{{ article.url || '未填写链接' }}</div>
+                        <button
+                          v-if="article.url"
+                          type="button"
+                          class="news-item__action"
+                          @click.stop="openExternalUrl(article.url)"
+                        >
+                          打开原文
+                        </button>
                       </div>
                     </div>
                   </div>
                 </template>
 
                 <template v-else-if="msgType === 'template_card'">
-                  <div class="card-mock">
+                  <div
+                    class="card-mock"
+                    :class="{ 'card-mock--clickable': !!templateCardPrimaryUrl }"
+                    @click="handleTemplateCardClick"
+                  >
+                    <div v-if="templateCardSourceDesc" class="card-mock__source">
+                      {{ templateCardSourceDesc }}
+                    </div>
                     <div class="card-mock__title">{{ templateCardTitle }}</div>
-                    <div class="card-mock__desc">{{ templateCardDesc }}</div>
-                    <div v-if="templateCardButtonText" class="card-mock__button">{{ templateCardButtonText }}</div>
+                    <div v-if="templateCardMainDesc" class="card-mock__main-desc">{{ templateCardMainDesc }}</div>
+
+                    <template v-if="templateCardType === 'news_notice'">
+                      <div v-if="templateCardImageUrl" class="card-mock__hero">
+                        <img :src="templateCardImageUrl" alt="template card cover" class="card-mock__hero-img" />
+                      </div>
+
+                      <div
+                        v-if="templateCardImageTextTitle || templateCardImageTextDesc || templateCardImageTextImageUrl"
+                        class="card-mock__news-block"
+                      >
+                        <div class="card-mock__news-copy">
+                          <div v-if="templateCardImageTextTitle" class="card-mock__news-title">{{ templateCardImageTextTitle }}</div>
+                          <div v-if="templateCardImageTextDesc" class="card-mock__desc">{{ templateCardImageTextDesc }}</div>
+                        </div>
+                        <img
+                          v-if="templateCardImageTextImageUrl"
+                          :src="templateCardImageTextImageUrl"
+                          alt="template card inline"
+                          class="card-mock__news-thumb"
+                        />
+                      </div>
+                    </template>
+
+                    <template v-else>
+                      <div v-if="templateCardDesc" class="card-mock__desc">{{ templateCardDesc }}</div>
+                    </template>
+
+                    <div v-if="templateCardEmphasisTitle || templateCardEmphasisDesc" class="card-mock__emphasis">
+                      <strong>{{ templateCardEmphasisTitle || '--' }}</strong>
+                      <span>{{ templateCardEmphasisDesc || '重点信息' }}</span>
+                    </div>
+
+                    <div v-if="templateCardVerticalItems.length" class="card-mock__vertical-list">
+                      <div v-for="(item, index) in templateCardVerticalItems" :key="index" class="card-mock__vertical-item">
+                        <span>{{ item.title || '字段' }}</span>
+                        <strong>{{ item.desc || '未填写' }}</strong>
+                      </div>
+                    </div>
+
+                    <div v-if="templateCardQuoteTitle || templateCardQuoteText" class="card-mock__quote">
+                      <div v-if="templateCardQuoteTitle" class="card-mock__quote-title">{{ templateCardQuoteTitle }}</div>
+                      <div class="card-mock__quote-text">{{ templateCardQuoteText }}</div>
+                    </div>
+
+                    <div v-if="templateCardHorizontalItems.length" class="card-mock__meta-list">
+                      <div v-for="(item, index) in templateCardHorizontalItems" :key="index" class="card-mock__meta-item">
+                        <span>{{ item.keyname || '字段' }}</span>
+                        <strong>{{ item.value || '未填写' }}</strong>
+                      </div>
+                    </div>
+
+                    <div v-if="templateCardPrimaryUrl" class="card-mock__link">
+                      {{ templateCardPrimaryUrl }}
+                    </div>
+                    <div v-if="templateCardPrimaryUrl" class="card-mock__hint">
+                      预览可点击查看交互效果，真实发送不会展示这行提示。
+                    </div>
                   </div>
                 </template>
 
@@ -115,7 +195,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { Document, Loading, Microphone, Monitor, UserFilled } from '@element-plus/icons-vue'
+import { Document, Loading, Microphone, Monitor, UserFilled, View } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 
 const props = defineProps({
@@ -139,6 +219,8 @@ const userInitial = computed(() => {
 })
 
 const mode = ref<'mock' | 'json'>('mock')
+
+defineEmits(['preview'])
 
 const previewJson = computed(() => props.previewData ? JSON.stringify(props.previewData, null, 2) : '')
 const renderedContent = computed<Record<string, any>>(() => props.previewData?.rendered_content || {})
@@ -239,12 +321,49 @@ const mentionSummary = computed(() => {
 })
 const articles = computed(() => Array.isArray(renderedContent.value.articles) ? renderedContent.value.articles : [])
 const templateCard = computed<Record<string, any>>(() => renderedContent.value?.template_card || {})
+const templateCardType = computed(() => templateCard.value?.card_type || 'text_notice')
+const templateCardSourceDesc = computed(() => templateCard.value?.source?.desc || '')
 const templateCardTitle = computed(() => templateCard.value?.main_title?.title || '模板卡片预览')
-const templateCardDesc = computed(() => templateCard.value?.sub_title_text || templateCard.value?.image_text_area?.desc || templateCard.value?.horizontal_content_list?.[0]?.value || '模板卡片将按企微卡片样式发送到群里')
-const templateCardButtonText = computed(() => templateCard.value?.jump_list?.[0]?.title || templateCard.value?.card_action?.title || '')
+const templateCardMainDesc = computed(() => templateCard.value?.main_title?.desc || '')
+const templateCardDesc = computed(() => templateCard.value?.sub_title_text || templateCard.value?.horizontal_content_list?.[0]?.value || '模板卡片将按企微卡片样式发送到群里')
+const templateCardImageUrl = computed(() => templateCard.value?.card_image?.url || '')
+const templateCardImageTextTitle = computed(() => templateCard.value?.image_text_area?.title || '')
+const templateCardImageTextDesc = computed(() => templateCard.value?.image_text_area?.desc || '')
+const templateCardImageTextImageUrl = computed(() => templateCard.value?.image_text_area?.image_url || '')
+const templateCardEmphasisTitle = computed(() => templateCard.value?.emphasis_content?.title || '')
+const templateCardEmphasisDesc = computed(() => templateCard.value?.emphasis_content?.desc || '')
+const templateCardQuoteTitle = computed(() => templateCard.value?.quote_area?.title || '')
+const templateCardQuoteText = computed(() => templateCard.value?.quote_area?.quote_text || '')
+const templateCardHorizontalItems = computed(() => Array.isArray(templateCard.value?.horizontal_content_list) ? templateCard.value.horizontal_content_list : [])
+const templateCardVerticalItems = computed(() => Array.isArray(templateCard.value?.vertical_content_list) ? templateCard.value.vertical_content_list : [])
+const templateCardPrimaryUrl = computed(() => (
+  templateCard.value?.jump_list?.[0]?.url
+  || templateCard.value?.card_action?.url
+  || templateCard.value?.image_text_area?.url
+  || templateCard.value?.quote_area?.url
+  || ''
+))
+
+const openExternalUrl = (url?: string) => {
+  if (!url) return
+  window.open(url, '_blank', 'noopener,noreferrer')
+}
+
+const openTemplateCardUrl = (url?: string) => {
+  openExternalUrl(url)
+}
+
+const handleTemplateCardClick = () => {
+  if (!templateCardPrimaryUrl.value) return
+  openTemplateCardUrl(templateCardPrimaryUrl.value)
+}
 </script>
 
 <style scoped>
+.preview-btn {
+  margin-left: auto;
+  margin-right: 8px;
+}
 .preview-switch {
   margin-left: auto;
 }
@@ -512,14 +631,26 @@ const templateCardButtonText = computed(() => templateCard.value?.jump_list?.[0]
 }
 
 .news-item {
-  display: grid;
-  grid-template-columns: 92px 1fr;
-  gap: 12px;
-  align-items: start;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 12px;
+  background: #ffffff;
+  border: 1px solid #eef2f7;
+}
+
+.news-item--clickable {
+  cursor: pointer;
+}
+
+.news-item--clickable:hover .news-item__title {
+  color: #2563eb;
 }
 
 .news-item__cover {
-  height: 72px;
+  width: 100%;
+  height: 148px;
   border-radius: 10px;
   overflow: hidden;
   background: var(--bg-color);
@@ -544,6 +675,8 @@ const templateCardButtonText = computed(() => templateCard.value?.jump_list?.[0]
 
 .news-item__content {
   min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .news-item__title,
@@ -562,21 +695,152 @@ const templateCardButtonText = computed(() => templateCard.value?.jump_list?.[0]
   word-break: break-all;
 }
 
+.news-item__action {
+  margin-top: 10px;
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.news-item__action:hover {
+  text-decoration: underline;
+}
+
 .card-mock {
   padding: 6px 0;
 }
-
-.card-mock__button {
+.card-mock--clickable {
+  cursor: pointer;
+}
+.card-mock--clickable:hover .card-mock__title {
+  color: #2563eb;
+}
+.card-mock__source {
+  margin-bottom: 8px;
+  font-size: 11px;
+  color: #94a3b8;
+}
+.card-mock__main-desc {
+  margin-bottom: 10px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #64748b;
+}
+.card-mock__hero {
+  margin: 12px 0;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+.card-mock__hero-img {
+  display: block;
+  width: 100%;
+  max-height: 180px;
+  object-fit: cover;
+}
+.card-mock__news-block {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  margin: 12px 0;
+  padding: 12px;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+.card-mock__news-copy {
+  min-width: 0;
+}
+.card-mock__news-title {
+  margin-bottom: 6px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+}
+.card-mock__news-thumb {
+  width: 64px;
+  height: 64px;
+  border-radius: 10px;
+  object-fit: cover;
+}
+.card-mock__emphasis {
   display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 110px;
-  margin-top: 12px;
-  padding: 8px 14px;
-  border-radius: 999px;
-  background: #2563eb;
-  color: #ffffff;
+  flex-direction: column;
+  gap: 4px;
+  margin: 12px 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #eff6ff;
+}
+.card-mock__emphasis strong {
+  font-size: 20px;
+  color: #1d4ed8;
+}
+.card-mock__emphasis span {
   font-size: 12px;
-  font-weight: 600;
+  color: #64748b;
+}
+.card-mock__vertical-list,
+.card-mock__meta-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+.card-mock__vertical-item,
+.card-mock__meta-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+.card-mock__vertical-item span,
+.card-mock__meta-item span {
+  font-size: 12px;
+  color: #64748b;
+}
+.card-mock__vertical-item strong,
+.card-mock__meta-item strong {
+  font-size: 12px;
+  color: #0f172a;
+  text-align: right;
+}
+.card-mock__quote {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-left: 3px solid #93c5fd;
+  border-radius: 0 10px 10px 0;
+  background: #f8fafc;
+}
+.card-mock__quote-title {
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f172a;
+}
+.card-mock__quote-text {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #64748b;
+}
+.card-mock__link {
+  margin-top: 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #94a3b8;
+  word-break: break-all;
+}
+.card-mock__hint {
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #94a3b8;
 }
 </style>

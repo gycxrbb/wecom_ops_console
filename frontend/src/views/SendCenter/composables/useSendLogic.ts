@@ -1,15 +1,24 @@
-import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import request from '@/utils/request'
 import { buildAssetAuthUrl } from '@/utils/assets'
 import { ElMessage } from 'element-plus'
 import { msgTypeLabel, supportsVariables } from '@/views/Templates/composables/useTemplates'
-import { createTemplateCardExample, templateCardExampleVariables } from '@/components/message-editor/templateCardPresets'
+import { CRM_DEMO_URL, createTemplateCardExample, templateCardExampleVariables } from '@/components/message-editor/templateCardPresets'
 
 // 每种消息类型的默认 content_json 结构
 const defaultContentByType: Record<string, any> = {
   text: { content: '', mentioned_list: [], mentioned_mobile_list: [] },
   markdown: { content: '' },
-  news: { articles: [] },
+  news: {
+    articles: [
+      {
+        title: '惯能 H5 · 今日内容导读',
+        description: '打开 CRM 内容页查看今天的 H5 讲解示例，运营同学可直接改标题、描述和封面图。',
+        url: CRM_DEMO_URL,
+        picurl: 'https://picsum.photos/seed/guanneng-h5-news/640/360',
+      },
+    ],
+  },
   image: { asset_id: undefined, asset_name: '', asset_url: '', image_path: '' },
   emotion: { asset_id: undefined, asset_name: '', asset_url: '', image_path: '' },
   file: { asset_id: undefined, asset_name: '', media_id: '' },
@@ -130,8 +139,24 @@ export function useSendLogic() {
   const notifyEnabled = ref(false)
   const notifyCustomText = ref('')
   const notifySendStatus = ref<'hidden' | 'pending' | 'sending' | 'success' | 'failed'>('hidden')
+  const previewingNotify = ref(false)
 
   const notifyAutoText = computed(() => {
+    // 手动队列模式
+    if (!isBatchMode.value && manualQueue.value.length > 0) {
+      const rows = manualQueue.value.map((item, i) => {
+        return `**${i + 1}.** ${item.title} \`${msgTypeLabel(item.msg_type)}\``
+      })
+      return [
+        '📢 **推送预告**',
+        '',
+        '接下来将发送以下内容：',
+        '',
+        ...rows,
+        '',
+        '请留意查收！',
+      ].join('\n')
+    }
     if (isBatchMode.value) {
       const rows = batchQueue.value.map((item, i) => {
         const desc = item.description ? ` — ${item.description}` : ''
@@ -177,6 +202,26 @@ export function useSendLogic() {
     activeBatchIndex.value = index
     batchItemPreviewData.value = null
     batchItemPreviewError.value = ''
+  }
+
+  const handleNotifyPreview = async () => {
+    previewingNotify.value = true
+    isPreviewing.value = true
+    previewError.value = ''
+    try {
+      const res = await request.post('/v1/preview', {
+        msg_type: 'markdown',
+        content_json: { content: notifyCustomText.value },
+        variables_json: {},
+        group_ids: form.groups.length > 0 ? [...form.groups] : undefined
+      })
+      previewData.value = res
+    } catch (e: any) {
+      previewData.value = null
+      previewError.value = '预览失败: ' + String(e)
+    } finally {
+      isPreviewing.value = false
+    }
   }
 
   const handleBatchItemContentUpdate = (val: Record<string, any>) => {
@@ -366,7 +411,10 @@ export function useSendLogic() {
 
   watch(
     () => [form.msg_type, JSON.stringify(form.contentJson), JSON.stringify(form.variables)],
-    autoPreview,
+    () => {
+      previewingNotify.value = false
+      autoPreview()
+    },
   )
 
   // ---- 批量项自动实时预览 ----
@@ -473,51 +521,161 @@ export function useSendLogic() {
     }
   }
 
-  // ---- 手动队列发送（纯手写模式下添加多条消息到队列）----
+  // ---- 手动队列发送（纯手写模式下管理多条消息）----
   const manualQueue = ref<BatchQueueItem[]>([])
   const isManualSending = ref(false)
+  let isSwitchingManualQueueItem = false
+
+  const activeManualQueueIndex = ref<number | null>(null)
+  const activeManualQueueItem = computed<BatchQueueItem | null>(() => {
+    if (activeManualQueueIndex.value != null && activeManualQueueIndex.value < manualQueue.value.length)
+      return manualQueue.value[activeManualQueueIndex.value]
+    return null
+  })
 
   const extractContentTitle = (msgType: string, contentJson: any): string => {
     if (msgType === 'text' || msgType === 'markdown') {
       const content = contentJson.content || ''
-      return content.substring(0, 40).replace(/\n/g, ' ') || '未命名消息'
+      return content.substring(0, 40).replace(/\n/g, ' ') || ''
     }
     if (msgType === 'news') {
       const articles = contentJson.articles || []
       return articles.length > 0 ? (articles[0].title || '图文消息') : '图文消息'
     }
-    if (msgType === 'image' || msgType === 'emotion') return contentJson.asset_name || '图片消息'
-    if (msgType === 'file') return contentJson.asset_name || '文件消息'
-    if (msgType === 'template_card') return contentJson.template_card?.main_title?.title || '模板卡片'
-    return `${msgTypeLabel(msgType)}消息`
+    if (msgType === 'image' || msgType === 'emotion') return contentJson.asset_name || ''
+    if (msgType === 'file') return contentJson.asset_name || ''
+    if (msgType === 'template_card') return contentJson.template_card?.main_title?.title || ''
+    return ''
   }
 
-  const addToManualQueue = () => {
-    if (!hasContent.value) {
-      ElMessage.warning('请先填写消息内容')
+  // 保存编辑器内容到当前活跃的队列项
+  const saveFormToActiveManualQueueItem = () => {
+    if (activeManualQueueIndex.value == null) return
+    if (activeManualQueueIndex.value === -1) {
+      notifyCustomText.value = form.contentJson?.content || ''
       return
     }
+    const item = manualQueue.value[activeManualQueueIndex.value]
+    if (!item) return
+    item.msg_type = form.msg_type
+    item.contentJson = JSON.parse(JSON.stringify(form.contentJson))
+    item.variablesJson = JSON.parse(JSON.stringify(form.variables))
+    const newTitle = extractContentTitle(item.msg_type, item.contentJson)
+    if (newTitle) item.title = newTitle
+  }
+
+  // 新增一条空消息到队列，自动选中编辑
+  const addToManualQueue = () => {
+    // 先保存当前编辑器到之前活跃的项
+    saveFormToActiveManualQueueItem()
+
+    const idx = manualQueue.value.length
     const item: BatchQueueItem = {
       id: Date.now(),
-      title: extractContentTitle(form.msg_type, form.contentJson),
+      title: `消息 ${idx + 1}`,
       msg_type: form.msg_type,
-      contentJson: JSON.parse(JSON.stringify(form.contentJson)),
-      variablesJson: JSON.parse(JSON.stringify(form.variables)),
+      contentJson: { ...(defaultContentByType[form.msg_type] || {}) },
+      variablesJson: {},
       status: 'pending',
+      remarkEnabled: false,
+      remark: '',
     }
     manualQueue.value.push(item)
-    form.contentJson = { ...(defaultContentByType[form.msg_type] || {}) }
-    form.variables = {}
-    ElMessage.success('已添加到发送队列')
+    // 切换到新项
+    isSwitchingManualQueueItem = true
+    activeManualQueueIndex.value = idx
+    form.contentJson = JSON.parse(JSON.stringify(item.contentJson))
+    form.variables = JSON.parse(JSON.stringify(item.variablesJson))
+    nextTick(() => { isSwitchingManualQueueItem = false })
+  }
+
+  const selectManualQueueItem = (index: number) => {
+    // 点击已选中项不做任何事
+    if (activeManualQueueIndex.value === index) return
+    // 保存当前编辑器到之前的项
+    saveFormToActiveManualQueueItem()
+    // 加载新项内容到编辑器
+    isSwitchingManualQueueItem = true
+    activeManualQueueIndex.value = index
+    if (index === -1) {
+      // 预告项
+      form.msg_type = 'markdown'
+      form.contentJson = { content: notifyCustomText.value }
+      form.variables = {}
+    } else {
+      const curr = manualQueue.value[index]
+      if (curr) {
+        form.msg_type = curr.msg_type
+        form.contentJson = JSON.parse(JSON.stringify(curr.contentJson))
+        form.variables = JSON.parse(JSON.stringify(curr.variablesJson))
+      }
+    }
+    nextTick(() => { isSwitchingManualQueueItem = false })
   }
 
   const removeFromManualQueue = (index: number) => {
     manualQueue.value.splice(index, 1)
+    if (activeManualQueueIndex.value != null) {
+      if (manualQueue.value.length === 0) {
+        activeManualQueueIndex.value = null
+      } else if (activeManualQueueIndex.value === index) {
+        // 删的是当前编辑的项，跳到相邻项
+        const nextIdx = Math.min(index, manualQueue.value.length - 1)
+        isSwitchingManualQueueItem = true
+        activeManualQueueIndex.value = nextIdx
+        const next = manualQueue.value[nextIdx]
+        form.msg_type = next.msg_type
+        form.contentJson = JSON.parse(JSON.stringify(next.contentJson))
+        form.variables = JSON.parse(JSON.stringify(next.variablesJson))
+        nextTick(() => { isSwitchingManualQueueItem = false })
+      } else if (activeManualQueueIndex.value > index) {
+        activeManualQueueIndex.value--
+      }
+    }
   }
 
   const clearManualQueue = () => {
     manualQueue.value = []
+    activeManualQueueIndex.value = null
+    form.contentJson = { ...(defaultContentByType[form.msg_type] || {}) }
+    form.variables = {}
   }
+
+  const toggleManualQueueRemark = (index: number) => {
+    const item = manualQueue.value[index]
+    if (!item) return
+    item.remarkEnabled = !item.remarkEnabled
+    if (item.remarkEnabled && !item.remark) {
+      item.remark = ''
+    }
+  }
+
+  const updateManualQueueRemark = (index: number, text: string) => {
+    const item = manualQueue.value[index]
+    if (!item) return
+    item.remark = text
+  }
+
+  // 编辑器内容变化时自动保存回活跃队列项
+  watch(
+    () => [form.msg_type, JSON.stringify(form.contentJson), JSON.stringify(form.variables)],
+    () => {
+      if (isSwitchingManualQueueItem) return
+      if (activeManualQueueIndex.value === -1) {
+        // 预告项：同步回 notifyCustomText
+        notifyCustomText.value = form.contentJson?.content || ''
+      } else if (activeManualQueueIndex.value != null) {
+        const item = manualQueue.value[activeManualQueueIndex.value]
+        if (item) {
+          item.msg_type = form.msg_type
+          item.contentJson = JSON.parse(JSON.stringify(form.contentJson))
+          item.variablesJson = JSON.parse(JSON.stringify(form.variables))
+          const newTitle = extractContentTitle(item.msg_type, item.contentJson)
+          if (newTitle) item.title = newTitle
+        }
+      }
+    }
+  )
 
   const sendManualQueue = async (testGroupOnly = false) => {
     if (form.groups.length === 0) {
@@ -525,13 +683,33 @@ export function useSendLogic() {
     }
     if (manualQueue.value.length === 0) return
 
+    // 发送前先保存当前编辑器
+    saveFormToActiveManualQueueItem()
+
     isManualSending.value = true
     for (const item of manualQueue.value) {
       item.status = 'pending'
       item.error = undefined
     }
 
+    const sendItems: BatchQueueItem[] = []
+    if (notifyEnabled.value && notifyCustomText.value.trim()) {
+      sendItems.push({
+        id: -1, title: '📢 推送预告', msg_type: 'markdown',
+        contentJson: { content: notifyCustomText.value }, variablesJson: {}, status: 'pending',
+      })
+    }
     for (const item of manualQueue.value) {
+      sendItems.push(item)
+      if (item.remarkEnabled && item.remark?.trim()) {
+        sendItems.push({
+          id: -(item.id + 100000), title: `备注: ${item.title}`, msg_type: 'markdown', description: '',
+          contentJson: { content: item.remark }, variablesJson: {}, status: 'pending',
+        })
+      }
+    }
+
+    for (const item of sendItems) {
       item.status = 'sending'
       try {
         const res = await request.post('/v1/send', {
@@ -557,15 +735,17 @@ export function useSendLogic() {
     isManualSending.value = false
 
     const success = manualQueue.value.filter(i => i.status === 'success').length
-    const failed = manualQueue.value.filter(i => i.status === 'failed').length
+    const failedItems = manualQueue.value.filter(i => i.status === 'failed')
+    const failed = failedItems.length
     const total = manualQueue.value.length
+    const firstError = failedItems.length > 0 ? failedItems[0].error : ''
 
     if (failed === 0) {
       ElMessage.success(`队列发送完成：${total} 条全部成功`)
     } else if (success === 0) {
-      ElMessage.error(`队列发送失败：全部 ${total} 条发送失败`)
+      ElMessage.error(`队列发送失败：全部 ${total} 条发送失败${firstError ? '，原因：' + firstError : ''}`)
     } else {
-      ElMessage.warning(`队列发送完成：${success} 成功，${failed} 失败`)
+      ElMessage.warning(`队列发送完成：${success} 成功，${failed} 失败${firstError ? '，原因：' + firstError : ''}`)
     }
   }
 
@@ -700,14 +880,15 @@ export function useSendLogic() {
     isBatchSending.value = false
 
     const { success, failed: failCount, total } = batchProgress.value
+    const firstBatchError = batchQueue.value.find(i => i.status === 'failed' && i.error)?.error || ''
     if (batchCancelled.value) {
       ElMessage.warning(`批量发送已中断：${success}/${total} 成功`)
     } else if (failCount === 0) {
       ElMessage.success(`批量发送完成：${total} 条全部成功`)
     } else if (success === 0) {
-      ElMessage.error(`批量发送失败：全部 ${total} 条发送失败`)
+      ElMessage.error(`批量发送失败：全部 ${total} 条发送失败${firstBatchError ? '，原因：' + firstBatchError : ''}`)
     } else {
-      ElMessage.warning(`批量发送完成：${success} 成功，${failCount} 失败`)
+      ElMessage.warning(`批量发送完成：${success} 成功，${failCount} 失败${firstBatchError ? '，原因：' + firstBatchError : ''}`)
     }
   }
 
@@ -777,6 +958,7 @@ export function useSendLogic() {
     notifyCustomText,
     notifyAutoText,
     notifySendStatus,
+    previewingNotify,
     isBatchMode,
     isBatchSending,
     batchProgress,
@@ -797,6 +979,7 @@ export function useSendLogic() {
     handleBatchItemVariablesUpdate,
     handleBatchItemPreview,
     handleBatchItemSchedule,
+    handleNotifyPreview,
     // 单条操作
     handleMsgTypeChange,
     handleContentSelect,
@@ -812,6 +995,11 @@ export function useSendLogic() {
     removeFromManualQueue,
     clearManualQueue,
     sendManualQueue,
+    toggleManualQueueRemark,
+    updateManualQueueRemark,
+    activeManualQueueIndex,
+    activeManualQueueItem,
+    selectManualQueueItem,
     // 草稿管理
     clearSendCenterDraft
   }

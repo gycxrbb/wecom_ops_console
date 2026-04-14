@@ -328,3 +328,19 @@
 - **复现条件**: 在模板中心或发送中心切到 `template_card`，不参考外部文档时很难判断文本通知和图文展示分别该怎么用。
 - **解决方案**: 为模板卡片编辑器补充完整示例预设，并新增文本通知/图文展示两套系统模板示例；同时把默认结构切换成可直接复用的完整卡片。
 - **关联文件**: frontend/src/components/message-editor/TemplateCardEditor.vue, frontend/src/components/message-editor/templateCardPresets.ts, app/services/seed.py
+## Bug #34: 素材上传接口仍按旧权限签名调用，运行时直接抛 TypeError
+
+- **日期**: 2026-04-14
+- **现象**: 访问 `/api/v1/assets/prepare-upload` 或 `/api/v1/assets/confirm-upload` 时，后端抛出 `TypeError: require_permission() takes 2 positional arguments but 3 were given`，导致素材上传前置流程直接失败。
+- **根因**: `security.py` 中的权限校验函数已经统一为 `require_permission(user, key)`，但 `app/routers/api.py` 里的两个素材上传接口仍保留旧的 `require_permission(request, db, key)` 调用方式。
+- **复现条件**: 登录后进入素材上传链路，触发“准备上传”或“确认上传”接口。
+- **解决方案**: 将两个接口统一改为先通过 `get_user_or_401(request, db)` 获取 `user`，再调用 `require_permission(user, 'asset')`，和当前权限体系保持一致。
+- **关联文件**: app/routers/api.py, app/security.py
+## Bug #35: 语音目录的粘贴上传会把 `audio/mpeg` 误落成 `.mpeg` 文件名，导致前后端识别不一致
+
+- **日期**: 2026-04-14
+- **现象**: 在素材库“语音”目录里直接上传 `mp3` 没问题，但通过剪贴板粘贴音频时，系统可能把文件名落成 `.mpeg`，随后前端提示和后端白名单判断容易与用户认知的 `mp3` 脱节。
+- **根因**: 浏览器从剪贴板给出的往往是 MIME `audio/mpeg`，而不是稳定的原始文件名后缀；原实现直接拿 `mime.split('/')` 的结果拼扩展名，导致把 MIME 子类型 `mpeg` 当成最终文件后缀。
+- **复现条件**: 在素材库或素材选择弹窗中，向“语音”目录粘贴来自本地播放器/系统剪贴板的音频文件。
+- **解决方案**: 前端在粘贴命名时增加 MIME -> 标准扩展名映射，把 `audio/mpeg` 统一规范成 `.mp3`；后端语音上传也同时按 MIME 和后缀双重识别，接受 `.mpeg` / `audio/mpeg` 并在转码前归一化为标准音频扩展名。
+- **关联文件**: frontend/src/views/Assets/index.vue, frontend/src/components/message-editor/AssetPicker.vue, app/services/audio_transcode.py, app/routers/api.py

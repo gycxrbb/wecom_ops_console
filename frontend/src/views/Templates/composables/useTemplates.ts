@@ -2,7 +2,7 @@ import { ref, computed, reactive, onMounted } from 'vue'
 import request from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { nextTick } from 'vue'
-import { createTemplateCardExample, templateCardExampleVariables } from '@/components/message-editor/templateCardPresets'
+import { CRM_DEMO_URL, createTemplateCardExample, templateCardExampleVariables } from '@/components/message-editor/templateCardPresets'
 
 export type TemplateItem = {
   id: number
@@ -21,7 +21,16 @@ export type TemplateItem = {
 const defaultContentByType: Record<string, any> = {
   text: { content: '', mentioned_list: [], mentioned_mobile_list: [] },
   markdown: { content: '' },
-  news: { articles: [] },
+  news: {
+    articles: [
+      {
+        title: '惯能 H5 · 今日内容导读',
+        description: '打开 CRM 内容页查看今天的 H5 讲解示例，运营同学可直接改标题、描述和封面图。',
+        url: CRM_DEMO_URL,
+        picurl: 'https://picsum.photos/seed/guanneng-h5-news/640/360',
+      },
+    ],
+  },
   image: { asset_id: undefined, asset_name: '', asset_url: '', image_path: '' },
   emotion: { asset_id: undefined, asset_name: '', asset_url: '', image_path: '' },
   file: { asset_id: undefined, asset_name: '', media_id: '' },
