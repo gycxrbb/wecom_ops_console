@@ -102,6 +102,8 @@ class WeComService:
             }
         if normalized_type == 'file':
             return {'msgtype': 'file', 'file': {'media_id': content.get('media_id', '')}}
+        if normalized_type == 'voice':
+            return {'msgtype': 'voice', 'voice': {'media_id': content.get('media_id', '')}}
         if normalized_type == 'template_card':
             card = content.get('template_card') if isinstance(content, dict) and content.get('template_card') else content
             return {'msgtype': 'template_card', 'template_card': card}
@@ -116,13 +118,21 @@ class WeComService:
         return values[0]
 
     @classmethod
-    async def upload_file(cls, webhook: str, file_path: str | None = None, file_name: str | None = None, file_bytes: bytes | None = None):
+    async def upload_media(
+        cls,
+        webhook: str,
+        *,
+        media_type: str = 'file',
+        file_path: str | None = None,
+        file_name: str | None = None,
+        file_bytes: bytes | None = None,
+    ):
         key = cls.extract_key(webhook)
-        url = f'https://qyapi.weixin.qq.com/cgi-bin/webhook/upload_media?key={key}&type=file'
+        url = f'https://qyapi.weixin.qq.com/cgi-bin/webhook/upload_media?key={key}&type={media_type}'
         display_name = file_name or (Path(file_path).name if file_path else 'asset')
         file_size = len(file_bytes) if file_bytes else (Path(file_path).stat().st_size if file_path else 0)
         timeout = cls._compute_upload_timeout(file_size)
-        logger.info(f'Uploading file "{display_name}" ({file_size} bytes, timeout={timeout}s)')
+        logger.info(f'Uploading {media_type} "{display_name}" ({file_size} bytes, timeout={timeout}s)')
         async with httpx.AsyncClient(timeout=timeout) as client:
             if file_bytes is None:
                 if not file_path:
@@ -137,8 +147,18 @@ class WeComService:
             data = resp.json()
             if data.get('errcode') != 0:
                 raise RuntimeError(f'上传文件失败: {json_dumps(data)}')
-            logger.info(f'File "{display_name}" uploaded successfully, media_id={data.get("media_id")}')
+            logger.info(f'{media_type} "{display_name}" uploaded successfully, media_id={data.get("media_id")}')
             return data['media_id'], data
+
+    @classmethod
+    async def upload_file(cls, webhook: str, file_path: str | None = None, file_name: str | None = None, file_bytes: bytes | None = None):
+        return await cls.upload_media(
+            webhook,
+            media_type='file',
+            file_path=file_path,
+            file_name=file_name,
+            file_bytes=file_bytes,
+        )
 
     @staticmethod
     def _compute_upload_timeout(file_size: int) -> int:
@@ -160,6 +180,17 @@ class WeComService:
                 webhook,
                 rendered_content.get('file_path'),
                 rendered_content.get('file_name'),
+                file_bytes=file_bytes,
+            )
+            rendered_content['media_id'] = media_id
+            rendered_content['_upload_response'] = upload_resp
+        if msg_type == 'voice' and not rendered_content.get('media_id'):
+            file_bytes = cls._read_asset_bytes(rendered_content, image=False)
+            media_id, upload_resp = await cls.upload_media(
+                webhook,
+                media_type='voice',
+                file_path=rendered_content.get('file_path'),
+                file_name=rendered_content.get('file_name'),
                 file_bytes=file_bytes,
             )
             rendered_content['media_id'] = media_id

@@ -278,13 +278,13 @@ def render_message_content(msg_type: str, content_json: dict, variables_json: di
     rendered = render_value(content_json, ctx)
     if msg_type in {'image', 'emotion'} and isinstance(rendered, dict) and rendered.get('asset_id'):
         rendered['asset_id'] = int(rendered['asset_id'])
-    if msg_type == 'file' and isinstance(rendered, dict) and rendered.get('asset_id'):
+    if msg_type in {'file', 'voice'} and isinstance(rendered, dict) and rendered.get('asset_id'):
         rendered['asset_id'] = int(rendered['asset_id'])
     return rendered
 
 
 def attach_asset_paths(db: Session, msg_type: str, content: dict):
-    if msg_type not in {'image', 'emotion', 'file', 'video'}:
+    if msg_type not in {'image', 'emotion', 'file', 'voice', 'video'}:
         return content
     content = dict(content)
     asset_id = content.get('asset_id')
@@ -323,6 +323,15 @@ def is_public_http_url(value: str | None) -> bool:
 
 
 def validate_outbound_content(msg_type: str, content: dict) -> None:
+    if msg_type == 'voice':
+        file_name = str(content.get('file_name') or content.get('asset_name') or '').lower()
+        mime_type = str(content.get('asset_meta', {}).get('mime_type') or '').lower()
+        file_size = int(content.get('asset_meta', {}).get('file_size') or 0)
+        if not (file_name.endswith('.amr') or 'amr' in mime_type):
+            raise HTTPException(400, '语音消息当前只支持 .amr 素材，请先上传 AMR 语音')
+        if file_size > 2 * 1024 * 1024:
+            raise HTTPException(400, '语音消息素材不能超过 2MB')
+        return
     if msg_type != 'news':
         return
     articles = content.get('articles', [])
@@ -354,7 +363,7 @@ async def _send_to_single_group(
 ) -> dict:
     """向单个群发送消息（含重试），使用独立 DB session 避免并发锁冲突。"""
     from ..database import SessionLocal
-    is_file_type = msg_type in {'file', 'image', 'emotion'}
+    is_file_type = msg_type in {'file', 'image', 'emotion', 'voice'}
     db = SessionLocal()
     try:
         rendered_content = render_message_content(msg_type, content_json, variables_json, user, group)
@@ -437,7 +446,7 @@ async def _send_to_single_group(
 
 
 async def do_send_to_groups(db: Session, groups: list[models.Group], msg_type: str, content_json: dict, variables_json: dict, user: models.User, schedule: models.Schedule | None = None, run_mode: str = 'immediate'):
-    is_file_type = msg_type in {'file', 'image', 'emotion'}
+    is_file_type = msg_type in {'file', 'image', 'emotion', 'voice'}
     max_retries = settings.file_send_max_retries if is_file_type else settings.send_max_retries
     retry_delay = settings.file_send_retry_delay_seconds if is_file_type else settings.send_retry_delay_seconds
     cached_media_id: dict[int, str] = {}
@@ -802,7 +811,10 @@ async def preview_message(request: Request, db: Session = Depends(get_db)):
     rendered_content = render_message_content(data['msg_type'], data.get('content_json', {}), data.get('variables_json', {}), user, group)
     rendered_content = attach_asset_paths(db, data['msg_type'], rendered_content)
     validate_outbound_content(data['msg_type'], rendered_content)
-    payload = WeComService.build_payload(data['msg_type'], rendered_content if data['msg_type'] != 'file' else {**rendered_content, 'media_id': rendered_content.get('media_id', '<运行时上传后生成>')})
+    payload = WeComService.build_payload(
+        data['msg_type'],
+        rendered_content if data['msg_type'] not in {'file', 'voice'} else {**rendered_content, 'media_id': rendered_content.get('media_id', '<运行时上传后生成>')}
+    )
     return {'rendered_content': rendered_content, 'payload_preview': payload}
 
 @router.post('/send')

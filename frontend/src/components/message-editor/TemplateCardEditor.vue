@@ -1,6 +1,17 @@
 <template>
   <div class="template-card-editor">
     <el-form label-width="90px" size="small">
+      <div class="template-card-guide">
+        <div class="template-card-guide__title">模板卡片快速上手</div>
+        <div class="template-card-guide__desc">
+          文本通知适合提醒、截止、任务确认；图文展示适合运营拿一张配图配一段说明直接复用。
+        </div>
+        <div class="template-card-guide__actions">
+          <el-button size="small" @click="applyPreset('text_notice')">套用完整文本通知示例</el-button>
+          <el-button size="small" @click="applyPreset('news_notice')">套用完整图文展示示例</el-button>
+        </div>
+      </div>
+
       <el-form-item label="卡片类型">
         <el-select :model-value="cardType" @update:model-value="changeCardType">
           <el-option label="文本通知" value="text_notice" />
@@ -41,6 +52,41 @@
           @update:model-value="updateField('sub_title_text', $event)"
           placeholder="卡片副标题"
         />
+      </el-form-item>
+
+      <el-form-item v-if="cardType === 'news_notice'" label="卡片大图">
+        <el-input
+          :model-value="cardImageUrl"
+          @update:model-value="updateCardImageUrl"
+          placeholder="https://example.com/card-cover.png"
+        />
+      </el-form-item>
+
+      <el-form-item v-if="cardType === 'news_notice'" label="图文区">
+        <div class="image-text-area">
+          <el-input
+            :model-value="imageTextTitle"
+            @update:model-value="updateNested('image_text_area', 'title', $event)"
+            placeholder="图文标题"
+          />
+          <el-input
+            :model-value="imageTextDesc"
+            @update:model-value="updateNested('image_text_area', 'desc', $event)"
+            type="textarea"
+            :rows="3"
+            placeholder="图文说明，适合告诉运营同学这张卡要怎么用"
+          />
+          <el-input
+            :model-value="imageTextImageUrl"
+            @update:model-value="updateNested('image_text_area', 'image_url', $event)"
+            placeholder="图文区配图 https://example.com/thumb.png"
+          />
+          <el-input
+            :model-value="imageTextUrl"
+            @update:model-value="updateNested('image_text_area', 'url', $event)"
+            placeholder="点击图文区后的跳转链接"
+          />
+        </div>
       </el-form-item>
 
       <!-- 水平内容列表 -->
@@ -121,6 +167,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Delete } from '@element-plus/icons-vue'
+import { createTemplateCardExample } from './templateCardPresets'
 
 const props = defineProps<{ modelValue: Record<string, any> }>()
 const emit = defineEmits<{ (e: 'update:modelValue', val: Record<string, any>): void }>()
@@ -141,6 +188,11 @@ const subTitleText = computed(() => cardContent.value.sub_title_text || '')
 const horizontalList = computed(() => cardContent.value.horizontal_content_list || [])
 const cardUrl = computed(() => cardContent.value.card_action?.url || '')
 const buttonList = computed(() => cardContent.value.button_list || [])
+const cardImageUrl = computed(() => cardContent.value.card_image?.url || '')
+const imageTextTitle = computed(() => cardContent.value.image_text_area?.title || '')
+const imageTextDesc = computed(() => cardContent.value.image_text_area?.desc || '')
+const imageTextImageUrl = computed(() => cardContent.value.image_text_area?.image_url || '')
+const imageTextUrl = computed(() => cardContent.value.image_text_area?.url || '')
 
 const emitUpdate = (partial: Record<string, any>) => {
   emit('update:modelValue', { template_card: { ...cardContent.value, ...partial } })
@@ -154,8 +206,26 @@ const updateNested = (parent: string, child: string, value: any) => {
   emitUpdate({ [parent]: { ...(cardContent.value[parent] || {}), [child]: value } })
 }
 
+const applyPreset = (type: 'text_notice' | 'news_notice') => {
+  emit('update:modelValue', createTemplateCardExample(type))
+}
+
 const changeCardType = (val: string) => {
+  if (val === 'text_notice' || val === 'news_notice') {
+    emit('update:modelValue', createTemplateCardExample(val))
+    return
+  }
   emitUpdate({ card_type: val })
+}
+
+const updateCardImageUrl = (value: string) => {
+  emitUpdate({
+    card_image: {
+      ...(cardContent.value.card_image || {}),
+      url: value,
+      aspect_ratio: cardContent.value.card_image?.aspect_ratio || 1.3,
+    },
+  })
 }
 
 // 水平列表操作
@@ -199,7 +269,37 @@ const updateButton = (idx: number, field: string, value: any) => {
 .template-card-editor {
   padding: 0;
 }
+.template-card-guide {
+  margin-bottom: 16px;
+  padding: 14px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.08), rgba(14, 165, 233, 0.05));
+  border: 1px solid rgba(37, 99, 235, 0.12);
+}
+.template-card-guide__title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.template-card-guide__desc {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+.template-card-guide__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
 .horizontal-list, .button-list {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.image-text-area {
   width: 100%;
   display: flex;
   flex-direction: column;

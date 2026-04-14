@@ -58,7 +58,7 @@
 ### 3.2 理解层
 
 - 模板支持变量渲染
-- 消息支持 `text`、`markdown`、`news`、`image`、`file`、`template_card`
+- 消息支持 `text`、`markdown`、`news`、`image`、`file`、`voice`、`template_card`
 - 图片和文件消息会在后端补素材路径，再构造企微 payload
 
 ### 3.3 决策层

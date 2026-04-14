@@ -122,29 +122,94 @@ SYSTEM_TEMPLATES = [
         'variables_json': {'next_topic': '餐前醋 + 饮食顺序'},
     },
     {
-        'name': 'Template Card 示例',
+        'name': '模板卡片示例 · 文本通知',
         'category': '高级',
         'msg_type': 'template_card',
-        'description': 'JSON 模式的模板卡片示例',
+        'description': '适合截止提醒、任务确认、行动号召的完整文本通知模板卡片示例',
         'content_json': {
             'template_card': {
                 'card_type': 'text_notice',
-                'source': {'icon_url': 'https://picsum.photos/48', 'desc': '训练营后台', 'desc_color': 0},
+                'source': {'icon_url': 'https://picsum.photos/seed/wecom-card-icon/96/96', 'desc': '训练营运营台', 'desc_color': 0},
                 'main_title': {'title': '{{ title }}', 'desc': '{{ desc }}'},
                 'sub_title_text': '{{ subtitle }}',
+                'emphasis_content': {'title': '{{ emphasis_title }}', 'desc': '{{ emphasis_desc }}'},
+                'quote_area': {'type': 1, 'url': '{{ quote_url }}', 'title': '{{ quote_title }}', 'quote_text': '{{ quote_text }}'},
                 'horizontal_content_list': [
                     {'keyname': '群聊', 'value': '{{ group_name }}'},
-                    {'keyname': '教练', 'value': '{{ coach_name }}'}
+                    {'keyname': '教练', 'value': '{{ coach_name }}'},
+                    {'keyname': '截止', 'value': '{{ deadline }}'}
                 ],
-                'jump_list': [{'type': 1, 'title': '查看详情', 'url': '{{ jump_url }}'}],
-                'card_action': {'type': 1, 'url': '{{ jump_url }}'}
+                'jump_list': [
+                    {'type': 1, 'title': '查看详情', 'url': '{{ detail_url }}'},
+                    {'type': 1, 'title': '提交反馈', 'url': '{{ form_url }}'}
+                ],
+                'card_action': {'type': 1, 'url': '{{ detail_url }}'}
             }
         },
         'variables_json': {
             'title': '今晚 20:00 总结提醒',
             'desc': '请按时提交今日反馈',
-            'subtitle': '表单会在 20:30 截止',
-            'jump_url': 'https://example.com/form'
+            'subtitle': '运营同学可直接替换标题、时间和跳转链接，就能快速复用这张卡。',
+            'emphasis_title': '20:30',
+            'emphasis_desc': '提交截止',
+            'deadline': '今天 20:30',
+            'quote_title': '填写建议',
+            'quote_text': '建议按“执行动作 / 卡点 / 下一步”三段填写，方便教练点评。',
+            'quote_url': 'https://example.com/tips',
+            'detail_url': 'https://example.com/detail',
+            'form_url': 'https://example.com/form'
+        },
+    },
+    {
+        'name': '模板卡片示例 · 图文展示',
+        'category': '高级',
+        'msg_type': 'template_card',
+        'description': '适合运营发课程图卡、海报讲解、活动介绍的完整图文展示模板卡片示例',
+        'content_json': {
+            'template_card': {
+                'card_type': 'news_notice',
+                'source': {'icon_url': 'https://picsum.photos/seed/wecom-card-icon/96/96', 'desc': '训练营运营台', 'desc_color': 0},
+                'main_title': {'title': '{{ title }}', 'desc': '{{ desc }}'},
+                'card_image': {'url': '{{ card_image_url }}', 'aspect_ratio': 1.3},
+                'image_text_area': {
+                    'type': 1,
+                    'url': '{{ detail_url }}',
+                    'title': '{{ image_text_title }}',
+                    'desc': '{{ image_text_desc }}',
+                    'image_url': '{{ image_url }}'
+                },
+                'quote_area': {'type': 1, 'url': '{{ quote_url }}', 'title': '{{ quote_title }}', 'quote_text': '{{ quote_text }}'},
+                'vertical_content_list': [
+                    {'title': '适用人群', 'desc': '{{ audience }}'},
+                    {'title': '执行动作', 'desc': '{{ action }}'},
+                    {'title': '截止时间', 'desc': '{{ deadline }}'}
+                ],
+                'horizontal_content_list': [
+                    {'keyname': '群聊', 'value': '{{ group_name }}'},
+                    {'keyname': '教练', 'value': '{{ coach_name }}'}
+                ],
+                'jump_list': [
+                    {'type': 1, 'title': '查看图文详情', 'url': '{{ detail_url }}'},
+                    {'type': 1, 'title': '打开打卡页', 'url': '{{ form_url }}'}
+                ],
+                'card_action': {'type': 1, 'url': '{{ detail_url }}'}
+            }
+        },
+        'variables_json': {
+            'title': '今日学习卡已更新',
+            'desc': '3 分钟看完这张图，再去群里打卡',
+            'card_image_url': 'https://picsum.photos/seed/wecom-card-cover/960/720',
+            'image_text_title': '餐后走 10 分钟，为什么更容易坚持？',
+            'image_text_desc': '把“降低执行门槛、提升反馈感、增加连续性”三件事浓缩成一张图，运营同学可直接替换成当天主题。',
+            'image_url': 'https://picsum.photos/seed/wecom-card-inline/240/240',
+            'detail_url': 'https://example.com/lesson-card',
+            'quote_title': '运营建议',
+            'quote_text': '如果今天需要带配图做讲解，优先用图文展示模板卡片，复用门槛更低。',
+            'quote_url': 'https://example.com/ops-guide',
+            'audience': '今天还没完成学习打卡的同学',
+            'action': '先看图再回群里回复一句“我今天准备怎么做”',
+            'deadline': '今天 21:00',
+            'form_url': 'https://example.com/checkin'
         },
     },
 ]
@@ -206,16 +271,23 @@ def seed_all(db: Session):
     if updated_groups:
         db.commit()
 
-    if db.query(models.Template).count() == 0:
-        admin = db.query(models.User).filter(models.User.role == 'admin').first()
-        for item in SYSTEM_TEMPLATES:
-            db.add(models.Template(
-                name=item['name'],
-                category=item.get('category', 'general'),
-                msg_type=item['msg_type'],
-                content=json_dumps(item['content_json']),
-                default_variables=json_dumps(item.get('variables_json', {})),
-                is_system=1,
-                owner_id=admin.id if admin else None,
-            ))
+    admin = db.query(models.User).filter(models.User.role == 'admin').first()
+    existing_template_names = {
+        name for (name,) in db.query(models.Template.name).filter(models.Template.is_system == 1).all()
+    }
+    new_templates_added = False
+    for item in SYSTEM_TEMPLATES:
+        if item['name'] in existing_template_names:
+            continue
+        db.add(models.Template(
+            name=item['name'],
+            category=item.get('category', 'general'),
+            msg_type=item['msg_type'],
+            content=json_dumps(item['content_json']),
+            default_variables=json_dumps(item.get('variables_json', {})),
+            is_system=1,
+            owner_id=admin.id if admin else None,
+        ))
+        new_templates_added = True
+    if new_templates_added:
         db.commit()

@@ -54,6 +54,7 @@
 | `news` | 图文卡片、活动页跳转 |
 | `image` | 从资产库选图，自动转 base64 + md5 |
 | `file` | 从资产库选文件，自动上传 media |
+| `voice` | 从资产库选 AMR 语音，自动上传 media |
 | `template_card` | 复杂结构化卡片 |
 | `raw_json` | 高级模式，直接发送原始 payload |
 

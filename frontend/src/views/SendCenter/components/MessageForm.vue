@@ -93,6 +93,7 @@
             <el-option label="表情包" value="emotion" />
             <el-option label="图文" value="news" />
             <el-option label="文件" value="file" />
+            <el-option label="语音" value="voice" />
             <el-option label="模板卡片" value="template_card" />
           </el-select>
         </div>
@@ -204,6 +205,32 @@
         style="width: 100%"
       />
 
+      <!-- 手动发送队列（非批量模式下） -->
+      <div v-if="!isBatchMode && manualQueue.length > 0" class="manual-queue">
+        <div class="manual-queue__header">
+          <span class="manual-queue__title">发送队列 ({{ manualQueue.length }} 条)</span>
+          <el-button size="small" text type="danger" @click="$emit('clearQueue')">清空</el-button>
+        </div>
+        <div class="manual-queue__list">
+          <div
+            v-for="(item, idx) in manualQueue"
+            :key="item.id"
+            class="manual-queue__item"
+            :class="{ 'is-sending': item.status === 'sending', 'is-success': item.status === 'success', 'is-failed': item.status === 'failed' }"
+          >
+            <span class="manual-queue__index">{{ idx + 1 }}</span>
+            <span class="manual-queue__name" :title="item.title">{{ item.title }}</span>
+            <el-tag size="small" :type="tagTypeByMsgType(item.msg_type)">{{ msgTypeLabel(item.msg_type) }}</el-tag>
+            <span v-if="item.status === 'sending'" class="manual-queue__status"><el-icon class="is-loading"><Loading /></el-icon></span>
+            <span v-else-if="item.status === 'success'" class="manual-queue__status manual-queue__status--success"><el-icon><CircleCheckFilled /></el-icon></span>
+            <span v-else-if="item.status === 'failed'" class="manual-queue__status manual-queue__status--failed"><el-icon><CircleCloseFilled /></el-icon></span>
+            <el-button v-if="item.status === 'pending'" size="small" text @click="$emit('removeQueueItem', idx)">
+              <el-icon><Close /></el-icon>
+            </el-button>
+          </div>
+        </div>
+      </div>
+
       <!-- Push Notification Preview -->
       <div v-if="showNotifySection" class="notify-section">
         <div class="notify-header">
@@ -263,6 +290,32 @@
             <el-button size="large" type="warning" plain @click="$emit('sendTest')" :loading="isTestSending">
               测试群发送
             </el-button>
+            <el-button size="large" @click="$emit('addToQueue')">
+              <template #icon><el-icon><CirclePlus /></el-icon></template>
+              添加到队列
+            </el-button>
+          </div>
+          <div v-if="manualQueue.length > 0" class="action-footer__row" style="margin-top: 8px;">
+            <el-button
+              size="large"
+              type="success"
+              @click="$emit('sendQueue')"
+              :loading="isManualSending"
+              :disabled="isManualSending"
+            >
+              <template #icon><el-icon><Position /></el-icon></template>
+              队列发送 ({{ manualQueue.length }})
+            </el-button>
+            <el-button
+              size="large"
+              type="warning"
+              plain
+              @click="$emit('sendQueue', true)"
+              :loading="isManualSending"
+              :disabled="isManualSending"
+            >
+              测试群发送
+            </el-button>
           </div>
         </template>
       </div>
@@ -272,7 +325,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { EditPen, View, Position, ChatDotRound, Document, Memo, Close, Loading, CircleCheckFilled, CircleCloseFilled } from '@element-plus/icons-vue'
+import { EditPen, View, Position, ChatDotRound, Document, Memo, Close, Loading, CircleCheckFilled, CircleCloseFilled, CirclePlus } from '@element-plus/icons-vue'
 import MessageEditor from '@/components/message-editor/index.vue'
 import ContentSelector from './ContentSelector.vue'
 import { msgTypeLabel } from '@/views/Templates/composables/useTemplates'
@@ -298,7 +351,10 @@ const props = defineProps({
   notifyEnabled: { type: Boolean, default: false },
   notifyCustomText: { type: String, default: '' },
   notifyAutoText: { type: String, default: '' },
-  notifySendStatus: { type: String as PropType<'hidden' | 'pending' | 'sending' | 'success' | 'failed'>, default: 'hidden' }
+  notifySendStatus: { type: String as PropType<'hidden' | 'pending' | 'sending' | 'success' | 'failed'>, default: 'hidden' },
+  // 手动队列
+  manualQueue: { type: Array as PropType<BatchQueueItem[]>, default: () => [] },
+  isManualSending: { type: Boolean, default: false }
 })
 
 defineEmits([
@@ -308,7 +364,9 @@ defineEmits([
   'batchSelect', 'batchSend', 'removeBatchItem', 'clearBatch', 'cancelBatchSend', 'selectBatchItem',
   'toggleRemark', 'updateRemark',
   // 预告通知
-  'update:notifyEnabled', 'update:notifyCustomText'
+  'update:notifyEnabled', 'update:notifyCustomText',
+  // 手动队列
+  'addToQueue', 'removeQueueItem', 'clearQueue', 'sendQueue'
 ])
 
 const contentSelectorVisible = ref(false)
@@ -340,7 +398,7 @@ const showNotifySection = computed(() => {
 
 const tagTypeByMsgType = (msgType: string) => {
   const map: Record<string, string> = {
-    text: '', markdown: 'success', image: 'warning', emotion: 'warning', news: 'danger', file: 'info', template_card: ''
+    text: '', markdown: 'success', image: 'warning', emotion: 'warning', news: 'danger', file: 'info', voice: 'info', template_card: ''
   }
   return map[msgType] || ''
 }
@@ -650,6 +708,67 @@ const tagTypeByMsgType = (msgType: string) => {
   font-size: 13px;
   line-height: 1.7;
 }
+
+/* Manual Queue */
+.manual-queue {
+  margin-bottom: 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.manual-queue__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--bg-color);
+  border-bottom: 1px solid var(--border-color);
+}
+.manual-queue__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.manual-queue__list {
+  max-height: 200px;
+  overflow-y: auto;
+}
+.manual-queue__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 13px;
+  transition: background 0.15s;
+}
+.manual-queue__item:last-child { border-bottom: none; }
+.manual-queue__item:hover { background: rgba(0, 0, 0, 0.02); }
+.manual-queue__item.is-success { background: rgba(34, 197, 94, 0.04); }
+.manual-queue__item.is-failed { background: rgba(239, 68, 68, 0.04); }
+.manual-queue__index {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--bg-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.manual-queue__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+.manual-queue__status { font-size: 16px; flex-shrink: 0; }
+.manual-queue__status--success { color: var(--el-color-success); }
+.manual-queue__status--failed { color: var(--el-color-danger); }
 
 /* Responsive */
 @media (max-width: 1100px) {

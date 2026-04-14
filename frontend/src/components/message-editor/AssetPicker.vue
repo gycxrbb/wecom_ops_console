@@ -89,6 +89,7 @@
               {{ uploading ? uploadButtonText : '上传到当前目录' }}
             </el-button>
           </el-upload>
+          <div class="paste-hint">支持 <kbd>{{ modKey }}</kbd>+<kbd>V</kbd> 粘贴图片或文件</div>
         </div>
 
         <div v-if="showEmotionTools" class="asset-picker__emotion-tools">
@@ -196,6 +197,18 @@
       </section>
     </div>
 
+    <!-- 粘贴上传命名弹窗 -->
+    <el-dialog v-model="pasteNameVisible" title="为粘贴的资源命名" width="420px" destroy-on-close append-to-body @close="cancelPasteName">
+      <el-input v-model="pasteNameInput" placeholder="输入资源名称（不含扩展名）" @keyup.enter="confirmPasteName" autofocus />
+      <div style="margin-top:8px;font-size:12px;color:var(--text-muted);">
+        扩展名 <strong>.{{ pasteNameExt }}</strong> 会自动保留
+      </div>
+      <template #footer>
+        <el-button @click="cancelPasteName">取消</el-button>
+        <el-button type="primary" @click="confirmPasteName">确认上传</el-button>
+      </template>
+    </el-dialog>
+
     <template #footer>
       <el-button :disabled="uploading" @click="$emit('update:visible', false)">取消</el-button>
       <el-button type="primary" :disabled="!selectedId || uploading" @click="confirmSelect">确认选择</el-button>
@@ -204,7 +217,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { Document, Loading } from '@element-plus/icons-vue'
 import request from '@/utils/request'
 import { ElMessage } from 'element-plus'
@@ -468,6 +481,62 @@ const confirmSelect = () => {
 }
 
 const isRecentEmotion = (assetId: number) => showEmotionTools.value && recentEmotionIds.value.includes(assetId)
+
+const modKey = computed(() => /Mac|iPod|iPhone|iPad/.test(navigator.platform) ? 'Cmd' : 'Ctrl')
+
+// --- 粘贴命名 ---
+const pasteNameVisible = ref(false)
+const pasteNameInput = ref('')
+const pasteNameExt = ref('png')
+let pendingPasteFiles: { file: File; ext: string }[] = []
+
+const handlePaste = (e: ClipboardEvent) => {
+  if (!props.visible || uploading.value || pasteNameVisible.value) return
+  const files = e.clipboardData?.files
+  if (!files || !files.length) return
+  e.preventDefault()
+
+  const items: { file: File; ext: string }[] = []
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i]
+    const ext = f.type?.split('/')[1] || f.name?.split('.').pop() || 'png'
+    items.push({ file: f, ext })
+  }
+  if (!items.length) return
+
+  pendingPasteFiles = items
+  pasteNameExt.value = items.length === 1 ? items[0].ext : '...'
+  const baseName = items[0].file.name?.replace(/\.[^.]+$/, '') || ''
+  pasteNameInput.value = baseName === 'image' || baseName === 'clipboard' ? '' : baseName
+  pasteNameVisible.value = true
+}
+
+const confirmPasteName = () => {
+  const name = pasteNameInput.value.trim()
+  if (!name) {
+    ElMessage.warning('请输入资源名称')
+    return
+  }
+  pasteNameVisible.value = false
+
+  for (let i = 0; i < pendingPasteFiles.length; i++) {
+    const { file, ext } = pendingPasteFiles[i]
+    const finalName = pendingPasteFiles.length === 1
+      ? `${name}.${ext}`
+      : `${name}_${i + 1}.${ext}`
+    const renamed = new File([file], finalName, { type: file.type || 'image/png' })
+    handleUpload({ file: renamed })
+  }
+  pendingPasteFiles = []
+}
+
+const cancelPasteName = () => {
+  pasteNameVisible.value = false
+  pendingPasteFiles = []
+}
+
+onMounted(() => document.addEventListener('paste', handlePaste))
+onBeforeUnmount(() => document.removeEventListener('paste', handlePaste))
 
 const handleFolderSelect = async (folderId: string) => {
   currentFolderId.value = folderId
@@ -872,5 +941,20 @@ html.dark .child-folder-card {
 .upload-status-fade-leave-to {
   opacity: 0;
   transform: translateY(-4px);
+}
+.paste-hint {
+  font-size: 12px;
+  color: var(--text-muted, #999);
+  margin-top: 4px;
+}
+.paste-hint kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  font-size: 11px;
+  font-family: inherit;
+  background: var(--card-bg, #f5f5f5);
+  border: 1px solid var(--border-color, #ddd);
+  border-radius: 4px;
+  box-shadow: 0 1px 0 var(--border-color, #ddd);
 }
 </style>

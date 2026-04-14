@@ -474,7 +474,7 @@ const contentForm = ref<any>({
 const msgTypeLabel = (type: string) => {
   const map: Record<string, string> = {
     text: '文本', markdown: 'Markdown', news: '图文',
-    image: '图片', file: '文件', template_card: '模板卡片', raw_json: '原始JSON'
+    image: '图片', file: '文件', voice: '语音', template_card: '模板卡片', raw_json: '原始JSON'
   }
   return map[type] || type
 }

@@ -2,6 +2,7 @@ import { ref, computed, reactive, onMounted } from 'vue'
 import request from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { nextTick } from 'vue'
+import { createTemplateCardExample, templateCardExampleVariables } from '@/components/message-editor/templateCardPresets'
 
 export type TemplateItem = {
   id: number
@@ -24,7 +25,12 @@ const defaultContentByType: Record<string, any> = {
   image: { asset_id: undefined, asset_name: '', asset_url: '', image_path: '' },
   emotion: { asset_id: undefined, asset_name: '', asset_url: '', image_path: '' },
   file: { asset_id: undefined, asset_name: '', media_id: '' },
-  template_card: { template_card: { card_type: 'text_notice', main_title: { title: '' } } }
+  voice: { asset_id: undefined, asset_name: '', media_id: '' },
+  template_card: createTemplateCardExample('text_notice'),
+}
+
+const defaultVariablesByType: Record<string, any> = {
+  template_card: { ...templateCardExampleVariables.text_notice },
 }
 
 const variableEnabledTypes = new Set(['text', 'markdown', 'news', 'template_card'])
@@ -36,6 +42,7 @@ export const msgTypeOptions = [
   { value: 'emotion', label: '表情包' },
   { value: 'news', label: '图文' },
   { value: 'file', label: '文件' },
+  { value: 'voice', label: '语音' },
   { value: 'template_card', label: '模板卡片' }
 ]
 
@@ -173,7 +180,9 @@ export function useTemplates() {
 
   const handleMsgTypeChange = (type: string) => {
     form.contentJson = { ...(defaultContentByType[type] || {}) }
-    if (!supportsVariables(type)) form.variablesJson = {}
+    form.variablesJson = supportsVariables(type)
+      ? { ...(defaultVariablesByType[type] || {}) }
+      : {}
   }
 
   const focusTemplateCard = async (id: number, msgType: string) => {

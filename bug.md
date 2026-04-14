@@ -319,3 +319,12 @@
 - **复现条件**: 打开模板中心任意图片或文件节点的素材选择弹窗，选择本地文件上传到当前目录，尤其在较大文件或网络较慢时更明显。
 - **解决方案**: 为素材弹窗增加 `uploading` 状态，上传中时显示按钮 loading、顶部状态卡片和内容区 loading 文案，并临时禁用关闭/确认等易造成误解的操作，上传完成后自动刷新并选中新素材。
 - **关联文件**: frontend/src/components/message-editor/AssetPicker.vue
+
+## Bug #33: 模板卡片默认结构过于抽象，运营不知道该从哪一种卡片开始配置
+
+- **日期**: 2026-04-14
+- **现象**: 模板卡片入口虽然能编辑基础字段，但没有把 `text_notice` 和 `news_notice` 的差异及推荐用法讲清楚，运营同学通常只能看到半成品结构，不知道该直接套哪个模板。
+- **根因**: 系统把“支持模板卡片”停留在技术能力层，没有同时内置完整示例和场景化默认结构，导致前端入口只提供 support 信息，没有提供 official 的可复用操作路径。
+- **复现条件**: 在模板中心或发送中心切到 `template_card`，不参考外部文档时很难判断文本通知和图文展示分别该怎么用。
+- **解决方案**: 为模板卡片编辑器补充完整示例预设，并新增文本通知/图文展示两套系统模板示例；同时把默认结构切换成可直接复用的完整卡片。
+- **关联文件**: frontend/src/components/message-editor/TemplateCardEditor.vue, frontend/src/components/message-editor/templateCardPresets.ts, app/services/seed.py

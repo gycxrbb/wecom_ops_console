@@ -193,6 +193,18 @@
       @compress="handleCompressed"
       @upload-original="handleUploadOriginal"
     />
+
+    <!-- 粘贴上传命名弹窗 -->
+    <el-dialog v-model="pasteNameVisible" title="为粘贴的资源命名" width="420px" destroy-on-close @close="cancelPasteName">
+      <el-input v-model="pasteNameInput" placeholder="输入资源名称（不含扩展名）" @keyup.enter="confirmPasteName" autofocus />
+      <div style="margin-top:8px;font-size:12px;color:var(--text-muted);">
+        扩展名 <strong>.{{ pasteNameExt }}</strong> 会自动保留
+      </div>
+      <template #footer>
+        <el-button @click="cancelPasteName">取消</el-button>
+        <el-button type="primary" @click="confirmPasteName">确认上传</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -541,8 +553,14 @@ const handleFolderDialogConfirm = async (name: string) => {
 }
 
 // ---- 粘贴上传 ----
+// --- 粘贴命名 ---
+const pasteNameVisible = ref(false)
+const pasteNameInput = ref('')
+const pasteNameExt = ref('png')
+let pendingPasteFiles: { file: File; ext: string }[] = []
+let pendingPasteFolderId: number | null = null
+
 const handlePaste = async (event: ClipboardEvent) => {
-  // 如果焦点在输入框/文本域中，不拦截粘贴
   const tag = (event.target as HTMLElement)?.tagName
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
 
@@ -557,27 +575,58 @@ const handlePaste = async (event: ClipboardEvent) => {
     folderId = Number(activeFolderId.value)
   }
 
+  // 收集文件，提取首个文件扩展名用于提示
+  const items: { file: File; ext: string }[] = []
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i]
+    const ext = f.type?.split('/')[1] || f.name?.split('.').pop() || 'png'
+    items.push({ file: f, ext })
+  }
+
+  if (items.length === 0) return
+
+  pendingPasteFiles = items
+  pendingPasteFolderId = folderId
+  pasteNameExt.value = items.length === 1 ? items[0].ext : '...'
+  // 默认名称：去掉扩展名的原名，或者空
+  const baseName = items[0].file.name?.replace(/\.[^.]+$/, '') || ''
+  pasteNameInput.value = baseName === 'image' || baseName === 'clipboard' ? '' : baseName
+  pasteNameVisible.value = true
+}
+
+const confirmPasteName = async () => {
+  const name = pasteNameInput.value.trim()
+  if (!name) {
+    ElMessage.warning('请输入资源名称')
+    return
+  }
+  pasteNameVisible.value = false
+
   uploading.value = true
-  uploadProgress.value = { done: 0, total: files.length }
+  uploadProgress.value = { done: 0, total: pendingPasteFiles.length }
   try {
-    for (let i = 0; i < files.length; i++) {
-      let file = files[i]
-      // 截图等无文件名的情况，生成一个带时间戳的文件名
-      if (!file.name || file.name === 'image.png') {
-        const ext = file.type?.split('/')[1] || 'png'
-        const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-        file = new File([file], `粘贴上传_${ts}.${ext}`, { type: file.type || 'image/png' })
-      }
-      await uploadAsset(file, folderId, true)
-      uploadProgress.value = { done: i + 1, total: files.length }
+    for (let i = 0; i < pendingPasteFiles.length; i++) {
+      const { file, ext } = pendingPasteFiles[i]
+      const finalName = pendingPasteFiles.length === 1
+        ? `${name}.${ext}`
+        : `${name}_${i + 1}.${ext}`
+      const renamed = new File([file], finalName, { type: file.type || 'image/png' })
+      await uploadAsset(renamed, pendingPasteFolderId, true)
+      uploadProgress.value = { done: i + 1, total: pendingPasteFiles.length }
     }
     await Promise.all([refreshCurrentAssets(), fetchFolders()])
-    ElMessage.success(`已通过粘贴上传 ${files.length} 个文件`)
+    ElMessage.success(`已上传 ${pendingPasteFiles.length} 个文件`)
   } catch {
     ElMessage.error('粘贴上传失败')
   } finally {
     uploading.value = false
+    pendingPasteFiles = []
   }
+}
+
+const cancelPasteName = () => {
+  pasteNameVisible.value = false
+  pendingPasteFiles = []
 }
 
 onMounted(async () => {

@@ -27,6 +27,8 @@
           :notifyCustomText="notifyCustomText"
           :notifyAutoText="notifyAutoText"
           :notifySendStatus="notifySendStatus"
+          :manualQueue="manualQueue"
+          :isManualSending="isManualSending"
           @contentSelect="handleContentSelect"
           @clearContent="handleClearContent"
           @msgTypeChange="handleMsgTypeChange"
@@ -45,6 +47,10 @@
           @updateRemark="updateBatchItemRemark"
           @update:notifyEnabled="notifyEnabled = $event"
           @update:notifyCustomText="notifyCustomText = $event"
+          @addToQueue="addToManualQueue"
+          @removeQueueItem="removeFromManualQueue"
+          @clearQueue="clearManualQueue"
+          @sendQueue="handleSendQueue"
         />
       </el-col>
 
@@ -204,7 +210,14 @@ const {
   handlePreview,
   handleSend,
   handleTestSend,
-  handleSchedule
+  handleSchedule,
+  // 手动队列
+  manualQueue,
+  isManualSending,
+  addToManualQueue,
+  removeFromManualQueue,
+  clearManualQueue,
+  sendManualQueue
 } = useSendLogic()
 
 const handleContentUpdate = (val: Record<string, any>) => {
@@ -213,6 +226,10 @@ const handleContentUpdate = (val: Record<string, any>) => {
 
 const handleVariablesUpdate = (val: Record<string, any>) => {
   form.variables = val
+}
+
+const handleSendQueue = (testGroupOnly = false) => {
+  sendManualQueue(testGroupOnly)
 }
 
 const handleRemoveBatchItem = (index: number) => {
@@ -228,7 +245,7 @@ const handleRemoveBatchItem = (index: number) => {
 
 const tagTypeByMsgType = (msgType: string) => {
   const map: Record<string, string> = {
-    text: '', markdown: 'success', image: 'warning', emotion: 'warning', news: 'danger', file: 'info', template_card: ''
+    text: '', markdown: 'success', image: 'warning', emotion: 'warning', news: 'danger', file: 'info', voice: 'info', template_card: ''
   }
   return map[msgType] || ''
 }

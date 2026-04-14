@@ -34,6 +34,11 @@
         :model-value="contentJson"
         @update:model-value="handleVisualUpdate"
       />
+      <VoiceEditor
+        v-else-if="msgType === 'voice'"
+        :model-value="contentJson"
+        @update:model-value="handleVisualUpdate"
+      />
       <TemplateCardEditor
         v-else-if="msgType === 'template_card'"
         :model-value="contentJson"
@@ -98,6 +103,7 @@ import MarkdownEditor from './MarkdownEditor.vue'
 import NewsEditor from './NewsEditor.vue'
 import ImageEditor from './ImageEditor.vue'
 import FileEditor from './FileEditor.vue'
+import VoiceEditor from './VoiceEditor.vue'
 import TemplateCardEditor from './TemplateCardEditor.vue'
 import JsonEditor from './JsonEditor.vue'
 import VariableEditor from './VariableEditor.vue'

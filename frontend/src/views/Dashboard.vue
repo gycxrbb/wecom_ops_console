@@ -150,7 +150,7 @@ import {
 
 const MSG_TYPE_LABELS: Record<string, string> = {
   text: '文本', markdown: 'Markdown', news: '图文', image: '图片',
-  file: '文件', template_card: '卡片', raw_json: '原始JSON',
+  file: '文件', voice: '语音', template_card: '卡片', raw_json: '原始JSON',
 }
 
 const router = useRouter()

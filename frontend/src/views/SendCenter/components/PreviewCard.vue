@@ -60,6 +60,16 @@
                   </div>
                 </template>
 
+                <template v-else-if="msgType === 'voice'">
+                  <div class="file-mock">
+                    <el-icon :size="20"><Microphone /></el-icon>
+                    <div>
+                      <div class="file-mock__name">{{ renderedContent.asset_name || '语音素材' }}</div>
+                      <div class="file-mock__desc">系统会先上传 AMR 语音并以企微语音消息发送</div>
+                    </div>
+                  </div>
+                </template>
+
                 <template v-else-if="msgType === 'news'">
                   <div class="news-list">
                     <div v-for="(article, index) in articles" :key="index" class="news-item">
@@ -105,7 +115,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { Document, Loading, Monitor, UserFilled } from '@element-plus/icons-vue'
+import { Document, Loading, Microphone, Monitor, UserFilled } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 
 const props = defineProps({
@@ -230,7 +240,7 @@ const mentionSummary = computed(() => {
 const articles = computed(() => Array.isArray(renderedContent.value.articles) ? renderedContent.value.articles : [])
 const templateCard = computed<Record<string, any>>(() => renderedContent.value?.template_card || {})
 const templateCardTitle = computed(() => templateCard.value?.main_title?.title || '模板卡片预览')
-const templateCardDesc = computed(() => templateCard.value?.sub_title_text || templateCard.value?.horizontal_content_list?.[0]?.value || '模板卡片将按企微卡片样式发送到群里')
+const templateCardDesc = computed(() => templateCard.value?.sub_title_text || templateCard.value?.image_text_area?.desc || templateCard.value?.horizontal_content_list?.[0]?.value || '模板卡片将按企微卡片样式发送到群里')
 const templateCardButtonText = computed(() => templateCard.value?.jump_list?.[0]?.title || templateCard.value?.card_action?.title || '')
 </script>
 

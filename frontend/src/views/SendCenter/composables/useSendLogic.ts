@@ -2,7 +2,8 @@ import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import request from '@/utils/request'
 import { buildAssetAuthUrl } from '@/utils/assets'
 import { ElMessage } from 'element-plus'
-import { msgTypeLabel } from '@/views/Templates/composables/useTemplates'
+import { msgTypeLabel, supportsVariables } from '@/views/Templates/composables/useTemplates'
+import { createTemplateCardExample, templateCardExampleVariables } from '@/components/message-editor/templateCardPresets'
 
 // 每种消息类型的默认 content_json 结构
 const defaultContentByType: Record<string, any> = {
@@ -12,7 +13,12 @@ const defaultContentByType: Record<string, any> = {
   image: { asset_id: undefined, asset_name: '', asset_url: '', image_path: '' },
   emotion: { asset_id: undefined, asset_name: '', asset_url: '', image_path: '' },
   file: { asset_id: undefined, asset_name: '', media_id: '' },
-  template_card: { template_card: { card_type: 'text_notice', main_title: { title: '' } } },
+  voice: { asset_id: undefined, asset_name: '', media_id: '' },
+  template_card: createTemplateCardExample('text_notice'),
+}
+
+const defaultVariablesByType: Record<string, any> = {
+  template_card: { ...templateCardExampleVariables.text_notice },
 }
 
 export type BatchQueueItem = {
@@ -276,6 +282,7 @@ export function useSendLogic() {
   const handleMsgTypeChange = (type: string) => {
     form.msg_type = type
     form.contentJson = { ...(defaultContentByType[type] || {}) }
+    form.variables = supportsVariables(type) ? { ...(defaultVariablesByType[type] || {}) } : {}
   }
 
   const handleContentSelect = (data: { source: string; id: number; label: string; msg_type: string; contentJson: any; variablesJson: any }) => {
@@ -316,7 +323,7 @@ export function useSendLogic() {
           asset_url: buildAssetAuthUrl(form.contentJson?.asset_url || '')
         }
       }
-      if (form.msg_type === 'file') {
+      if (form.msg_type === 'file' || form.msg_type === 'voice') {
         nextPreview.rendered_content = {
           ...(nextPreview.rendered_content || {}),
           asset_name: form.contentJson?.asset_name || ''
@@ -339,6 +346,7 @@ export function useSendLogic() {
     if (form.msg_type === 'text' || form.msg_type === 'markdown') return !!(c.content || '').trim()
     if (form.msg_type === 'image' || form.msg_type === 'emotion') return !!c.asset_id
     if (form.msg_type === 'file') return !!c.asset_id
+    if (form.msg_type === 'voice') return !!c.asset_id
     if (form.msg_type === 'news') return Array.isArray(c.articles) && c.articles.length > 0
     if (form.msg_type === 'template_card') return !!c.template_card
     return JSON.stringify(c) !== '{}'
@@ -462,6 +470,102 @@ export function useSendLogic() {
       ElMessage.error('创建定时任务失败: ' + String(e))
     } finally {
       isScheduling.value = false
+    }
+  }
+
+  // ---- 手动队列发送（纯手写模式下添加多条消息到队列）----
+  const manualQueue = ref<BatchQueueItem[]>([])
+  const isManualSending = ref(false)
+
+  const extractContentTitle = (msgType: string, contentJson: any): string => {
+    if (msgType === 'text' || msgType === 'markdown') {
+      const content = contentJson.content || ''
+      return content.substring(0, 40).replace(/\n/g, ' ') || '未命名消息'
+    }
+    if (msgType === 'news') {
+      const articles = contentJson.articles || []
+      return articles.length > 0 ? (articles[0].title || '图文消息') : '图文消息'
+    }
+    if (msgType === 'image' || msgType === 'emotion') return contentJson.asset_name || '图片消息'
+    if (msgType === 'file') return contentJson.asset_name || '文件消息'
+    if (msgType === 'template_card') return contentJson.template_card?.main_title?.title || '模板卡片'
+    return `${msgTypeLabel(msgType)}消息`
+  }
+
+  const addToManualQueue = () => {
+    if (!hasContent.value) {
+      ElMessage.warning('请先填写消息内容')
+      return
+    }
+    const item: BatchQueueItem = {
+      id: Date.now(),
+      title: extractContentTitle(form.msg_type, form.contentJson),
+      msg_type: form.msg_type,
+      contentJson: JSON.parse(JSON.stringify(form.contentJson)),
+      variablesJson: JSON.parse(JSON.stringify(form.variables)),
+      status: 'pending',
+    }
+    manualQueue.value.push(item)
+    form.contentJson = { ...(defaultContentByType[form.msg_type] || {}) }
+    form.variables = {}
+    ElMessage.success('已添加到发送队列')
+  }
+
+  const removeFromManualQueue = (index: number) => {
+    manualQueue.value.splice(index, 1)
+  }
+
+  const clearManualQueue = () => {
+    manualQueue.value = []
+  }
+
+  const sendManualQueue = async (testGroupOnly = false) => {
+    if (form.groups.length === 0) {
+      return ElMessage.warning('请至少选择一个群组')
+    }
+    if (manualQueue.value.length === 0) return
+
+    isManualSending.value = true
+    for (const item of manualQueue.value) {
+      item.status = 'pending'
+      item.error = undefined
+    }
+
+    for (const item of manualQueue.value) {
+      item.status = 'sending'
+      try {
+        const res = await request.post('/v1/send', {
+          group_ids: form.groups,
+          msg_type: item.msg_type,
+          content_json: item.contentJson,
+          variables_json: item.variablesJson,
+          test_group_only: testGroupOnly
+        })
+        const failed = Array.isArray(res?.results) ? res.results.filter((r: any) => r?.success === false) : []
+        if (failed.length > 0) {
+          item.status = 'failed'
+          item.error = failed.map((r: any) => r.response || r.error_message || '未知错误').join('; ')
+        } else {
+          item.status = 'success'
+        }
+      } catch (e: any) {
+        item.status = 'failed'
+        item.error = String(e)
+      }
+    }
+
+    isManualSending.value = false
+
+    const success = manualQueue.value.filter(i => i.status === 'success').length
+    const failed = manualQueue.value.filter(i => i.status === 'failed').length
+    const total = manualQueue.value.length
+
+    if (failed === 0) {
+      ElMessage.success(`队列发送完成：${total} 条全部成功`)
+    } else if (success === 0) {
+      ElMessage.error(`队列发送失败：全部 ${total} 条发送失败`)
+    } else {
+      ElMessage.warning(`队列发送完成：${success} 成功，${failed} 失败`)
     }
   }
 
@@ -701,6 +805,13 @@ export function useSendLogic() {
     handleSend,
     handleTestSend,
     handleSchedule,
+    // 手动队列
+    manualQueue,
+    isManualSending,
+    addToManualQueue,
+    removeFromManualQueue,
+    clearManualQueue,
+    sendManualQueue,
     // 草稿管理
     clearSendCenterDraft
   }
