@@ -45,9 +45,72 @@
           </div>
         </div>
 
+        <!-- 搜索栏 -->
+        <div class="crm-search-bar">
+          <el-input
+            v-model="searchQuery"
+            placeholder="搜索群名称或用户名称"
+            clearable
+            :prefix-icon="Search"
+            @input="handleSearchInput"
+            @clear="clearSearch"
+          />
+          <div v-if="searchMode" class="crm-search-hint">
+            <span v-if="searchMode === 'user'">
+              正在搜索用户"<strong>{{ searchQuery }}</strong>"
+              <span v-if="searchTotal > 0">，找到 {{ searchTotal }} 条结果</span>
+            </span>
+            <el-button v-if="searchMode === 'group'" link type="primary" size="small" @click="switchToUserSearch">
+              改为搜索用户
+            </el-button>
+          </div>
+        </div>
+
+        <!-- ===== 搜索结果：用户模式 ===== -->
+        <template v-if="searchMode === 'user'">
+          <div v-if="isMobile" v-loading="searchLoading" class="m-card-list">
+            <div v-for="u in searchResults" :key="u.id" class="m-card m-card--user">
+              <div class="m-card__row">
+                <strong class="m-card__title">{{ u.name }}</strong>
+                <span class="m-card__points">{{ u.total_points }} 分</span>
+              </div>
+              <div class="m-card__meta">
+                <span v-if="u.group_names">{{ u.group_names }}</span>
+                <span>当前积分 {{ u.points }}</span>
+              </div>
+            </div>
+            <el-empty v-if="!searchLoading && !searchResults.length" :image-size="48" description="未找到匹配用户" />
+          </div>
+          <el-table v-else :data="searchResults" v-loading="searchLoading" style="width: 100%">
+            <el-table-column prop="name" label="姓名" min-width="100" />
+            <el-table-column prop="group_names" label="所属群组" min-width="180" show-overflow-tooltip>
+              <template #default="{ row }">
+                <span class="group-tag">{{ row.group_names || '-' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="当前积分" width="110" align="right">
+              <template #default="{ row }">{{ row.points }}</template>
+            </el-table-column>
+            <el-table-column label="累计积分" width="110" align="right">
+              <template #default="{ row }"><strong>{{ row.total_points }}</strong></template>
+            </el-table-column>
+          </el-table>
+          <div v-if="searchTotal > searchPageSize" class="crm-pagination">
+            <el-pagination
+              v-model:current-page="searchPage"
+              :page-size="searchPageSize"
+              :total="searchTotal"
+              layout="total, prev, pager, next"
+              @current-change="fetchUserSearch"
+            />
+          </div>
+        </template>
+
+        <!-- ===== 正常群列表 / 群名过滤 ===== -->
+        <template v-else>
         <!-- 移动端卡片 -->
         <div v-if="isMobile" v-loading="loading" class="m-card-list">
-          <div v-for="g in groups" :key="g.id" class="m-card" @click="openMembers(g)">
+          <div v-for="g in filteredGroups" :key="g.id" class="m-card" @click="openMembers(g)">
             <div class="m-card__row">
               <strong class="m-card__title">{{ g.name }}</strong>
               <el-tag size="small">{{ g.member_count }} 人</el-tag>
@@ -57,11 +120,11 @@
               <span>人均 {{ g.avg_points }}</span>
             </div>
           </div>
-          <el-empty v-if="!loading && !groups.length" :image-size="48" description="暂无外部群数据" />
+          <el-empty v-if="!loading && !filteredGroups.length" :image-size="48" :description="searchQuery ? '未找到匹配群组' : '暂无外部群数据'" />
         </div>
 
         <!-- 桌面端表格 -->
-        <el-table v-else :data="groups" style="width: 100%" v-loading="loading" @row-click="openMembers" highlight-current-row cursor="pointer">
+        <el-table v-else :data="filteredGroups" style="width: 100%" v-loading="loading" @row-click="openMembers" highlight-current-row cursor="pointer">
           <el-table-column prop="name" label="群名称" min-width="140" />
           <el-table-column prop="member_count" label="成员数" width="100" align="center">
             <template #default="{ row }">
@@ -78,6 +141,7 @@
             <template #default="{ row }">{{ row.avg_points }}</template>
           </el-table-column>
         </el-table>
+        </template>
       </div>
     </Transition>
 
@@ -106,7 +170,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { RefreshRight } from '@element-plus/icons-vue'
+import { RefreshRight, Search } from '@element-plus/icons-vue'
 import request from '@/utils/request'
 import { useMobile } from '@/composables/useMobile'
 import CrmLeaderboard from './CrmLeaderboard.vue'
@@ -126,13 +190,83 @@ const leaderboardVisible = ref(false)
 
 const memberCache = new Map<number, any[]>()
 
-const memberPointsSum = computed(() => members.value.reduce((s, m) => s + m.points, 0))
-const memberTotalSum = computed(() => members.value.reduce((s, m) => s + m.total_points, 0))
+// --- 搜索 ---
+const searchQuery = ref('')
+const searchMode = ref<'group' | 'user' | null>(null)
+const searchResults = ref<any[]>([])
+const searchLoading = ref(false)
+const searchPage = ref(1)
+const searchPageSize = 20
+const searchTotal = ref(0)
+let searchTimer: ReturnType<typeof setTimeout> | null = null
+
+const filteredGroups = computed(() => {
+  if (!searchQuery.value || searchMode.value === 'user') return groups.value
+  const q = searchQuery.value.toLowerCase()
+  return groups.value.filter(g => g.name.toLowerCase().includes(q))
+})
 
 const formatPoints = (v: number) => {
   if (v >= 10000) return (v / 10000).toFixed(1) + '万'
   return String(v)
 }
+
+const handleSearchInput = () => {
+  if (searchTimer) clearTimeout(searchTimer)
+  const q = searchQuery.value.trim()
+
+  if (!q) {
+    searchMode.value = null
+    searchResults.value = []
+    return
+  }
+
+  // 先尝试群名本地过滤
+  const localMatch = groups.value.filter(g => g.name.toLowerCase().includes(q.toLowerCase()))
+
+  if (localMatch.length > 0) {
+    searchMode.value = 'group'
+    return
+  }
+
+  // 群名无匹配，自动切到用户搜索
+  searchMode.value = 'user'
+  searchPage.value = 1
+  searchTimer = setTimeout(() => fetchUserSearch(), 300)
+}
+
+const switchToUserSearch = () => {
+  searchMode.value = 'user'
+  searchPage.value = 1
+  fetchUserSearch()
+}
+
+const fetchUserSearch = async () => {
+  const q = searchQuery.value.trim()
+  if (!q) return
+  searchLoading.value = true
+  try {
+    const res: any = await request.get('/v1/crm-groups/search/customers', {
+      params: { q, page: searchPage.value, page_size: searchPageSize }
+    })
+    searchResults.value = res.list || []
+    const p = res.pagination
+    if (p) searchTotal.value = p.total
+  } catch {
+    searchResults.value = []
+  } finally {
+    searchLoading.value = false
+  }
+}
+
+const clearSearch = () => {
+  searchQuery.value = ''
+  searchMode.value = null
+  searchResults.value = []
+}
+
+const memberPointsSum = computed(() => members.value.reduce((s, m) => s + m.points, 0))
+const memberTotalSum = computed(() => members.value.reduce((s, m) => s + m.total_points, 0))
 
 const fetchGroups = async () => {
   loading.value = true
@@ -288,6 +422,37 @@ onMounted(() => {
 .lb-trigger-btn svg {
   width: 16px;
   height: 16px;
+}
+
+/* 搜索栏 */
+.crm-search-bar {
+  margin-bottom: 16px;
+  position: relative;
+}
+.crm-search-bar :deep(.el-input__wrapper) {
+  border-radius: 10px;
+}
+.crm-search-hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.crm-search-hint strong {
+  color: var(--primary-color);
+}
+.group-tag {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.m-card--user { cursor: default; }
+
+.crm-pagination {
+  display: flex;
+  justify-content: center;
+  margin-top: 16px;
 }
 
 .m-card-list { display: flex; flex-direction: column; gap: 10px; }

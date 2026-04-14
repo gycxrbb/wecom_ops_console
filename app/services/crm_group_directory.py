@@ -390,3 +390,66 @@ def fetch_crm_group_stats() -> dict[str, Any]:
     finally:
         if conn:
             conn.close()
+
+
+def search_crm_customers(query: str, page: int = 1, page_size: int = 20) -> dict[str, Any]:
+    """按用户名模糊搜索客户，返回匹配的用户及其所属群组"""
+    if not crm_group_enabled():
+        return {'available': False, 'list': [], 'pagination': {'page': page, 'page_size': page_size, 'total': 0}}
+
+    if not query or not query.strip():
+        return {'available': True, 'list': [], 'pagination': {'page': page, 'page_size': page_size, 'total': 0}}
+
+    pattern = f'%{query.strip()}%'
+    cache_key = f'crm_search_{query.strip()}_{page}_{page_size}'
+    cached = _get_cached(cache_key)
+    if cached is not None:
+        return cached
+
+    conn = None
+    try:
+        conn = _get_connection()
+        with conn.cursor() as cur:
+            cur.execute(
+                'SELECT COUNT(*) AS cnt FROM customers c WHERE c.name LIKE %s',
+                (pattern,)
+            )
+            total = int(cur.fetchone()['cnt'])
+
+            offset = (page - 1) * page_size
+            cur.execute('''
+                SELECT c.id, c.name, c.points, c.total_points,
+                       GROUP_CONCAT(g.name SEPARATOR '、') AS group_names
+                FROM customers c
+                LEFT JOIN customer_groups cg ON cg.customer_id = c.id
+                LEFT JOIN `groups` g ON g.id = cg.group_id
+                WHERE c.name LIKE %s
+                GROUP BY c.id, c.name, c.points, c.total_points
+                ORDER BY c.total_points DESC
+                LIMIT %s OFFSET %s
+            ''', (pattern, page_size, offset))
+            rows = cur.fetchall()
+
+        items = [{
+            'id': r['id'],
+            'name': r['name'],
+            'points': float(r.get('points', 0) or 0),
+            'total_points': float(r.get('total_points', 0) or 0),
+            'group_names': r.get('group_names') or '',
+        } for r in rows]
+
+        result = {
+            'available': True,
+            'list': items,
+            'pagination': {'page': page, 'page_size': page_size, 'total': total},
+        }
+        _set_cached(cache_key, result)
+        return result
+    except CrmAdminAuthUnavailable:
+        return {'available': False, 'list': [], 'pagination': {'page': page, 'page_size': page_size, 'total': 0}}
+    except Exception as exc:
+        _log.warning('CRM 用户搜索失败: %s', exc)
+        return {'available': False, 'list': [], 'pagination': {'page': page, 'page_size': page_size, 'total': 0}}
+    finally:
+        if conn:
+            conn.close()

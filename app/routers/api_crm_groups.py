@@ -52,6 +52,18 @@ def get_crm_group_stats(request: Request, db: Session = Depends(get_db)):
     return crm_group_directory.fetch_crm_group_stats()
 
 
+@router.get('/search/customers')
+def search_customers(
+    request: Request,
+    q: str = Query(..., min_length=1),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    get_current_user(request, db)
+    return crm_group_directory.search_crm_customers(q, page, page_size)
+
+
 @router.get('/{group_id}/members')
 def get_crm_group_members(group_id: int, request: Request, db: Session = Depends(get_db)):
     get_current_user(request, db)
