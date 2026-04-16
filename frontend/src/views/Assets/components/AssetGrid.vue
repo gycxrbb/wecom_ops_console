@@ -458,15 +458,13 @@ const isUnavailable = (item: Asset) => ['source_missing', 'deleted'].includes(it
 .image-actions {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  flex-wrap: wrap;
   margin-top: 8px;
-  gap: 0;
+  gap: 2px 0;
 }
 .image-actions .el-button {
   font-size: 12px;
-  padding: 4px 2px;
-  flex: 1;
-  justify-content: center;
+  padding: 4px 6px;
 }
 .image-name {
   font-size: 13px;
