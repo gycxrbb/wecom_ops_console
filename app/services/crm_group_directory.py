@@ -83,6 +83,9 @@ def _ensure_indexes(conn) -> None:
         'customers': [
             ('ix_customers_total_points', 'total_points'),
         ],
+        'point_logs': [
+            ('ix_pl_customer_created', 'customer_id, created_at'),
+        ],
     }
 
     with conn.cursor() as cur:
@@ -118,6 +121,40 @@ def _ensure_indexes(conn) -> None:
     _log.info('CRM 索引检查完成')
 
 
+def _enrich_with_period_points(
+    result: dict[str, Any],
+    group_ids: list[int] | None = None,
+    customer_ids: list[int] | None = None,
+) -> None:
+    """为结果注入 week_points / month_points 指标（就地修改 result）。"""
+    try:
+        from .crm_points_metrics import (
+            get_week_range, get_month_range,
+            fetch_customer_period_points, fetch_group_period_points,
+        )
+    except Exception as exc:
+        _log.warning('积分指标模块导入失败，跳过周期积分: %s', exc)
+        return
+
+    try:
+        week_start, week_end = get_week_range()
+        month_start, month_end = get_month_range()
+
+        if group_ids:
+            week_grp = fetch_group_period_points(group_ids, week_start, week_end)
+            month_grp = fetch_group_period_points(group_ids, month_start, month_end)
+            result['_week_group_points'] = week_grp
+            result['_month_group_points'] = month_grp
+
+        if customer_ids:
+            week_cust = fetch_customer_period_points(customer_ids, week_start, week_end)
+            month_cust = fetch_customer_period_points(customer_ids, month_start, month_end)
+            result['_week_customer_points'] = week_cust
+            result['_month_customer_points'] = month_cust
+    except Exception as exc:
+        _log.warning('积分周期指标查询失败，跳过: %s', exc)
+
+
 def fetch_crm_groups() -> dict[str, Any]:
     """返回所有外部群列表 + 成员数 + 积分汇总"""
     if not crm_group_enabled():
@@ -145,6 +182,12 @@ def fetch_crm_groups() -> dict[str, Any]:
             ''')
             rows = cur.fetchall()
 
+        group_ids = [r['id'] for r in rows]
+        enrich = {}
+        _enrich_with_period_points(enrich, group_ids=group_ids)
+        week_grp = enrich.get('_week_group_points', {})
+        month_grp = enrich.get('_month_group_points', {})
+
         groups = []
         for r in rows:
             mc = int(r.get('member_count', 0) or 0)
@@ -152,10 +195,13 @@ def fetch_crm_groups() -> dict[str, Any]:
             tps = float(r.get('total_points_sum', 0) or 0)
             groups.append({
                 'id': r['id'],
-                'name': r['name'],
+                'name': r['name'] or f'未命名群组#{r["id"]}',
                 'member_count': mc,
                 'points_sum': ps,
                 'total_points_sum': tps,
+                'current_points_sum': tps,
+                'week_points_sum': week_grp.get(r['id'], 0.0),
+                'month_points_sum': month_grp.get(r['id'], 0.0),
                 'avg_points': round(ps / mc, 1) if mc > 0 else 0,
             })
         result = {'available': True, 'groups': groups}
@@ -172,7 +218,7 @@ def fetch_crm_groups() -> dict[str, Any]:
 
 
 def fetch_crm_group_members(group_id: int) -> dict[str, Any]:
-    """返回指定外部群的成员列表（姓名、当前积分、累计积分）"""
+    """返回指定外部群的成员列表（姓名、当前积分、累计积分、周/月积分）"""
     if not crm_group_enabled():
         return {'available': False, 'members': []}
 
@@ -201,17 +247,26 @@ def fetch_crm_group_members(group_id: int) -> dict[str, Any]:
             ''', (group_id,))
             rows = cur.fetchall()
 
+        customer_ids = [r['id'] for r in rows]
+        enrich = {}
+        _enrich_with_period_points(enrich, customer_ids=customer_ids)
+        week_cust = enrich.get('_week_customer_points', {})
+        month_cust = enrich.get('_month_customer_points', {})
+
         members = [{
             'id': r['id'],
-            'name': r['name'],
+            'name': r['name'] or f'未命名成员#{r["id"]}',
             'points': float(r.get('points', 0) or 0),
             'total_points': float(r.get('total_points', 0) or 0),
+            'current_points': float(r.get('total_points', 0) or 0),
+            'week_points': week_cust.get(r['id'], 0.0),
+            'month_points': month_cust.get(r['id'], 0.0),
         } for r in rows]
 
         result = {
             'available': True,
             'group_id': group_id,
-            'group_name': grp['name'],
+            'group_name': grp['name'] or f'未命名群组#{group_id}',
             'members': members,
         }
         _set_cached(cache_key, result)
@@ -259,13 +314,23 @@ def fetch_crm_individual_leaderboard(
             ''', (page_size, offset))
             rows = cur.fetchall()
 
+        customer_ids = [r['id'] for r in rows]
+        enrich = {}
+        _enrich_with_period_points(enrich, customer_ids=customer_ids)
+        week_cust = enrich.get('_week_customer_points', {})
+        month_cust = enrich.get('_month_customer_points', {})
+
         items = []
         for idx, r in enumerate(rows):
+            tp = float(r.get('total_points', 0) or 0)
             items.append({
                 'id': r['id'],
-                'name': r['name'],
+                'name': r['name'] or f'未命名成员#{r["id"]}',
                 'points': float(r.get('points', 0) or 0),
-                'total_points': float(r.get('total_points', 0) or 0),
+                'total_points': tp,
+                'current_points': tp,
+                'week_points': week_cust.get(r['id'], 0.0),
+                'month_points': month_cust.get(r['id'], 0.0),
                 'group_names': r.get('group_names') or '',
                 'rank': offset + idx + 1,
             })
@@ -322,6 +387,12 @@ def fetch_crm_group_leaderboard(
             ''', (page_size, offset))
             rows = cur.fetchall()
 
+        group_ids = [r['id'] for r in rows]
+        enrich = {}
+        _enrich_with_period_points(enrich, group_ids=group_ids)
+        week_grp = enrich.get('_week_group_points', {})
+        month_grp = enrich.get('_month_group_points', {})
+
         items = []
         for idx, r in enumerate(rows):
             mc = int(r.get('member_count', 0) or 0)
@@ -329,10 +400,13 @@ def fetch_crm_group_leaderboard(
             tps = float(r.get('total_points_sum', 0) or 0)
             items.append({
                 'id': r['id'],
-                'name': r['name'],
+                'name': r['name'] or f'未命名群组#{r["id"]}',
                 'member_count': mc,
                 'points_sum': ps,
                 'total_points_sum': tps,
+                'current_points_sum': tps,
+                'week_points_sum': week_grp.get(r['id'], 0.0),
+                'month_points_sum': month_grp.get(r['id'], 0.0),
                 'avg_points': round(ps / mc, 1) if mc > 0 else 0,
                 'rank': offset + idx + 1,
             })
@@ -355,7 +429,7 @@ def fetch_crm_group_leaderboard(
 
 
 def fetch_crm_group_stats() -> dict[str, Any]:
-    """全局统计：总群数、总客户数、总积分"""
+    """全局统计：总群数、总客户数、总积分、周/月总积分"""
     if not crm_group_enabled():
         return {'available': False, 'total_groups': 0, 'total_customers': 0, 'total_points': 0}
 
@@ -374,11 +448,32 @@ def fetch_crm_group_stats() -> dict[str, Any]:
             cur.execute('SELECT COALESCE(SUM(total_points), 0) AS s FROM customers')
             total_pts = float(cur.fetchone()['s'])
 
+        # 查询全局周/月积分（所有客户）
+        total_week = 0.0
+        total_month = 0.0
+        try:
+            from .crm_points_metrics import get_week_range, get_month_range, fetch_customer_period_points
+            week_start, week_end = get_week_range()
+            month_start, month_end = get_month_range()
+            # 获取所有客户 ID
+            with conn.cursor() as cur:
+                cur.execute('SELECT id FROM customers')
+                all_ids = [r['id'] for r in cur.fetchall()]
+            if all_ids:
+                week_map = fetch_customer_period_points(all_ids, week_start, week_end)
+                month_map = fetch_customer_period_points(all_ids, month_start, month_end)
+                total_week = sum(week_map.values())
+                total_month = sum(month_map.values())
+        except Exception as exc:
+            _log.warning('CRM 全局周期积分查询失败，跳过: %s', exc)
+
         result = {
             'available': True,
             'total_groups': grp_count,
             'total_customers': cust_count,
             'total_points': total_pts,
+            'total_week_points': round(total_week, 2),
+            'total_month_points': round(total_month, 2),
         }
         _set_cached('crm_stats', result)
         return result
@@ -430,11 +525,20 @@ def search_crm_customers(query: str, page: int = 1, page_size: int = 20) -> dict
             ''', (pattern, page_size, offset))
             rows = cur.fetchall()
 
+        customer_ids = [r['id'] for r in rows]
+        enrich = {}
+        _enrich_with_period_points(enrich, customer_ids=customer_ids)
+        week_cust = enrich.get('_week_customer_points', {})
+        month_cust = enrich.get('_month_customer_points', {})
+
         items = [{
             'id': r['id'],
-            'name': r['name'],
+            'name': r['name'] or f'未命名成员#{r["id"]}',
             'points': float(r.get('points', 0) or 0),
             'total_points': float(r.get('total_points', 0) or 0),
+            'current_points': float(r.get('total_points', 0) or 0),
+            'week_points': week_cust.get(r['id'], 0.0),
+            'month_points': month_cust.get(r['id'], 0.0),
             'group_names': r.get('group_names') or '',
         } for r in rows]
 

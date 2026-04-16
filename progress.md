@@ -1,72 +1,16 @@
 # Progress
 
-## 2026-03-31
-
-- 已对照代码和文档完成一轮项目现状梳理。
-- 已补充 `README.md` 与 `docs/` 下多份文档，区分当前实现态与规划态。
-- 已进入多线程总控模式，准备并行推进：
-  - 后端模型真值盘点
-  - API / 前端契约盘点
-  - 调度链路盘点
-- 主线程已补读 `app/tasks.py` 与 `app/route_helper.py`，用于后续收口统一响应和发送执行链路。
-- 子线程盘点已收口，主控判断第一批执行改动写集如下：
-  - 后端线程：`app/models.py`、`app/routers/api.py`、`app/services/scheduler_service.py`、`app/services/seed.py`、`app/tasks.py`
-  - 前端线程：`frontend/src/views/SendCenter/composables/useSendLogic.ts`、`frontend/src/stores/user.ts`、`frontend/src/views/Dashboard.vue`、必要时 `frontend/src/utils/request.ts`
-- 已启动两条执行线程：
-  - 后端收口线程：统一模型、路由、调度、种子、任务执行真值
-  - 前端收口线程：最小契约修正，不触碰后端
-- 已发出后端收口执行线程，正在统一模型、调度和日志真值。
-- 主线程已确认前端发送中心和用户 store 当前已基本对齐预期，并额外将看板数据源切到 `/v1/dashboard/summary`，进一步拆分当前用户入口与看板入口职责。
-- 后端第一批最小收口已完成：统一 `Schedule` / `MessageLog` 的路由消费口径，修复 `scheduler_service.py` 旧模型引用，修复 seed 默认变量字段与素材下载字段，并让 `api.py` 围绕当前前端口径稳定工作。
-- 后端启动验证已通过：使用 `uvicorn app.main:app --host 127.0.0.1 --port 8001` 的受控启动探针，日志显示 `Application startup complete` 且 `Uvicorn running on http://127.0.0.1:8001`。
-- 已完成后端模型盘点首轮读取，确认任务模型与日志模型存在高严重度字段漂移，足以影响定时任务、日志重试和序列化。
-- 主控补充验收完成：
-  - 前端 `npm run build` 通过，`vue-tsc -b && vite build` 成功
-  - 前端 `npm run dev` 进程探针在 10 秒窗口内保持存活，未出现秒退型失败
-- 第二轮主线已完成：
-  - `Schedule` 正式列已写入 ORM，并通过 `app/schema_migrations.py` 在启动时执行幂等迁移/回填
-  - 第二轮首次启动因 MySQL 的 `TEXT DEFAULT` 限制失败，修正迁移 SQL 后再次启动通过
-  - 通过 SQLAlchemy 对 live 数据库验收，`schedules` 表已存在正式新列
-  - 前端 `npm run build` 再次通过，说明后端第二轮迁移没有破坏前端编译链路
-- 已补完发送中心“发送到测试群”链路：
-  - 前端新增测试群发送按钮，并显式传递 `test_group_only`
-  - 后端测试发送改为同步直发，避免本地未启动 Celery / Redis 时按钮无实际结果
-  - 队列不可用时，普通立即发送也会回退到直发
-- 已确认当前数据库里的默认群数据存在两类真实风险：占位 webhook、测试群类型漂移；本轮已将占位值识别为未配置、启动时清洗旧占位值，并在没有 `group_type=test` 时对默认测试群做回正与查询兜底
-- 已修复图文预览 500：
-  - 根因是模板引擎对所有字符串无差别执行 Jinja 编译
-  - 现已改为仅对看起来像模板的字符串执行渲染
-  - 遇到非法模板语法时降级为原文，避免 `/preview` 直接抛 `TemplateSyntaxError`
-- 已修复图文发送 40039：
-  - 根因是图文 `url` / `picurl` 被允许使用相对素材地址或非公网链接
-  - 后端现在会在预览和发送前统一校验公网 `http(s)` 地址
-  - 前端图文编辑器已移除会误导用户的本地上传/素材库封面入口，并补充公网图片地址提示
-
-## 2026-04-01
-
-- 已启动新一轮多线程发送链路盘点，范围聚焦：
-  - 后端六类消息发送能力
-  - 前端模板/编辑器配置能力
-  - 预览、发送、日志、重试、定时任务复用的全流程闭环
-- 当前批次已完成第一组高价值修复：
-  - 群管理页切回当前后端字段 `is_enabled` / `is_test_group`，避免测试群标记和启用状态保存漂移
-  - 发送记录页切回当前日志字段 `success` / `request_json` / `response_json`
-  - 图片/文件消息编辑器已接入素材库，改为围绕 `asset_id` 工作，不再要求用户手填服务器路径或 `media_id`
-- 当前批次验证结果：
-  - 后端启动探针通过
-  - 前端 `npm run build` 通过
-  - 前端 `npm run dev` 探针通过，Vite 正常启动在 `http://127.0.0.1:5174/`
-- 已完成六类消息 focused validation：
-  - `text / markdown / news / image / file / template_card` 在本地“渲染 -> 校验 -> payload 构造”链路上均通过
-  - `image / file` 已使用真实素材库数据完成链路验证
-- 已补齐异步发送与日志重试旁路防护：
-  - Celery 发送任务现在会识别占位 webhook
-  - Celery 与日志重试都会复用图文 outbound 校验
-  - 发送主入口、重试入口、异步队列入口的错误口径已更一致
-- 已完成一轮真实接口 smoke：
-  - 登录接口通过
-  - 六类消息预览接口全部通过
-  - `text / markdown / image / file` 已真实发送到测试群，其中 `image / file` 已确认企业微信返回 `errcode: 0`
-- 已修复图片发送的运行级 blocker：
-  - 根因是图片 payload 的完整 base64 被直接写入 `request_payload`
-  - 当前改为写入压缩存储版本，避免 MySQL 在日志落库阶段先失败
+## 2026-04-16
+- 已读取 `docs/CRM/mfgcrmdb_database_explanation.md` 和 `docs/CRM/mfgcrmdb_schema_knowledge.json`。
+- 已确认本次主要依赖表：`customers / customer_groups / groups / point_logs`。
+- 已梳理当前代码入口：
+  - `app/services/crm_group_directory.py`
+  - `app/routers/api_crm_groups.py`
+  - `frontend/src/views/Groups/CrmLeaderboard.vue`
+  - `app/routers/api_operation_plans.py`
+  - `app/services/operation_plan_import.py`
+  - `app/services/operation_plan_export.py`
+  - `frontend/src/views/SendCenter/*`
+- 已读取积分运营参考 Excel，确认存在“话术库”和“投送阶段节点”两层结构。
+- 已完成正式方案文档：`docs/POINTS_OPERATIONS_UPGRADE_PLAN.md`。
+- 下一步：按计划进入实现阶段，优先做积分指标层、发送映射层和 `points_campaign` 最小可用版。

@@ -36,6 +36,14 @@
             <span class="crm-stat-value">{{ formatPoints(stats.total_points) }}</span>
             <span class="crm-stat-label">累计总积分</span>
           </div>
+          <div class="crm-stat-item">
+            <span class="crm-stat-value">{{ formatPoints(stats.total_week_points ?? 0) }}</span>
+            <span class="crm-stat-label">本周总积分</span>
+          </div>
+          <div class="crm-stat-item">
+            <span class="crm-stat-value">{{ formatPoints(stats.total_month_points ?? 0) }}</span>
+            <span class="crm-stat-label">本月总积分</span>
+          </div>
           <div class="crm-stats-actions">
             <el-button plain size="small" :icon="RefreshRight" @click="handleRefresh" :loading="loading">刷新</el-button>
             <button class="lb-trigger-btn" @click="leaderboardVisible = true">
@@ -72,11 +80,11 @@
             <div v-for="u in searchResults" :key="u.id" class="m-card m-card--user">
               <div class="m-card__row">
                 <strong class="m-card__title">{{ u.name }}</strong>
-                <span class="m-card__points">{{ u.total_points }} 分</span>
+                <span class="m-card__points">{{ u.current_points ?? u.total_points }} 分</span>
               </div>
               <div class="m-card__meta">
                 <span v-if="u.group_names">{{ u.group_names }}</span>
-                <span>当前积分 {{ u.points }}</span>
+                <span>本周 +{{ u.week_points ?? 0 }} / 本月 +{{ u.month_points ?? 0 }}</span>
               </div>
             </div>
             <el-empty v-if="!searchLoading && !searchResults.length" :image-size="48" description="未找到匹配用户" />
@@ -89,10 +97,13 @@
               </template>
             </el-table-column>
             <el-table-column label="当前积分" width="110" align="right">
-              <template #default="{ row }">{{ row.points }}</template>
+              <template #default="{ row }">{{ row.current_points ?? row.points }}</template>
             </el-table-column>
-            <el-table-column label="累计积分" width="110" align="right">
-              <template #default="{ row }"><strong>{{ row.total_points }}</strong></template>
+            <el-table-column label="本周积分" width="110" align="right">
+              <template #default="{ row }"><strong>{{ row.week_points ?? 0 }}</strong></template>
+            </el-table-column>
+            <el-table-column label="本月积分" width="110" align="right">
+              <template #default="{ row }">{{ row.month_points ?? 0 }}</template>
             </el-table-column>
           </el-table>
           <div v-if="searchTotal > searchPageSize" class="crm-pagination">
@@ -116,8 +127,8 @@
               <el-tag size="small">{{ g.member_count }} 人</el-tag>
             </div>
             <div class="m-card__stats">
-              <span>总积分 {{ formatPoints(g.total_points_sum) }}</span>
-              <span>人均 {{ g.avg_points }}</span>
+              <span>群总积分 {{ formatPoints(g.current_points_sum ?? g.total_points_sum) }}</span>
+              <span>本周 +{{ g.week_points_sum ?? 0 }} / 本月 +{{ g.month_points_sum ?? 0 }}</span>
             </div>
           </div>
           <el-empty v-if="!loading && !filteredGroups.length" :image-size="48" :description="searchQuery ? '未找到匹配群组' : '暂无外部群数据'" />
@@ -131,14 +142,14 @@
               <el-tag size="small">{{ row.member_count }} 人</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="当前总积分" width="130" align="right">
-            <template #default="{ row }">{{ formatPoints(row.points_sum) }}</template>
+          <el-table-column label="群总积分" width="130" align="right">
+            <template #default="{ row }">{{ formatPoints(row.current_points_sum ?? row.total_points_sum) }}</template>
           </el-table-column>
-          <el-table-column label="累计总积分" width="130" align="right">
-            <template #default="{ row }">{{ formatPoints(row.total_points_sum) }}</template>
+          <el-table-column label="本周积分" width="130" align="right">
+            <template #default="{ row }"><strong>{{ formatPoints(row.week_points_sum ?? 0) }}</strong></template>
           </el-table-column>
-          <el-table-column label="人均积分" width="110" align="right">
-            <template #default="{ row }">{{ row.avg_points }}</template>
+          <el-table-column label="本月积分" width="110" align="right">
+            <template #default="{ row }">{{ formatPoints(row.month_points_sum ?? 0) }}</template>
           </el-table-column>
         </el-table>
         </template>
@@ -149,15 +160,18 @@
     <el-dialog v-model="memberDialogVisible" :title="`${currentGroupName} — 成员列表`" width="640px" destroy-on-close>
       <el-table :data="members" v-loading="memberLoading" style="width: 100%" max-height="400">
         <el-table-column prop="name" label="姓名" min-width="100" />
-        <el-table-column prop="points" label="当前积分" width="120" align="right">
-          <template #default="{ row }">{{ row.points }}</template>
+        <el-table-column label="当前积分" width="110" align="right">
+          <template #default="{ row }">{{ row.current_points ?? row.total_points }}</template>
         </el-table-column>
-        <el-table-column prop="total_points" label="累计积分" width="120" align="right">
-          <template #default="{ row }">{{ row.total_points }}</template>
+        <el-table-column label="本周积分" width="110" align="right">
+          <template #default="{ row }"><strong>{{ row.week_points ?? 0 }}</strong></template>
+        </el-table-column>
+        <el-table-column label="本月积分" width="110" align="right">
+          <template #default="{ row }">{{ row.month_points ?? 0 }}</template>
         </el-table-column>
       </el-table>
       <div v-if="members.length" class="member-summary">
-        共 {{ members.length }} 人，当前积分合计 {{ memberPointsSum }}，累计合计 {{ memberTotalSum }}
+        共 {{ members.length }} 人，当前积分合计 {{ memberCurrentSum }}，本周合计 {{ memberWeekSum }}，本月合计 {{ memberMonthSum }}
       </div>
     </el-dialog>
 
@@ -265,8 +279,9 @@ const clearSearch = () => {
   searchResults.value = []
 }
 
-const memberPointsSum = computed(() => members.value.reduce((s, m) => s + m.points, 0))
-const memberTotalSum = computed(() => members.value.reduce((s, m) => s + m.total_points, 0))
+const memberCurrentSum = computed(() => members.value.reduce((s, m) => s + (m.current_points ?? m.total_points ?? 0), 0))
+const memberWeekSum = computed(() => members.value.reduce((s, m) => s + (m.week_points ?? 0), 0))
+const memberMonthSum = computed(() => members.value.reduce((s, m) => s + (m.month_points ?? 0), 0))
 
 const fetchGroups = async () => {
   loading.value = true

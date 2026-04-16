@@ -25,6 +25,10 @@
           <span>{{ globalStats.total_groups }} 个群组</span>
           <span class="lb-summary__sep">|</span>
           <span>累计总积分 {{ formatPoints(globalStats.total_points) }}</span>
+          <span class="lb-summary__sep">|</span>
+          <span>本周总积分 {{ formatPoints(globalStats.total_week_points ?? 0) }}</span>
+          <span class="lb-summary__sep">|</span>
+          <span>本月总积分 {{ formatPoints(globalStats.total_month_points ?? 0) }}</span>
         </div>
 
         <!-- Tab 切换 -->
@@ -54,11 +58,11 @@
                 <div class="m-card__body">
                   <div class="m-card__row">
                     <strong class="m-card__name">{{ item.name }}</strong>
-                    <span class="m-card__points">{{ item.total_points }} 分</span>
+                    <span class="m-card__points">{{ item.current_points ?? item.total_points }} 分</span>
                   </div>
                   <div class="m-card__meta">
                     <span v-if="item.group_names" class="m-card__groups">{{ item.group_names }}</span>
-                    <span>当前积分 {{ item.points }}</span>
+                    <span>本周 +{{ item.week_points ?? 0 }} / 本月 +{{ item.month_points ?? 0 }}</span>
                   </div>
                 </div>
               </div>
@@ -80,12 +84,15 @@
                 </template>
               </el-table-column>
               <el-table-column label="当前积分" width="110" align="right">
-                <template #default="{ row }">{{ row.points }}</template>
+                <template #default="{ row }">{{ row.current_points ?? row.points }}</template>
               </el-table-column>
-              <el-table-column label="累计积分" width="110" align="right">
+              <el-table-column label="本周积分" width="110" align="right">
                 <template #default="{ row }">
-                  <strong>{{ row.total_points }}</strong>
+                  <strong>{{ row.week_points ?? 0 }}</strong>
                 </template>
+              </el-table-column>
+              <el-table-column label="本月积分" width="110" align="right">
+                <template #default="{ row }">{{ row.month_points ?? 0 }}</template>
               </el-table-column>
             </el-table>
           </div>
@@ -105,8 +112,8 @@
                     <el-tag size="small">{{ item.member_count }} 人</el-tag>
                   </div>
                   <div class="m-card__meta">
-                    <span>累计 {{ formatPoints(item.total_points_sum) }}</span>
-                    <span>人均 {{ item.avg_points }}</span>
+                    <span>当前 {{ formatPoints(item.current_points_sum ?? item.total_points_sum) }}</span>
+                    <span>本周 +{{ item.week_points_sum ?? 0 }} / 本月 +{{ item.month_points_sum ?? 0 }}</span>
                   </div>
                 </div>
               </div>
@@ -128,15 +135,15 @@
                 </template>
               </el-table-column>
               <el-table-column label="当前总积分" width="130" align="right">
-                <template #default="{ row }">{{ formatPoints(row.points_sum) }}</template>
+                <template #default="{ row }">{{ formatPoints(row.current_points_sum ?? row.points_sum) }}</template>
               </el-table-column>
-              <el-table-column label="累计总积分" width="130" align="right">
+              <el-table-column label="本周积分" width="130" align="right">
                 <template #default="{ row }">
-                  <strong>{{ formatPoints(row.total_points_sum) }}</strong>
+                  <strong>{{ formatPoints(row.week_points_sum ?? 0) }}</strong>
                 </template>
               </el-table-column>
-              <el-table-column label="人均积分" width="110" align="right">
-                <template #default="{ row }">{{ row.avg_points }}</template>
+              <el-table-column label="本月积分" width="110" align="right">
+                <template #default="{ row }">{{ formatPoints(row.month_points_sum ?? 0) }}</template>
               </el-table-column>
             </el-table>
           </div>
