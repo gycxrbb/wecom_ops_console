@@ -61,6 +61,7 @@ import { View, Hide, RefreshRight } from '@element-plus/icons-vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import request from '@/utils/request'
 import { useUserStore } from '@/stores/user'
+import JSEncrypt from 'jsencrypt'
 
 const isDark = ref(localStorage.getItem('theme') === 'dark' || !localStorage.getItem('theme'))
 
@@ -128,7 +129,23 @@ const handleLogin = async () => {
   }
   loading.value = true
   try {
-    const res: any = await request.post('/v1/auth/login', { username: form.username, password: form.password })
+    // 1. 获取后端 RSA 公钥
+    const keyRes: any = await request.get('/v1/auth/public-key')
+    const publicKey = keyRes?.public_key
+
+    let finalPassword = form.password
+    if (publicKey) {
+      // 2. 使用公钥加密密码
+      const encryptor = new JSEncrypt()
+      encryptor.setPublicKey(publicKey)
+      const encrypted = encryptor.encrypt(form.password)
+      if (encrypted) {
+        finalPassword = encrypted
+      }
+    }
+
+    // 3. 提交加密后的密码
+    const res: any = await request.post('/v1/auth/login', { username: form.username, password: finalPassword })
     localStorage.setItem('access_token', res.access_token)
     localStorage.setItem('refresh_token', res.refresh_token)
     ElMessage.success('登录成功')

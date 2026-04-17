@@ -17,6 +17,7 @@ from .routers.api_schedule_tools import router as schedule_tools_router
 from .routers.api_permissions import router as permissions_router
 from .routers.api_sop import router as sop_router
 from .routers.api_crm_groups import router as crm_groups_router
+from .routers.api_crm_points import router as crm_points_router
 from .services.seed import seed_all
 from .services.scheduler_service import schedule_service
 import hashlib
@@ -92,6 +93,7 @@ app.include_router(schedule_tools_router)
 app.include_router(permissions_router)
 app.include_router(sop_router)
 app.include_router(crm_groups_router)
+app.include_router(crm_points_router)
 
 # Vue SPA 前端（必须在所有 API 路由之后 mount）
 if FRONTEND_DIR.exists():

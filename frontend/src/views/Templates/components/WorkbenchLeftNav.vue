@@ -11,8 +11,9 @@
         <el-option v-for="plan in plans" :key="plan.id" :label="plan.name" :value="plan.id" />
       </el-select>
       <div v-if="currentPlan" class="wb-left-nav__plan-meta">
+        <el-tag v-if="isCampaignMode" size="small" type="warning">积分运营</el-tag>
         <span>{{ currentPlan.stage || '未分阶段' }}</span>
-        <span>{{ currentPlan.day_count }}天 · {{ currentPlan.node_count }}个节点</span>
+        <span>{{ currentPlan.day_count }}{{ dayLabel }} · {{ currentPlan.node_count }}个节点</span>
       </div>
       <div v-if="currentPlan" class="wb-left-nav__plan-name-row">
         <template v-if="!isRenaming">
@@ -54,7 +55,7 @@
       </label>
       <div class="wb-left-nav__toolbar-right">
         <button class="wb-left-nav__action" @click="$emit('jump-pending')">回到待完善</button>
-        <button class="wb-left-nav__action wb-left-nav__action--add" @click="$emit('add-day')">+ 新增天数</button>
+        <button class="wb-left-nav__action wb-left-nav__action--add" @click="$emit('add-day')">+ 新增{{ dayLabel }}</button>
       </div>
     </div>
 
@@ -67,7 +68,7 @@
         @click="$emit('select-day', day.id)"
       >
         <div class="wb-day-item__label">
-          <strong>Day {{ day.day_number }}</strong>
+          <strong>{{ isCampaignMode ? 'Stage' : 'Day' }} {{ day.day_number }}</strong>
           <span>{{ day.title }}</span>
         </div>
         <div class="wb-day-item__progress">
@@ -82,7 +83,7 @@
           :size="14"
         ><Close /></el-icon>
       </button>
-      <el-empty v-if="!filteredDays.length" description="没有天数数据" :image-size="40" />
+      <el-empty v-if="!filteredDays.length" :description="`没有${dayLabel}数据`" :image-size="40" />
     </div>
 
     <div class="wb-left-nav__footer">
@@ -101,6 +102,7 @@ interface Plan {
   name: string
   stage?: string
   topic?: string
+  plan_mode?: string
   day_count: number
   node_count: number
 }
@@ -110,6 +112,8 @@ const props = defineProps<{
   currentPlanId: number | null
   days: PlanDay[]
   currentDayId: number | null
+  isCampaignMode: boolean
+  dayLabel: string
   completedCount: (day: PlanDay) => number
   completionPercent: (day: PlanDay) => number
 }>()

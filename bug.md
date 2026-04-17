@@ -344,3 +344,21 @@
 - **复现条件**: 在素材库或素材选择弹窗中，向“语音”目录粘贴来自本地播放器/系统剪贴板的音频文件。
 - **解决方案**: 前端在粘贴命名时增加 MIME -> 标准扩展名映射，把 `audio/mpeg` 统一规范成 `.mp3`；后端语音上传也同时按 MIME 和后缀双重识别，接受 `.mpeg` / `audio/mpeg` 并在转码前归一化为标准音频扩展名。
 - **关联文件**: frontend/src/views/Assets/index.vue, frontend/src/components/message-editor/AssetPicker.vue, app/services/audio_transcode.py, app/routers/api.py
+
+## Bug #36: 积分排行批量生成会静默跳过部分群，队列数量与勾选数量不一致但界面不解释原因
+
+- **日期**: 2026-04-17
+- **现象**: 在发送中心勾选多个外部群生成“积分推送”时，界面显示已勾选 22 个群，但真正进入发送队列的只有 21 条；用户无法直观看到是哪一个群被跳过，也不知道是无积分成员还是未绑定发送群。
+- **根因**: `PointsRankingTab.vue` 在生成后直接过滤 `item.skipped` 和未绑定项，只保留可发消息进入 `batchItems`，但没有把跳过原因回显给用户；同时后端对“无正积分成员”的群会直接返回空结果，导致数量差异被静默吞掉。
+- **复现条件**: 在发送中心的“积分排行”中勾选多个 CRM 群，其中至少一个群没有正积分成员或没有绑定本地发送群，然后点击“生成排行消息”。
+- **解决方案**: 后端积分排行预览统一保留 skipped 元数据；前端生成后展示“选中 / 入队 / 跳过 / 未绑定”的结果摘要，并逐条列出被跳过群的原因。
+- **关联文件**: frontend/src/views/SendCenter/components/PointsRankingTab.vue, app/services/crm_points_ranking.py
+
+## Bug #37: 积分排行预览会在冷缓存或多群场景下超时，前端只能看到请求失败但看不到后端慢在哪一段
+
+- **日期**: 2026-04-17
+- **现象**: 在发送中心勾选较多外部群后点击“生成排行消息”，前端可能直接报超时；用户看不到当前是在查 CRM 成员、算周月积分，还是卡在 `point_logs` 洞察分析阶段。
+- **根因**: 预览接口之前为了补群名会调用全量 `fetch_crm_groups()`，连带触发整库群积分统计；同时每个群生成消息时又会单独做一轮 `point_logs` 近 14 天洞察分析，且查询对象覆盖整群成员。路由层还按群逐条查绑定信息，进一步放大耗时，但接口和前端都没有阶段耗时日志与可视化进度。
+- **复现条件**: 在 CRM 数据量较大、缓存未命中，或一次选择多个成员较多的外部群时，点击“生成排行消息”。
+- **解决方案**: 后端改为按需查询所选群名称、批量查询绑定关系、洞察分析只覆盖实际上榜成员且限制分析人数，并在路由/服务层输出阶段耗时日志与慢群诊断；前端新增进度卡片、耗时展示和后端返回的分段耗时摘要。
+- **关联文件**: app/routers/api_crm_points.py, app/services/crm_group_directory.py, app/services/crm_group_bindings.py, app/services/crm_points_insights.py, app/services/crm_points_ranking.py, frontend/src/views/SendCenter/components/PointsRankingTab.vue

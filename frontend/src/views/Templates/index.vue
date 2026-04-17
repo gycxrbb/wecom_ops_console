@@ -68,6 +68,8 @@
           :current-plan-id="currentPlan?.id ?? null"
           :days="days"
           :current-day-id="currentDay?.id ?? null"
+          :is-campaign-mode="isCampaignMode"
+          :day-label="dayLabel"
           :completed-count="workbench.completedCount"
           :completion-percent="workbench.completionPercent"
           @select-plan="handleSelectPlan"
@@ -87,6 +89,7 @@
           :nodes="nodes"
           :current-node-id="currentNode?.id ?? null"
           :pending-count="currentDayPendingCount"
+          :is-campaign-mode="isCampaignMode"
           :day-draft="dayDraft"
           :day-dirty="dayDirty"
           :day-saving="daySaving"
@@ -265,14 +268,33 @@
         <el-form-item label="主题名称">
           <el-input v-model="planForm.name" placeholder="例如：第一阶段：调整血糖·代谢优化" />
         </el-form-item>
+        <el-form-item label="计划模式">
+          <el-select v-model="planForm.plan_mode" style="width: 100%">
+            <el-option label="日程流程（Day Flow）" value="day_flow" />
+            <el-option label="积分运营（Points Campaign）" value="points_campaign" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="主题标签">
           <el-input v-model="planForm.topic" placeholder="例如：血糖管理 / 代谢优化" />
         </el-form-item>
         <el-form-item label="阶段名称">
           <el-input v-model="planForm.stage" placeholder="例如：第一阶段" />
         </el-form-item>
-        <el-form-item label="运营天数">
+        <el-form-item v-if="planForm.plan_mode === 'day_flow'" label="运营天数">
           <el-input-number v-model="planForm.day_count" :min="1" :max="90" />
+        </el-form-item>
+        <el-form-item v-else label="阶段预览">
+          <el-tag
+            v-for="stage in campaignStages"
+            :key="stage.stage_key"
+            size="small"
+            style="margin: 2px 4px 2px 0"
+          >
+            {{ stage.title }}
+          </el-tag>
+          <div style="color: var(--text-muted); font-size: 12px; margin-top: 4px">
+            将自动创建 {{ campaignStages.length }} 个运营阶段
+          </div>
         </el-form-item>
         <el-form-item label="备注说明">
           <el-input v-model="planForm.description" type="textarea" :rows="3" />
@@ -538,6 +560,7 @@
       v-model:visible="publishDialogVisible"
       :plan-id="currentPlan?.id ?? null"
       :plan-name="currentPlan?.name ?? ''"
+      :plan-mode="currentPlan?.plan_mode ?? 'day_flow'"
       :node-count="currentPlan?.node_count ?? 0"
       :day-count="days.length"
       @published="fetchPlans"
@@ -575,6 +598,7 @@ const activeView = ref<'plans' | 'templates'>(storedView === 'plans' || storedVi
 const {
   plans,
   presets,
+  campaignStages,
   loading,
   currentPlan,
   currentDay,
@@ -582,6 +606,8 @@ const {
   days,
   nodes,
   completionSummary,
+  isCampaignMode,
+  dayLabel,
   planDialogVisible,
   copyDialogVisible,
   batchCopyDialogVisible,
@@ -671,6 +697,7 @@ const buildDayDraft = (day: PlanDay | null) => {
   return {
     title: day.title,
     focus: day.focus,
+    trigger_rule_json: cloneJson(day.trigger_rule_json || {}),
     status: day.status
   }
 }

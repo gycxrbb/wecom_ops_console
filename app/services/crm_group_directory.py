@@ -66,6 +66,12 @@ def _get_connection() -> pymysql.connections.Connection:
         raise CrmAdminAuthUnavailable(str(exc)) from exc
 
 
+def _format_index_columns(columns: str | tuple[str, ...] | list[str]) -> str:
+    if isinstance(columns, str):
+        return f'`{columns}`'
+    return ', '.join(f'`{column}`' for column in columns)
+
+
 def _ensure_indexes(conn) -> None:
     """检查并创建 CRM 表必要索引（幂等，仅首次连接时执行）
 
@@ -77,14 +83,15 @@ def _ensure_indexes(conn) -> None:
 
     desired = {
         'customer_groups': [
-            ('ix_cg_group_id', 'group_id'),
-            ('ix_cg_customer_id', 'customer_id'),
+            ('ix_cg_group_id', ('group_id',)),
+            ('ix_cg_customer_id', ('customer_id',)),
+            ('ix_cg_group_customer', ('group_id', 'customer_id')),
         ],
         'customers': [
-            ('ix_customers_total_points', 'total_points'),
+            ('ix_customers_total_points', ('total_points',)),
         ],
         'point_logs': [
-            ('ix_pl_customer_created', 'customer_id, created_at'),
+            ('ix_pl_customer_created', ('customer_id', 'created_at')),
         ],
     }
 
@@ -102,14 +109,14 @@ def _ensure_indexes(conn) -> None:
                 _log.warning('CRM 索引检查跳过 (%s): %s', table, exc)
                 continue
 
-            for idx_name, column in idx_list:
+            for idx_name, columns in idx_list:
                 if idx_name in existing:
                     continue
                 try:
                     cur.execute(
-                        f'ALTER TABLE `{table}` ADD INDEX `{idx_name}` (`{column}`)'
+                        f'ALTER TABLE `{table}` ADD INDEX `{idx_name}` ({_format_index_columns(columns)})'
                     )
-                    _log.info('CRM 索引已创建: %s on %s(%s)', idx_name, table, column)
+                    _log.info('CRM 索引已创建: %s on %s(%s)', idx_name, table, columns)
                 except Exception as exc:
                     _log.warning('CRM 索引创建跳过: %s', exc)
 
@@ -130,7 +137,7 @@ def _enrich_with_period_points(
     try:
         from .crm_points_metrics import (
             get_week_range, get_month_range,
-            fetch_customer_period_points, fetch_group_period_points,
+            fetch_customer_period_points_dual, fetch_group_period_points_dual,
         )
     except Exception as exc:
         _log.warning('积分指标模块导入失败，跳过周期积分: %s', exc)
@@ -141,14 +148,16 @@ def _enrich_with_period_points(
         month_start, month_end = get_month_range()
 
         if group_ids:
-            week_grp = fetch_group_period_points(group_ids, week_start, week_end)
-            month_grp = fetch_group_period_points(group_ids, month_start, month_end)
+            week_grp, month_grp = fetch_group_period_points_dual(
+                group_ids, week_start, week_end, month_start, month_end
+            )
             result['_week_group_points'] = week_grp
             result['_month_group_points'] = month_grp
 
         if customer_ids:
-            week_cust = fetch_customer_period_points(customer_ids, week_start, week_end)
-            month_cust = fetch_customer_period_points(customer_ids, month_start, month_end)
+            week_cust, month_cust = fetch_customer_period_points_dual(
+                customer_ids, week_start, week_end, month_start, month_end
+            )
             result['_week_customer_points'] = week_cust
             result['_month_customer_points'] = month_cust
     except Exception as exc:
@@ -217,12 +226,23 @@ def fetch_crm_groups() -> dict[str, Any]:
             conn.close()
 
 
-def fetch_crm_group_members(group_id: int) -> dict[str, Any]:
-    """返回指定外部群的成员列表（姓名、当前积分、累计积分、周/月积分）"""
+def fetch_crm_group_names(group_ids: list[int]) -> dict[int, str]:
+    """按需返回 CRM 群名称映射，避免为补名称而触发全量群统计。"""
     if not crm_group_enabled():
-        return {'available': False, 'members': []}
+        return {}
 
-    cache_key = f'crm_members_{group_id}'
+    normalized_group_ids = []
+    seen_group_ids: set[int] = set()
+    for group_id in group_ids:
+        if group_id in seen_group_ids:
+            continue
+        seen_group_ids.add(group_id)
+        normalized_group_ids.append(group_id)
+
+    if not normalized_group_ids:
+        return {}
+
+    cache_key = f"crm_group_names_{'_'.join(str(group_id) for group_id in normalized_group_ids)}"
     cached = _get_cached(cache_key)
     if cached is not None:
         return cached
@@ -230,52 +250,151 @@ def fetch_crm_group_members(group_id: int) -> dict[str, Any]:
     conn = None
     try:
         conn = _get_connection()
+        placeholders = ','.join(['%s'] * len(normalized_group_ids))
         with conn.cursor() as cur:
-            # 群名
-            cur.execute('SELECT id, name FROM `groups` WHERE id = %s LIMIT 1', (group_id,))
-            grp = cur.fetchone()
-            if not grp:
-                return {'available': True, 'group_id': group_id, 'group_name': '', 'members': []}
-
-            # 成员
-            cur.execute('''
-                SELECT c.id, c.name, c.points, c.total_points
-                FROM customers c
-                INNER JOIN customer_groups cg ON cg.customer_id = c.id
-                WHERE cg.group_id = %s
-                ORDER BY c.total_points DESC, c.name
-            ''', (group_id,))
+            cur.execute(
+                f'''
+                SELECT id, name
+                FROM `groups`
+                WHERE id IN ({placeholders})
+                ORDER BY id
+                ''',
+                tuple(normalized_group_ids),
+            )
             rows = cur.fetchall()
 
-        customer_ids = [r['id'] for r in rows]
+        result = {
+            int(row['id']): row.get('name') or f'未命名群组#{row["id"]}'
+            for row in rows
+        }
+        for group_id in normalized_group_ids:
+            result.setdefault(group_id, f'群#{group_id}')
+        _set_cached(cache_key, result)
+        return result
+    except CrmAdminAuthUnavailable:
+        return {}
+    except Exception as exc:
+        _log.warning('CRM 群名称查询失败: %s', exc)
+        return {}
+    finally:
+        if conn:
+            conn.close()
+
+
+def fetch_crm_group_members(group_id: int) -> dict[str, Any]:
+    """返回指定外部群的成员列表（姓名、当前积分、累计积分、周/月积分）"""
+    if not crm_group_enabled():
+        return {'available': False, 'members': []}
+
+    results = fetch_crm_group_members_bulk([group_id])
+    if group_id in results:
+        return results[group_id]
+    return {'available': True, 'group_id': group_id, 'group_name': '', 'members': []}
+
+
+def fetch_crm_group_members_bulk(group_ids: list[int]) -> dict[int, dict[str, Any]]:
+    """批量返回多个外部群的成员列表。
+
+    主要给积分排行生成使用，避免逐群查询导致的 N+1 开销。
+    """
+    if not crm_group_enabled():
+        return {}
+
+    normalized_group_ids = []
+    seen_group_ids: set[int] = set()
+    for group_id in group_ids:
+        if group_id in seen_group_ids:
+            continue
+        seen_group_ids.add(group_id)
+        normalized_group_ids.append(group_id)
+
+    if not normalized_group_ids:
+        return {}
+
+    cache_key = f"crm_members_bulk_{'_'.join(str(group_id) for group_id in normalized_group_ids)}"
+    cached = _get_cached(cache_key)
+    if cached is not None:
+        return cached
+
+    conn = None
+    try:
+        conn = _get_connection()
+        _ensure_indexes(conn)
+        placeholders = ','.join(['%s'] * len(normalized_group_ids))
+        with conn.cursor() as cur:
+            cur.execute(
+                f'''
+                SELECT g.id AS group_id,
+                       g.name AS group_name,
+                       c.id AS customer_id,
+                       c.name AS customer_name,
+                       c.points,
+                       c.total_points
+                FROM `groups` g
+                LEFT JOIN customer_groups cg ON cg.group_id = g.id
+                LEFT JOIN customers c ON c.id = cg.customer_id
+                WHERE g.id IN ({placeholders})
+                ORDER BY g.id, c.total_points DESC, c.name
+                ''',
+                tuple(normalized_group_ids),
+            )
+            rows = cur.fetchall()
+
+        results: dict[int, dict[str, Any]] = {}
+        customer_ids: list[int] = []
+        seen_customer_ids: set[int] = set()
+        for row in rows:
+            group_id = int(row['group_id'])
+            if group_id not in results:
+                results[group_id] = {
+                    'available': True,
+                    'group_id': group_id,
+                    'group_name': row.get('group_name') or f'未命名群组#{group_id}',
+                    'members': [],
+                }
+            customer_id = row.get('customer_id')
+            if customer_id and customer_id not in seen_customer_ids:
+                seen_customer_ids.add(customer_id)
+                customer_ids.append(int(customer_id))
+
         enrich = {}
         _enrich_with_period_points(enrich, customer_ids=customer_ids)
         week_cust = enrich.get('_week_customer_points', {})
         month_cust = enrich.get('_month_customer_points', {})
 
-        members = [{
-            'id': r['id'],
-            'name': r['name'] or f'未命名成员#{r["id"]}',
-            'points': float(r.get('points', 0) or 0),
-            'total_points': float(r.get('total_points', 0) or 0),
-            'current_points': float(r.get('total_points', 0) or 0),
-            'week_points': week_cust.get(r['id'], 0.0),
-            'month_points': month_cust.get(r['id'], 0.0),
-        } for r in rows]
+        for row in rows:
+            customer_id = row.get('customer_id')
+            if not customer_id:
+                continue
+            group_id = int(row['group_id'])
+            results[group_id]['members'].append({
+                'id': int(customer_id),
+                'name': row.get('customer_name') or f'未命名成员#{customer_id}',
+                'points': float(row.get('points', 0) or 0),
+                'total_points': float(row.get('total_points', 0) or 0),
+                'current_points': float(row.get('total_points', 0) or 0),
+                'week_points': week_cust.get(int(customer_id), 0.0),
+                'month_points': month_cust.get(int(customer_id), 0.0),
+            })
 
-        result = {
-            'available': True,
-            'group_id': group_id,
-            'group_name': grp['name'] or f'未命名群组#{group_id}',
-            'members': members,
-        }
-        _set_cached(cache_key, result)
-        return result
+        for group_id in normalized_group_ids:
+            results.setdefault(
+                group_id,
+                {
+                    'available': True,
+                    'group_id': group_id,
+                    'group_name': f'群#{group_id}',
+                    'members': [],
+                },
+            )
+
+        _set_cached(cache_key, results)
+        return results
     except CrmAdminAuthUnavailable:
-        return {'available': False, 'members': []}
+        return {}
     except Exception as exc:
-        _log.warning('CRM 外部群成员查询失败: %s', exc)
-        return {'available': False, 'members': []}
+        _log.warning('CRM 外部群批量成员查询失败: %s', exc)
+        return {}
     finally:
         if conn:
             conn.close()
@@ -452,7 +571,11 @@ def fetch_crm_group_stats() -> dict[str, Any]:
         total_week = 0.0
         total_month = 0.0
         try:
-            from .crm_points_metrics import get_week_range, get_month_range, fetch_customer_period_points
+            from .crm_points_metrics import (
+                get_week_range,
+                get_month_range,
+                fetch_customer_period_points_dual,
+            )
             week_start, week_end = get_week_range()
             month_start, month_end = get_month_range()
             # 获取所有客户 ID
@@ -460,8 +583,9 @@ def fetch_crm_group_stats() -> dict[str, Any]:
                 cur.execute('SELECT id FROM customers')
                 all_ids = [r['id'] for r in cur.fetchall()]
             if all_ids:
-                week_map = fetch_customer_period_points(all_ids, week_start, week_end)
-                month_map = fetch_customer_period_points(all_ids, month_start, month_end)
+                week_map, month_map = fetch_customer_period_points_dual(
+                    all_ids, week_start, week_end, month_start, month_end
+                )
                 total_week = sum(week_map.values())
                 total_month = sum(month_map.values())
         except Exception as exc:

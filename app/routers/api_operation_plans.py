@@ -14,62 +14,11 @@ from ..database import get_db
 from ..services.operation_plan_export import export_plan_to_excel_bytes, export_plan_to_json_bytes
 from ..services.operation_plan_import import parse_operation_plan_file
 from ..services.operation_plan_publish import publish_plan_to_groups
+from ..services.operation_plan_constants import NODE_PRESETS, NODE_PRESET_MAP, POINTS_CAMPAIGN_STAGES
 from ..security import get_current_user, json_dumps, json_loads, require_role, require_permission
 
 router = APIRouter(prefix='/api/v1/operation-plans', tags=['operation-plans'])
 
-
-NODE_PRESETS: list[dict[str, Any]] = [
-    {
-        'node_type': 'morning_breakfast',
-        'title': '早安 / 早餐提醒',
-        'description': '发送早安招呼，并同步早餐提醒内容。',
-        'sort_order': 10,
-        'msg_type': 'markdown',
-        'content_json': {'content': '请填写第 {{ day_number }} 天的早安/早餐提醒内容'},
-    },
-    {
-        'node_type': 'score_publish',
-        'title': '积分相关发布',
-        'description': '护士教练录入积分后，由 AI 生成表单并截图发群。',
-        'sort_order': 20,
-        'msg_type': 'markdown',
-        'content_json': {'content': '请填写第 {{ day_number }} 天的积分发布内容与 AI 截图说明'},
-    },
-    {
-        'node_type': 'before_lunch_content',
-        'title': '午餐前内容发布',
-        'description': '午餐前自动发布科普知识点、图片/视频资料和实用知识点。',
-        'sort_order': 30,
-        'msg_type': 'markdown',
-        'content_json': {'content': '请填写第 {{ day_number }} 天的午餐前内容发布'},
-    },
-    {
-        'node_type': 'lunch_reminder',
-        'title': '午餐提醒发布',
-        'description': '午餐提醒节点，发布知识点、素材和执行提醒。',
-        'sort_order': 40,
-        'msg_type': 'markdown',
-        'content_json': {'content': '请填写第 {{ day_number }} 天的午餐提醒内容'},
-    },
-    {
-        'node_type': 'dinner_reminder',
-        'title': '晚餐提醒发布',
-        'description': '按预设时间自动发送实用知识内容。',
-        'sort_order': 50,
-        'msg_type': 'markdown',
-        'content_json': {'content': '请填写第 {{ day_number }} 天的晚餐提醒内容'},
-    },
-    {
-        'node_type': 'night_summary',
-        'title': '晚安 / 总结 / 次日预告',
-        'description': '按预设时间自动发送晚安类内容、总结和次日预告。',
-        'sort_order': 60,
-        'msg_type': 'markdown',
-        'content_json': {'content': '请填写第 {{ day_number }} 天的晚安/总结/次日预告内容'},
-    },
-]
-NODE_PRESET_MAP = {preset['node_type']: preset for preset in NODE_PRESETS}
 
 
 class PlanCreate(BaseModel):
@@ -77,7 +26,8 @@ class PlanCreate(BaseModel):
     topic: str = ''
     stage: str = ''
     description: str = ''
-    day_count: int = Field(default=1, ge=1, le=90)
+    plan_mode: str = 'day_flow'
+    day_count: int = Field(default=1, ge=0, le=90)
 
 
 class PlanUpdate(BaseModel):
@@ -85,6 +35,7 @@ class PlanUpdate(BaseModel):
     topic: str = ''
     stage: str = ''
     description: str = ''
+    plan_mode: str = 'day_flow'
     status: str = 'draft'
 
 
@@ -92,6 +43,7 @@ class PlanDayCreate(BaseModel):
     day_number: int = Field(ge=1, le=365)
     title: str = ''
     focus: str = ''
+    trigger_rule_json: dict[str, Any] = Field(default_factory=dict)
     auto_init_nodes: bool = True
 
 
@@ -99,6 +51,7 @@ class PlanDayUpdate(BaseModel):
     day_number: int = Field(ge=1, le=365)
     title: str = ''
     focus: str = ''
+    trigger_rule_json: dict[str, Any] = Field(default_factory=dict)
     status: str = 'draft'
 
 
@@ -193,6 +146,7 @@ def serialize_day(day: models.PlanDay, include_nodes: bool = True) -> dict[str, 
         'day_number': day.day_number,
         'title': day.title,
         'focus': day.focus or '',
+        'trigger_rule_json': json_loads(day.trigger_rule_json, {}),
         'status': day.status,
         'created_by_id': day.owner_id,
         'updated_at': day.updated_at.isoformat(),
@@ -210,6 +164,7 @@ def serialize_plan(plan: models.Plan, include_days: bool = False) -> dict[str, A
         'topic': plan.topic or '',
         'stage': plan.stage or '',
         'description': plan.description or '',
+        'plan_mode': getattr(plan, 'plan_mode', None) or 'day_flow',
         'status': plan.status,
         'created_by_id': plan.owner_id,
         'updated_at': plan.updated_at.isoformat(),
@@ -284,6 +239,31 @@ def build_default_nodes(day: models.PlanDay, owner_id: int) -> list[models.PlanN
     return built_nodes
 
 
+def build_campaign_nodes(day: models.PlanDay, stage: dict[str, Any], owner_id: int) -> list[models.PlanNode]:
+    """为积分运营阶段的 PlanDay 创建预设节点"""
+    built_nodes: list[models.PlanNode] = []
+    for idx, np in enumerate(stage.get('node_presets', [])):
+        built_nodes.append(
+            models.PlanNode(
+                plan_day=day,
+                node_type=np['node_type'],
+                title=np['title'],
+                description=np.get('description', ''),
+                sort_order=(idx + 1) * 10,
+                msg_type=np.get('msg_type', 'markdown'),
+                content_json=json_dumps({
+                    'generator_type': np['node_type'],
+                    'content': '',
+                }),
+                variables_json='{}',
+                status='draft',
+                enabled=1,
+                owner_id=owner_id,
+            )
+        )
+    return built_nodes
+
+
 def ensure_day_number_unique(db: Session, plan_id: int, day_number: int, exclude_day_id: int | None = None) -> None:
     query = db.query(models.PlanDay).filter(
         models.PlanDay.plan_id == plan_id,
@@ -315,6 +295,12 @@ def get_node_presets(request: Request, db: Session = Depends(get_db)):
     return NODE_PRESETS
 
 
+@router.get('/meta/campaign-stages')
+def get_campaign_stages(request: Request, db: Session = Depends(get_db)):
+    get_user_or_401(request, db)
+    return POINTS_CAMPAIGN_STAGES
+
+
 @router.post('/import/preview')
 async def preview_operation_plan_import(
     request: Request,
@@ -344,6 +330,7 @@ async def preview_operation_plan_import(
             'stage': parsed['stage'],
             'topic': parsed['topic'],
             'description': parsed['description'],
+            'plan_mode': parsed.get('plan_mode', 'day_flow'),
             'day_count': parsed['day_count'],
         },
         'summary': {
@@ -384,6 +371,7 @@ async def import_operation_plan(
         topic=parsed['topic'],
         stage=parsed['stage'],
         description=parsed['description'],
+        plan_mode=parsed.get('plan_mode', 'day_flow'),
         status='draft',
         owner_id=user.id,
     )
@@ -396,6 +384,7 @@ async def import_operation_plan(
             day_number=day_payload['day_number'],
             title=day_payload['day_title'] or f"第{day_payload['day_number']}天",
             focus=day_payload['day_focus'],
+            trigger_rule_json=json_dumps(day_payload.get('trigger_rule_json', {})),
             status='draft',
             owner_id=user.id,
         )
@@ -448,6 +437,7 @@ def create_plan(body: PlanCreate, request: Request, db: Session = Depends(get_db
         topic=body.topic.strip(),
         stage=body.stage.strip(),
         description=body.description.strip(),
+        plan_mode=body.plan_mode,
         status='draft',
         owner_id=user.id,
     )
@@ -456,19 +446,41 @@ def create_plan(body: PlanCreate, request: Request, db: Session = Depends(get_db
 
     db.add(plan)
     db.flush()
-    for day_number in range(1, body.day_count + 1):
-        day = models.PlanDay(
-            plan_id=plan.id,
-            day_number=day_number,
-            title=f'第{day_number}天',
-            focus='',
-            status='draft',
-            owner_id=user.id,
-        )
-        db.add(day)
-        db.flush()
-        for node in build_default_nodes(day, user.id):
-            db.add(node)
+
+    if body.plan_mode == 'points_campaign':
+        for stage in POINTS_CAMPAIGN_STAGES:
+            trigger_rule = {
+                'trigger_type': stage['trigger_type'],
+                'time': stage.get('default_time', '09:00'),
+            }
+            trigger_rule.update(stage.get('trigger_config', {}))
+            day = models.PlanDay(
+                plan_id=plan.id,
+                day_number=stage['sort_order'],
+                title=stage['title'],
+                focus=stage['description'],
+                trigger_rule_json=json_dumps(trigger_rule),
+                status='draft',
+                owner_id=user.id,
+            )
+            db.add(day)
+            db.flush()
+            for node in build_campaign_nodes(day, stage, user.id):
+                db.add(node)
+    else:
+        for day_number in range(1, body.day_count + 1):
+            day = models.PlanDay(
+                plan_id=plan.id,
+                day_number=day_number,
+                title=f'第{day_number}天',
+                focus='',
+                status='draft',
+                owner_id=user.id,
+            )
+            db.add(day)
+            db.flush()
+            for node in build_default_nodes(day, user.id):
+                db.add(node)
     db.commit()
     db.refresh(plan)
     return serialize_plan(get_plan_or_404(db, plan.id), include_days=True)
@@ -532,6 +544,7 @@ def update_plan(plan_id: int, body: PlanUpdate, request: Request, db: Session = 
     plan.topic = body.topic.strip()
     plan.stage = body.stage.strip()
     plan.description = body.description.strip()
+    plan.plan_mode = body.plan_mode
     plan.status = body.status
     if not plan.name:
         raise HTTPException(400, '运营计划名称不能为空')
@@ -564,6 +577,7 @@ def create_day(plan_id: int, body: PlanDayCreate, request: Request, db: Session 
         day_number=body.day_number,
         title=body.title.strip() or f'第{body.day_number}天',
         focus=body.focus.strip(),
+        trigger_rule_json=json_dumps(body.trigger_rule_json),
         status='draft',
         owner_id=user.id,
     )
@@ -587,6 +601,7 @@ def update_day(day_id: int, body: PlanDayUpdate, request: Request, db: Session =
     day.day_number = body.day_number
     day.title = body.title.strip() or f'第{body.day_number}天'
     day.focus = body.focus.strip()
+    day.trigger_rule_json = json_dumps(body.trigger_rule_json)
     day.status = body.status
     db.commit()
     return serialize_day(get_day_or_404(db, day.id))
@@ -680,6 +695,7 @@ def delete_node(node_id: int, request: Request, db: Session = Depends(get_db)):
 class PublishPlanBody(BaseModel):
     group_ids: list[int] = Field(min_length=1)
     start_date: str = Field(description='开始日期，格式 YYYY-MM-DD')
+    end_date: str = Field(default='', description='结束日期（积分运营模式用），格式 YYYY-MM-DD')
     send_times: dict[str, str] = Field(default_factory=dict, description='各时段发送时间，如 {"morning": "08:00"}')
     skip_weekends: bool = False
     require_approval: bool = True
@@ -723,6 +739,7 @@ def publish_plan(plan_id: int, body: PublishPlanBody, request: Request, db: Sess
         skip_weekends=body.skip_weekends,
         require_approval=body.require_approval,
         user=user,
+        end_date=body.end_date,
     )
 
     return {

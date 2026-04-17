@@ -204,6 +204,11 @@
           </div>
         </div>
       </el-tab-pane>
+
+      <!-- 积分排行 -->
+      <el-tab-pane label="积分排行" name="ranking">
+        <PointsRankingTab @select-ranking="onRankingSelect" />
+      </el-tab-pane>
     </el-tabs>
 
     <template #footer>
@@ -226,6 +231,7 @@ import { msgTypeLabel, msgTypeOptions } from '@/views/Templates/composables/useT
 import request from '@/utils/request'
 import type { PropType } from 'vue'
 import { useMobile } from '@/composables/useMobile'
+import PointsRankingTab from './PointsRankingTab.vue'
 
 const { isMobile } = useMobile()
 const mobilePlanTab = ref<'list' | 'nodes'>('list')
@@ -237,7 +243,7 @@ const props = defineProps({
   selectedId: { type: Number as PropType<number | null>, default: null }
 })
 
-const emit = defineEmits(['update:modelValue', 'select', 'select-batch'])
+const emit = defineEmits(['update:modelValue', 'select', 'select-batch', 'select-ranking'])
 
 const visible = computed({
   get: () => props.modelValue,
@@ -427,6 +433,11 @@ const confirmBatchSelect = () => {
   }
   if (items.length === 0) return
   emit('select-batch', items)
+  visible.value = false
+}
+
+const onRankingSelect = (items: any[]) => {
+  emit('select-ranking', items)
   visible.value = false
 }
 

@@ -39,6 +39,7 @@
           @send="handleSend"
           @sendTest="handleTestSend"
           @batchSelect="handleBatchSelect"
+          @rankingSelect="handleRankingSelect"
           @batchSend="handleBatchSend"
           @removeBatchItem="handleRemoveBatchItem"
           @clearBatch="clearBatch"
@@ -127,6 +128,10 @@
                     <template #icon><el-icon><Position /></el-icon></template>
                     单独发送此条
                   </el-button>
+                  <el-button type="success" @click="handleBatchQueueSchedule" :loading="isScheduling">
+                    <template #icon><el-icon><Clock /></el-icon></template>
+                    队列定时发送
+                  </el-button>
                 </div>
               </div>
             </div>
@@ -139,14 +144,22 @@
           </div>
         </template>
 
-        <!-- 批量模式但未选中项 -->
+        <!-- 批量模式但未选中项：显示队列定时发送 -->
         <template v-else>
-          <div class="card-panel">
-            <div class="card-body">
-              <div class="batch-empty-hint">
-                <span>点击左侧队列中的条目查看内容、预览或创建定时任务</span>
+          <div class="batch-queue-schedule">
+            <div class="card-panel">
+              <div class="card-body">
+                <div class="batch-empty-hint">
+                  <span>点击左侧队列中的条目查看内容、预览，或直接为整个队列创建定时任务</span>
+                </div>
               </div>
             </div>
+            <ScheduleCard
+              :scheduleForm="scheduleForm"
+              :isScheduling="isScheduling"
+              buttonLabel="队列定时发送"
+              @schedule="handleBatchQueueSchedule"
+            />
           </div>
         </template>
       </el-col>
@@ -164,7 +177,7 @@ import MessageEditor from '@/components/message-editor/index.vue'
 import PreviewCard from './components/PreviewCard.vue'
 import ScheduleCard from './components/ScheduleCard.vue'
 import { ElMessage } from 'element-plus'
-import { View, Position } from '@element-plus/icons-vue'
+import { View, Position, Clock } from '@element-plus/icons-vue'
 import { msgTypeLabel } from '@/views/Templates/composables/useTemplates'
 import request from '@/utils/request'
 import './styles/SendCenter.css'
@@ -200,6 +213,7 @@ const {
   isBatchItemPreviewing,
   selectBatchItem,
   handleBatchSelect,
+  handleRankingSelect,
   removeBatchItem,
   toggleBatchItemRemark,
   updateBatchItemRemark,
@@ -210,6 +224,7 @@ const {
   handleBatchItemVariablesUpdate,
   handleBatchItemPreview,
   handleBatchItemSchedule,
+  handleBatchQueueSchedule,
   handleNotifyPreview,
   // 单条操作
   handleMsgTypeChange,

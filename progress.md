@@ -13,4 +13,20 @@
   - `frontend/src/views/SendCenter/*`
 - 已读取积分运营参考 Excel，确认存在“话术库”和“投送阶段节点”两层结构。
 - 已完成正式方案文档：`docs/POINTS_OPERATIONS_UPGRADE_PLAN.md`。
-- 下一步：按计划进入实现阶段，优先做积分指标层、发送映射层和 `points_campaign` 最小可用版。
+- 已完成积分排行生成链路优化：
+  - 前端改为一次请求全部选中群，不再按 3 个群串行分批预览。
+  - 后端改为批量拉取多个群成员，避免逐群 CRM 查询。
+  - 周/月积分改为单次条件聚合，减少重复窗口查询。
+  - 前端补充“选中 / 入队 / 跳过 / 未绑定”结果摘要与原因提示。
+- 已继续完成“超时诊断 + 进度可视化”这一轮优化：
+  - 后端预览接口不再为补群名触发全量群统计，改为只查所选群名称。
+  - 绑定关系改为批量查询，不再逐群访问本地库。
+  - `point_logs` 洞察分析从“整群成员”收缩到“实际上榜成员”，并限制洞察分析人数，降低多群慢查询概率。
+  - 路由层和服务层新增阶段耗时日志，返回 `diagnostics` 与 `slow_groups` 供前端展示和后端排障。
+  - 前端新增生成进度卡片、耗时展示、阶段提示和慢群列表，可更直观看出当前是否卡在后端处理阶段。
+- 聚焦验证结果：
+  - `python -m py_compile app/services/crm_group_directory.py app/services/crm_group_bindings.py app/services/crm_points_insights.py app/services/crm_points_ranking.py app/routers/api_crm_points.py` 通过。
+  - 后端启动失败：环境缺少 `passlib`，报错 `ModuleNotFoundError: No module named 'passlib'`。
+  - 前端构建失败：现有 `frontend/tsconfig.json` 的 `ignoreDeprecations` 配置与当前 `vue-tsc` 不兼容，非本次改动引入。
+  - 前端 `npm run dev -- --host 0.0.0.0 --port 5173` 在当前环境 24 秒内未返回可用日志，进程超时退出，未能完成可用性确认。
+- 下一步：如果继续推进，建议在具备 `passlib` 和可用前端 TypeScript 配置的环境里，实测一次“多群积分排行生成”并观察新加的后端阶段日志，确认真实耗时是否已经回落到 60 秒以内。

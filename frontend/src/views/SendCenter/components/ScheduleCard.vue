@@ -77,7 +77,7 @@
         <div class="action-footer">
           <el-button type="success" @click="$emit('schedule')" :loading="isScheduling">
             <template #icon><el-icon><Clock /></el-icon></template>
-            创建计划任务
+            {{ buttonLabel }}
           </el-button>
         </div>
       </el-form>
@@ -93,7 +93,8 @@ import CronBuilder from '@/components/CronBuilder.vue'
 
 const props = defineProps({
   scheduleForm: { type: Object, required: true },
-  isScheduling: { type: Boolean, default: false }
+  isScheduling: { type: Boolean, default: false },
+  buttonLabel: { type: String, default: '创建计划任务' }
 })
 
 defineEmits(['schedule'])

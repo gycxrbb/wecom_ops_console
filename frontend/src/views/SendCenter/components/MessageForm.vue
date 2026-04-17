@@ -73,6 +73,7 @@
             :selected-id="selectedContentId"
             @select="$emit('contentSelect', $event)"
             @select-batch="$emit('batchSelect', $event)"
+            @select-ranking="$emit('rankingSelect', $event)"
           />
         </div>
 
@@ -427,7 +428,7 @@ defineEmits([
   'contentSelect', 'clearContent', 'preview', 'send', 'sendTest',
   'msgTypeChange', 'contentUpdate', 'variablesUpdate',
   // 批量模式
-  'batchSelect', 'batchSend', 'removeBatchItem', 'clearBatch', 'cancelBatchSend', 'selectBatchItem',
+  'batchSelect', 'rankingSelect', 'batchSend', 'removeBatchItem', 'clearBatch', 'cancelBatchSend', 'selectBatchItem',
   'toggleRemark', 'updateRemark',
   // 预告通知
   'update:notifyEnabled', 'update:notifyCustomText',

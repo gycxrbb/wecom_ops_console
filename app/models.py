@@ -124,6 +124,7 @@ class Plan(Base, TimestampMixin):
     topic: Mapped[str] = mapped_column(String(128), default='')
     stage: Mapped[str] = mapped_column(String(64), default='')
     description: Mapped[str] = mapped_column(Text, default='')
+    plan_mode: Mapped[str] = mapped_column(String(32), default='day_flow')
     status: Mapped[str] = mapped_column(String(32), default='draft')
     owner_id: Mapped[int | None] = mapped_column(ForeignKey('users.id'), nullable=True)
     owner = relationship('User')
@@ -142,6 +143,7 @@ class PlanDay(Base, TimestampMixin):
     day_number: Mapped[int] = mapped_column(Integer, default=1)
     title: Mapped[str] = mapped_column(String(128), default='')
     focus: Mapped[str] = mapped_column(Text, default='')
+    trigger_rule_json: Mapped[str] = mapped_column(Text, default='{}')
     status: Mapped[str] = mapped_column(String(32), default='draft')
     owner_id: Mapped[int | None] = mapped_column(ForeignKey('users.id'), nullable=True)
     plan: Mapped['Plan'] = relationship('Plan', back_populates='days')
@@ -203,6 +205,7 @@ class Schedule(Base, TimestampMixin):
     last_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     next_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     owner_id: Mapped[int | None] = mapped_column(ForeignKey('users.id'), nullable=True)
+    batch_items_json: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
     group = relationship('Group')
     template = relationship('Template')
     owner = relationship('User')
@@ -280,6 +283,17 @@ class SopDocument(Base, TimestampMixin):
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     created_by: Mapped[int | None] = mapped_column(ForeignKey('users.id'), nullable=True)
     creator = relationship('User')
+
+
+class CrmGroupSendBinding(Base, TimestampMixin):
+    __tablename__ = 'crm_group_send_bindings'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    crm_group_id: Mapped[int] = mapped_column(Integer, nullable=False, unique=True)
+    crm_group_name_snapshot: Mapped[str] = mapped_column(String(128), default='')
+    local_group_id: Mapped[int] = mapped_column(ForeignKey('groups.id'), nullable=False)
+    enabled: Mapped[int] = mapped_column(Integer, default=1)
+    remark: Mapped[str] = mapped_column(String(256), default='')
+    local_group = relationship('Group')
 
 
 class AuditLog(Base, TimestampMixin):

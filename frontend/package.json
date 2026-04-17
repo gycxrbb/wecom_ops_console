@@ -12,6 +12,7 @@
     "@element-plus/icons-vue": "^2.3.2",
     "axios": "^1.14.0",
     "element-plus": "^2.6.1",
+    "jsencrypt": "^3.5.4",
     "pinia": "^2.1.7",
     "vue": "^3.4.21",
     "vue-router": "^4.3.0"

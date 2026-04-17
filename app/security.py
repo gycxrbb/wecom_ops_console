@@ -3,6 +3,8 @@ import hashlib
 import json
 from typing import Any
 from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives.asymmetric import rsa, padding
+from cryptography.hazmat.primitives import serialization
 from passlib.context import CryptContext
 from fastapi import HTTPException, Request, status
 from sqlalchemy.orm import Session
@@ -13,6 +15,36 @@ from . import models
 from .services.crm_admin_auth import CrmAdminAuthUnavailable, authenticate_crm_admin, crm_admin_auth_enabled, sync_crm_admin_to_local
 
 pwd_context = CryptContext(schemes=['pbkdf2_sha256'], deprecated='auto')
+
+# Generate ephemeral RSA key pair at startup for password encryption
+_RSA_PRIVATE_KEY = rsa.generate_private_key(
+    public_exponent=65537,
+    key_size=2048,
+)
+_RSA_PUBLIC_KEY_PEM = _RSA_PRIVATE_KEY.public_key().public_bytes(
+    encoding=serialization.Encoding.PEM,
+    format=serialization.PublicFormat.SubjectPublicKeyInfo
+).decode('utf-8')
+
+def get_rsa_public_key() -> str:
+    return _RSA_PUBLIC_KEY_PEM
+
+def decrypt_rsa_password(encrypted_b64_str: str) -> str:
+    if not encrypted_b64_str:
+        return ""
+    try:
+        # Check if it looks like base64 RSA string (long enough)
+        if len(encrypted_b64_str) < 50:
+            return encrypted_b64_str
+        encrypted_bytes = base64.b64decode(encrypted_b64_str)
+        decrypted_bytes = _RSA_PRIVATE_KEY.decrypt(
+            encrypted_bytes,
+            padding.PKCS1v15()
+        )
+        return decrypted_bytes.decode('utf-8')
+    except Exception:
+        # Fallback to original string if not encrypted or decryption fails
+        return encrypted_b64_str
 
 def _fernet() -> Fernet:
     digest = hashlib.sha256(settings.app_secret_key.encode('utf-8')).digest()

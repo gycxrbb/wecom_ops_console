@@ -130,6 +130,8 @@ export function useWorkbenchActions(deps: WorkbenchDeps) {
     }
 
     if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
+      const selection = window.getSelection()
+      if (selection && selection.toString().length > 0) return
       if (deps.currentNode.value) {
         event.preventDefault()
         copyNode()
@@ -138,6 +140,8 @@ export function useWorkbenchActions(deps: WorkbenchDeps) {
     }
 
     if ((event.ctrlKey || event.metaKey) && event.key === 'v') {
+      const selection = window.getSelection()
+      if (selection && selection.toString().length > 0) return
       if (copiedNode.value) {
         event.preventDefault()
         pasteNode()

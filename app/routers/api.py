@@ -28,6 +28,11 @@ from ..security import create_access_token, create_refresh_token, authenticate
 
 router = APIRouter(prefix='/api/v1', tags=['api_v1'], route_class=UnifiedResponseRoute)
 
+@router.get('/auth/public-key')
+async def api_public_key():
+    from ..security import get_rsa_public_key
+    return {'code': 0, 'data': {'public_key': get_rsa_public_key()}}
+
 @router.post('/auth/login')
 async def api_login(request: Request, db: Session = Depends(get_db)):
     body = parse_body(await request.json())
@@ -39,6 +44,9 @@ async def api_login(request: Request, db: Session = Depends(get_db)):
     allowed, retry_after = rate_limiter.check(client_ip, username or '')
     if not allowed:
         return {'code': 42900, 'message': f'登录失败次数过多，请 {retry_after} 秒后重试', 'data': {'retry_after': retry_after}}
+
+    from ..security import decrypt_rsa_password
+    password = decrypt_rsa_password(password)
 
     try:
         user = authenticate(db, username, password)
@@ -222,6 +230,7 @@ def serialize_schedule(schedule: models.Schedule):
         'last_sent_at': schedule.last_sent_at.isoformat() if schedule.last_sent_at else None,
         'last_error': schedule.last_error or '',
         'created_at': schedule.created_at.isoformat(),
+        'batch_items': json_loads(schedule.batch_items_json, None) if schedule.batch_items_json else None,
     }
 
 
@@ -466,6 +475,35 @@ async def perform_job_send(db: Session, schedule: models.Schedule, run_mode: str
     if schedule.approval_required and schedule.status != 'approved':
         return {'skipped': True, 'reason': 'pending approval'}
 
+    # ── 队列模式：逐条执行 batch_items ──
+    batch_items = json_loads(schedule.batch_items_json, None) if schedule.batch_items_json else None
+    if batch_items:
+        global_group_ids = json_loads(schedule.group_ids_json, [])
+        all_results = []
+        last_error = ''
+        for item in batch_items:
+            item_group_ids = item.get('group_ids') or global_group_ids
+            if not item_group_ids:
+                last_error = f'队列项 {item.get("msg_type")} 缺少目标群'
+                continue
+            groups = db.query(models.Group).filter(models.Group.id.in_(item_group_ids), models.Group.enabled == 1).all()
+            try:
+                results = await do_send_to_groups(
+                    db, groups, item.get('msg_type', 'markdown'),
+                    item.get('content_json', {}), item.get('variables_json', {}),
+                    user, schedule=schedule, run_mode=run_mode,
+                )
+                all_results.extend(results or [])
+            except Exception as exc:
+                last_error = str(exc)[:200]
+            # 限速：条目间等待 2 秒
+            await asyncio.sleep(2)
+        schedule.last_error = last_error
+        schedule.last_sent_at = datetime.now(ZoneInfo('Asia/Shanghai')).replace(tzinfo=None)
+        db.commit()
+        return all_results
+
+    # ── 单条模式（原有逻辑） ──
     group_ids = json_loads(schedule.group_ids_json, [])
     groups = db.query(models.Group).filter(models.Group.id.in_(group_ids), models.Group.enabled == 1).all()
     results = await do_send_to_groups(
@@ -481,7 +519,7 @@ async def perform_job_send(db: Session, schedule: models.Schedule, run_mode: str
     schedule.last_error = ''
     schedule.last_sent_at = datetime.now(ZoneInfo('Asia/Shanghai')).replace(tzinfo=None)
     db.commit()
-    
+
     return results
 def get_user_or_401(request: Request, db: Session):
     return get_current_user(request, db)
@@ -894,14 +932,17 @@ async def create_or_update_schedule(request: Request, db: Session = Depends(get_
     if not job_id:
         db.add(job)
     group_ids = data.get('group_ids', [])
-    if not group_ids:
+    batch_items = data.get('batch_items_json')
+    # 队列调度时，每条 item 自带 group_ids，全局 group_ids 可为空
+    if not group_ids and not batch_items:
         raise HTTPException(400, '请选择至少一个群')
     job.title = data['title']
-    job.group_ids_json = json_dumps(group_ids)
+    job.group_ids_json = json_dumps(group_ids) if group_ids else '[]'
     job.template_id = data.get('template_id')
-    job.msg_type = data['msg_type']
+    job.msg_type = data.get('msg_type', 'markdown')
     job.content = json_dumps(data.get('content_json', {}))
     job.variables = json_dumps(data.get('variables_json', {}))
+    job.batch_items_json = json_dumps(batch_items) if batch_items else None
     job.schedule_type = data.get('schedule_type', 'none')
     run_at = data.get('run_at')
     job.run_at = datetime.fromisoformat(run_at) if run_at else None

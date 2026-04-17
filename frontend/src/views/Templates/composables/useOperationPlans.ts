@@ -25,6 +25,7 @@ export type PlanDay = {
   day_number: number
   title: string
   focus: string
+  trigger_rule_json: Record<string, any>
   status: string
   updated_at: string
   node_count: number
@@ -37,6 +38,7 @@ export type OperationPlan = {
   topic: string
   stage: string
   description: string
+  plan_mode: string
   status: string
   updated_at: string
   day_count: number
@@ -47,6 +49,7 @@ export type OperationPlan = {
 export function useOperationPlans() {
   const plans = ref<OperationPlan[]>([])
   const presets = ref<Array<{ node_type: string; title: string; description: string; sort_order: number; msg_type: string }>>([])
+  const campaignStages = ref<any[]>([])
   const loading = ref(false)
   const activePlanId = ref<number | null>(null)
   const activeDayId = ref<number | null>(null)
@@ -61,6 +64,7 @@ export function useOperationPlans() {
     topic: '',
     stage: '',
     description: '',
+    plan_mode: 'day_flow' as 'day_flow' | 'points_campaign',
     day_count: 30,
     status: 'draft'
   })
@@ -84,6 +88,8 @@ export function useOperationPlans() {
     const completed = days.value.filter(day => day.nodes?.every(node => node.status !== 'draft')).length
     return { total, completed }
   })
+  const isCampaignMode = computed(() => currentPlan.value?.plan_mode === 'points_campaign')
+  const dayLabel = computed(() => isCampaignMode.value ? '阶段' : '天')
   const availableSourceDays = computed(() =>
     days.value.filter(day => day.id !== currentDay.value?.id)
   )
@@ -126,11 +132,13 @@ export function useOperationPlans() {
   const fetchPlans = async () => {
     loading.value = true
     try {
-      const [planRes, presetRes]: any = await Promise.all([
+      const [planRes, presetRes, stagesRes]: any = await Promise.all([
         request.get('/v1/operation-plans'),
-        request.get('/v1/operation-plans/meta/node-presets')
+        request.get('/v1/operation-plans/meta/node-presets'),
+        request.get('/v1/operation-plans/meta/campaign-stages').catch(() => []),
       ])
       presets.value = presetRes || []
+      campaignStages.value = Array.isArray(stagesRes) ? stagesRes : []
       const list = Array.isArray(planRes) ? planRes : (planRes.list || [])
       const details = await Promise.all(list.map((plan: OperationPlan) => request.get(`/v1/operation-plans/${plan.id}`)))
       plans.value = details
@@ -174,6 +182,7 @@ export function useOperationPlans() {
         topic: plan.topic,
         stage: plan.stage,
         description: plan.description,
+        plan_mode: plan.plan_mode,
         status: plan.status
       })
       plan.name = newName.trim()
@@ -190,6 +199,7 @@ export function useOperationPlans() {
     planForm.topic = ''
     planForm.stage = ''
     planForm.description = ''
+    planForm.plan_mode = 'day_flow'
     planForm.day_count = 30
     planForm.status = 'draft'
     planDialogVisible.value = true
@@ -224,7 +234,8 @@ export function useOperationPlans() {
         topic: planForm.topic,
         stage: planForm.stage,
         description: planForm.description,
-        day_count: planForm.day_count,
+        plan_mode: planForm.plan_mode,
+        day_count: planForm.plan_mode === 'points_campaign' ? 0 : planForm.day_count,
         status: planForm.status
       }
       if (planForm.id) {
@@ -306,6 +317,7 @@ export function useOperationPlans() {
         day_number: payload.day_number ?? currentDay.value.day_number,
         title: payload.title ?? currentDay.value.title,
         focus: payload.focus ?? currentDay.value.focus,
+        trigger_rule_json: payload.trigger_rule_json ?? currentDay.value.trigger_rule_json,
         status: payload.status ?? currentDay.value.status
       })
       const plan = currentPlan.value
@@ -570,6 +582,7 @@ export function useOperationPlans() {
   return {
     plans,
     presets,
+    campaignStages,
     loading,
     activePlanId,
     activeDayId,
@@ -580,6 +593,8 @@ export function useOperationPlans() {
     days,
     nodes,
     completionSummary,
+    isCampaignMode,
+    dayLabel,
     planDialogVisible,
     copyDialogVisible,
     batchCopyDialogVisible,

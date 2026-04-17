@@ -287,6 +287,20 @@ def ensure_plan_schema(engine: Engine) -> None:
         if not _has_named_index(inspector, "plan_nodes", "ix_plan_nodes_plan_day_id"):
             conn.execute(text("CREATE INDEX ix_plan_nodes_plan_day_id ON plan_nodes (plan_day_id)"))
 
+    # plans / plan_days: add plan_mode and trigger_rule_json
+    inspector = inspect(engine)
+    if "plans" in inspector.get_table_names():
+        existing_plan_cols = {c["name"] for c in inspector.get_columns("plans")}
+        if "plan_mode" not in existing_plan_cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE plans ADD COLUMN plan_mode VARCHAR(32) DEFAULT 'day_flow'"))
+    if "plan_days" in inspector.get_table_names():
+        existing_day_cols = {c["name"] for c in inspector.get_columns("plan_days")}
+        if "trigger_rule_json" not in existing_day_cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE plan_days ADD COLUMN trigger_rule_json TEXT"))
+                conn.execute(text("UPDATE plan_days SET trigger_rule_json = '{}' WHERE trigger_rule_json IS NULL"))
+
     # users: add permissions_json column
     inspector = inspect(engine)
     if "users" in inspector.get_table_names():
@@ -294,3 +308,11 @@ def ensure_plan_schema(engine: Engine) -> None:
         if "permissions_json" not in existing_columns:
             with engine.begin() as conn:
                 conn.execute(text("ALTER TABLE users ADD COLUMN permissions_json TEXT"))
+
+    # schedules: add batch_items_json for queue scheduling
+    inspector = inspect(engine)
+    if "schedules" in inspector.get_table_names():
+        existing_cols = {c["name"] for c in inspector.get_columns("schedules")}
+        if "batch_items_json" not in existing_cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE schedules ADD COLUMN batch_items_json TEXT"))

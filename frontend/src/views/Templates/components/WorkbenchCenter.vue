@@ -4,7 +4,7 @@
     <div v-if="currentDay" class="wb-day-overview">
       <div class="wb-day-overview__header">
         <div>
-          <div class="wb-day-overview__badge">Day {{ currentDay.day_number }}</div>
+          <div class="wb-day-overview__badge">{{ isCampaignMode ? 'Stage' : 'Day' }} {{ currentDay.day_number }}</div>
           <h3>{{ currentDay.title }}</h3>
         </div>
         <div class="wb-day-overview__actions">
@@ -19,7 +19,7 @@
         <el-input
           :model-value="dayDraft?.title"
           @update:model-value="$emit('patch-day', { title: $event })"
-          placeholder="天标题"
+          :placeholder="isCampaignMode ? '阶段标题' : '天标题'"
           size="small"
         />
         <div class="wb-expandable-field" @click="openFocusDialog">
@@ -27,7 +27,7 @@
             :model-value="dayDraft?.focus"
             type="textarea"
             :rows="2"
-            placeholder="今日重点，例如：今天聚焦早餐结构与餐后反馈记录"
+            :placeholder="isCampaignMode ? '阶段目标，例如：冲刺激励，带动群氛围' : '今日重点，例如：今天聚焦早餐结构与餐后反馈记录'"
             size="small"
             readonly
             class="wb-expandable-field__input"
@@ -38,10 +38,40 @@
         </div>
       </div>
 
+      <!-- 触发规则编辑（积分运营模式） -->
+      <div v-if="isCampaignMode && currentDay" class="wb-day-overview__trigger">
+        <label class="wb-trigger-label">触发规则</label>
+        <div class="wb-trigger-row">
+          <el-select
+            :model-value="triggerType"
+            @update:model-value="updateTriggerType"
+            size="small"
+            style="width: 140px"
+          >
+            <el-option label="每日触发" value="daily" />
+            <el-option label="每周触发" value="weekly" />
+            <el-option label="倒计时范围" value="countdown_range" />
+            <el-option label="倒数第N天" value="final_day" />
+            <el-option label="手动触发" value="manual" />
+          </el-select>
+          <el-time-select
+            v-if="triggerType !== 'manual'"
+            :model-value="triggerTime"
+            @update:model-value="updateTriggerTime"
+            :start="'06:00'"
+            :step="'00:15'"
+            :end="'23:00'"
+            placeholder="发送时间"
+            size="small"
+            style="width: 120px"
+          />
+        </div>
+      </div>
+
       <!-- 运营焦点展开编辑弹窗 -->
       <el-dialog
         v-model="focusDialogVisible"
-        title="运营焦点"
+        :title="isCampaignMode ? '阶段目标' : '运营焦点'"
         width="600px"
         :close-on-click-modal="false"
         append-to-body
@@ -51,7 +81,7 @@
           v-model="focusDialogValue"
           type="textarea"
           :rows="8"
-          placeholder="今日重点，例如：今天聚焦早餐结构与餐后反馈记录"
+          :placeholder="isCampaignMode ? '阶段目标' : '今日重点，例如：今天聚焦早餐结构与餐后反馈记录'"
         />
         <template #footer>
           <el-button @click="focusDialogVisible = false">取消</el-button>
@@ -104,13 +134,13 @@
           </button>
         </el-timeline-item>
       </el-timeline>
-      <el-empty v-else description="当前天没有流程节点" :image-size="48" />
+      <el-empty v-else :description="`当前${isCampaignMode ? '阶段' : '天'}没有流程节点`" :image-size="48" />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { FullScreen, Close, Plus } from '@element-plus/icons-vue'
 import { msgTypeLabel } from '../composables/useTemplates'
 
@@ -119,6 +149,7 @@ interface Day {
   day_number: number
   title: string
   focus?: string
+  trigger_rule_json?: Record<string, any>
   status: string
 }
 
@@ -136,7 +167,8 @@ const props = defineProps<{
   nodes: Node[]
   currentNodeId: number | null
   pendingCount: number
-  dayDraft: { title?: string; focus?: string } | null
+  isCampaignMode: boolean
+  dayDraft: { title?: string; focus?: string; trigger_rule_json?: Record<string, any> } | null
   dayDirty: boolean
   daySaving: boolean
 }>()
@@ -170,6 +202,21 @@ const openFocusDialog = () => {
 const confirmFocusDialog = () => {
   emit('patch-day', { focus: focusDialogValue.value })
   focusDialogVisible.value = false
+}
+
+// ── 触发规则逻辑（积分运营模式） ──
+const triggerRule = computed(() => props.dayDraft?.trigger_rule_json || props.currentDay?.trigger_rule_json || {})
+const triggerType = computed(() => (triggerRule.value as any).trigger_type || 'daily')
+const triggerTime = computed(() => (triggerRule.value as any).time || '09:00')
+
+const updateTriggerType = (val: string) => {
+  const rule = { ...triggerRule.value, trigger_type: val }
+  emit('patch-day', { trigger_rule_json: rule })
+}
+
+const updateTriggerTime = (val: string) => {
+  const rule = { ...triggerRule.value, time: val }
+  emit('patch-day', { trigger_rule_json: rule })
 }
 </script>
 
@@ -254,6 +301,25 @@ const confirmFocusDialog = () => {
 
 .wb-expandable-field:hover .wb-expandable-field__hint {
   opacity: 1;
+}
+
+.wb-day-overview__trigger {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.wb-trigger-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.wb-trigger-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .wb-center__timeline-section {

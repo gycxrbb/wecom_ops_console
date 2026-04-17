@@ -92,6 +92,71 @@ def fetch_customer_period_points(
     return result
 
 
+def fetch_customer_period_points_dual(
+    customer_ids: list[int],
+    week_start: datetime,
+    week_end: datetime,
+    month_start: datetime,
+    month_end: datetime,
+) -> tuple[dict[int, float], dict[int, float]]:
+    """批量查询客户周/月净积分变化，使用一次条件聚合完成。"""
+    if not customer_ids:
+        return {}, {}
+
+    week_result: dict[int, float] = {customer_id: 0.0 for customer_id in customer_ids}
+    month_result: dict[int, float] = {customer_id: 0.0 for customer_id in customer_ids}
+    lower_bound = min(week_start, month_start)
+    upper_bound = max(week_end, month_end)
+
+    conn = None
+    try:
+        conn = _get_connection()
+        with conn.cursor() as cur:
+            batch_size = 500
+            for i in range(0, len(customer_ids), batch_size):
+                batch = customer_ids[i:i + batch_size]
+                placeholders = ','.join(['%s'] * len(batch))
+                cur.execute(
+                    f"""
+                    SELECT
+                        pl.customer_id,
+                        SUM(
+                            CASE
+                                WHEN pl.created_at >= %s AND pl.created_at < %s
+                                THEN CASE WHEN pl.type = 0 THEN COALESCE(pl.num, 0)
+                                          WHEN pl.type = 1 THEN -COALESCE(pl.num, 0)
+                                          ELSE 0 END
+                                ELSE 0
+                            END
+                        ) AS week_points,
+                        SUM(
+                            CASE
+                                WHEN pl.created_at >= %s AND pl.created_at < %s
+                                THEN CASE WHEN pl.type = 0 THEN COALESCE(pl.num, 0)
+                                          WHEN pl.type = 1 THEN -COALESCE(pl.num, 0)
+                                          ELSE 0 END
+                                ELSE 0
+                            END
+                        ) AS month_points
+                    FROM point_logs pl
+                    WHERE pl.customer_id IN ({placeholders})
+                      AND pl.created_at >= %s AND pl.created_at < %s
+                    GROUP BY pl.customer_id
+                    """,
+                    (week_start, week_end, month_start, month_end, *batch, lower_bound, upper_bound),
+                )
+                for row in cur.fetchall():
+                    customer_id = row['customer_id']
+                    week_result[customer_id] = float(row.get('week_points') or 0)
+                    month_result[customer_id] = float(row.get('month_points') or 0)
+    except Exception as exc:
+        _log.warning('CRM 客户周/月积分联合查询失败: %s', exc)
+    finally:
+        if conn:
+            conn.close()
+    return week_result, month_result
+
+
 def fetch_group_period_points(
     group_ids: list[int],
     start: datetime,
@@ -131,3 +196,69 @@ def fetch_group_period_points(
         if conn:
             conn.close()
     return result
+
+
+def fetch_group_period_points_dual(
+    group_ids: list[int],
+    week_start: datetime,
+    week_end: datetime,
+    month_start: datetime,
+    month_end: datetime,
+) -> tuple[dict[int, float], dict[int, float]]:
+    """批量查询群组周/月净积分变化，使用一次条件聚合完成。"""
+    if not group_ids:
+        return {}, {}
+
+    week_result: dict[int, float] = {group_id: 0.0 for group_id in group_ids}
+    month_result: dict[int, float] = {group_id: 0.0 for group_id in group_ids}
+    lower_bound = min(week_start, month_start)
+    upper_bound = max(week_end, month_end)
+
+    conn = None
+    try:
+        conn = _get_connection()
+        with conn.cursor() as cur:
+            batch_size = 500
+            for i in range(0, len(group_ids), batch_size):
+                batch = group_ids[i:i + batch_size]
+                placeholders = ','.join(['%s'] * len(batch))
+                cur.execute(
+                    f"""
+                    SELECT
+                        cg.group_id,
+                        SUM(
+                            CASE
+                                WHEN pl.created_at >= %s AND pl.created_at < %s
+                                THEN CASE WHEN pl.type = 0 THEN COALESCE(pl.num, 0)
+                                          WHEN pl.type = 1 THEN -COALESCE(pl.num, 0)
+                                          ELSE 0 END
+                                ELSE 0
+                            END
+                        ) AS week_points,
+                        SUM(
+                            CASE
+                                WHEN pl.created_at >= %s AND pl.created_at < %s
+                                THEN CASE WHEN pl.type = 0 THEN COALESCE(pl.num, 0)
+                                          WHEN pl.type = 1 THEN -COALESCE(pl.num, 0)
+                                          ELSE 0 END
+                                ELSE 0
+                            END
+                        ) AS month_points
+                    FROM point_logs pl
+                    INNER JOIN customer_groups cg ON cg.customer_id = pl.customer_id
+                    WHERE cg.group_id IN ({placeholders})
+                      AND pl.created_at >= %s AND pl.created_at < %s
+                    GROUP BY cg.group_id
+                    """,
+                    (week_start, week_end, month_start, month_end, *batch, lower_bound, upper_bound),
+                )
+                for row in cur.fetchall():
+                    group_id = row['group_id']
+                    week_result[group_id] = float(row.get('week_points') or 0)
+                    month_result[group_id] = float(row.get('month_points') or 0)
+    except Exception as exc:
+        _log.warning('CRM 群组周/月积分联合查询失败: %s', exc)
+    finally:
+        if conn:
+            conn.close()
+    return week_result, month_result

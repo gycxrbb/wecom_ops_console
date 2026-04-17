@@ -41,6 +41,7 @@ export type BatchQueueItem = {
   error?: string
   remarkEnabled?: boolean
   remark?: string
+  targetGroupIds?: number[]  // 积分排行时每条消息发送到不同群组
 }
 
 const DRAFT_KEY = 'send-center-draft'
@@ -769,6 +770,24 @@ export function useSendLogic() {
     selectedContentLabel.value = `批量发送 (${items.length} 项)`
   }
 
+  const handleRankingSelect = (items: Array<{ id: number; title: string; msg_type: string; description?: string; contentJson: Record<string, any>; variablesJson: Record<string, any>; targetGroupIds: number[] }>) => {
+    batchQueue.value = items.map(item => ({
+      id: item.id,
+      title: item.title,
+      msg_type: item.msg_type,
+      description: item.description || '',
+      contentJson: item.contentJson,
+      variablesJson: item.variablesJson || {},
+      status: 'pending' as const,
+      remarkEnabled: false,
+      remark: '',
+      targetGroupIds: item.targetGroupIds,
+    }))
+    selectedContentSource.value = null
+    selectedContentId.value = null
+    selectedContentLabel.value = `积分排行 (${items.length} 群)`
+  }
+
   const removeBatchItem = (index: number) => {
     batchQueue.value.splice(index, 1)
   }
@@ -804,8 +823,14 @@ export function useSendLogic() {
   }
 
   const handleBatchSend = async (testGroupOnly = false) => {
-    if (form.groups.length === 0) {
+    // 检查：如果有项目没有 targetGroupIds，需要 form.groups
+    const needsGlobalGroups = batchQueue.value.some(item => !item.targetGroupIds?.length)
+    if (needsGlobalGroups && form.groups.length === 0) {
       return ElMessage.warning('请至少选择一个群组')
+    }
+    const hasAnyTarget = batchQueue.value.every(item => item.targetGroupIds?.length || form.groups.length)
+    if (!hasAnyTarget) {
+      return ElMessage.warning('部分排行消息未绑定发送群，请先配置映射')
     }
     if (batchQueue.value.length === 0) return
 
@@ -848,14 +873,26 @@ export function useSendLogic() {
       }
     }
 
-    for (const entry of sendQueue) {
+    // 发送限速：同一群 20 条/分钟 → 每 3 秒发一条到不同群
+    const BATCH_SEND_INTERVAL_MS = 2000
+    const RATE_LIMIT_RETRY_MS = 65000  // 触发限速后等 65 秒重试
+    const isRateLimitError = (msg: string) => /20.*分钟.*限制|rate.?limit/i.test(msg)
+
+    for (let si = 0; si < sendQueue.length; si++) {
       if (batchCancelled.value) break
+      const entry = sendQueue[si]
       const item = entry.item
       item.status = 'sending'
       if (entry.index === -1) notifySendStatus.value = 'sending'
+
+      // 发送间隔（首条不等待）
+      if (si > 0) {
+        await new Promise(r => setTimeout(r, BATCH_SEND_INTERVAL_MS))
+      }
+
       try {
         const res = await request.post('/v1/send', {
-          group_ids: form.groups,
+          group_ids: item.targetGroupIds?.length ? item.targetGroupIds : form.groups,
           msg_type: item.msg_type,
           content_json: item.contentJson,
           variables_json: item.variablesJson,
@@ -863,17 +900,77 @@ export function useSendLogic() {
         })
         const failed = Array.isArray(res?.results) ? res.results.filter((r: any) => r?.success === false) : []
         if (failed.length > 0) {
-          item.status = 'failed'
-          item.error = failed.map((r: any) => r.response || r.error_message || '未知错误').join('; ')
-          if (entry.index === -1) notifySendStatus.value = 'failed'
+          const errMsg = failed.map((r: any) => r.response || r.error_message || '未知错误').join('; ')
+          // 触发限速 → 等待后重试一次
+          if (isRateLimitError(errMsg)) {
+            item.status = 'sending'
+            await new Promise(r => setTimeout(r, RATE_LIMIT_RETRY_MS))
+            if (batchCancelled.value) { item.status = 'failed'; item.error = '已取消'; break }
+            try {
+              const retryRes = await request.post('/v1/send', {
+                group_ids: item.targetGroupIds?.length ? item.targetGroupIds : form.groups,
+                msg_type: item.msg_type,
+                content_json: item.contentJson,
+                variables_json: item.variablesJson,
+                test_group_only: testGroupOnly
+              })
+              const retryFailed = Array.isArray(retryRes?.results) ? retryRes.results.filter((r: any) => r?.success === false) : []
+              if (retryFailed.length > 0) {
+                item.status = 'failed'
+                item.error = retryFailed.map((r: any) => r.response || r.error_message || '未知错误').join('; ')
+                if (entry.index === -1) notifySendStatus.value = 'failed'
+              } else {
+                item.status = 'success'
+                if (entry.index === -1) notifySendStatus.value = 'success'
+              }
+            } catch {
+              item.status = 'failed'
+              item.error = '重试仍失败：触发限速'
+              if (entry.index === -1) notifySendStatus.value = 'failed'
+            }
+          } else {
+            item.status = 'failed'
+            item.error = errMsg
+            if (entry.index === -1) notifySendStatus.value = 'failed'
+          }
         } else {
           item.status = 'success'
           if (entry.index === -1) notifySendStatus.value = 'success'
         }
       } catch (e: any) {
-        item.status = 'failed'
-        item.error = String(e)
-        if (entry.index === -1) notifySendStatus.value = 'failed'
+        const errMsg = String(e)
+        // 触发限速 → 等待后重试一次
+        if (isRateLimitError(errMsg)) {
+          item.status = 'sending'
+          await new Promise(r => setTimeout(r, RATE_LIMIT_RETRY_MS))
+          if (batchCancelled.value) { item.status = 'failed'; item.error = '已取消'; break }
+          try {
+            const retryRes = await request.post('/v1/send', {
+              group_ids: item.targetGroupIds?.length ? item.targetGroupIds : form.groups,
+              msg_type: item.msg_type,
+              content_json: item.contentJson,
+              variables_json: item.variablesJson,
+              test_group_only: testGroupOnly
+            })
+            const retryFailed = Array.isArray(retryRes?.results) ? retryRes.results.filter((r: any) => r?.success === false) : []
+            if (retryFailed.length > 0) {
+              item.status = 'failed'
+              item.error = '重试仍失败'
+              if (entry.index === -1) notifySendStatus.value = 'failed'
+            } else {
+              item.status = 'success'
+              if (entry.index === -1) notifySendStatus.value = 'success'
+            }
+          } catch {
+            item.status = 'failed'
+            item.error = '重试仍失败：触发限速'
+            if (entry.index === -1) notifySendStatus.value = 'failed'
+          }
+        } else {
+          item.status = 'failed'
+          item.error = errMsg
+          if (entry.index === -1) notifySendStatus.value = 'failed'
+        }
       }
     }
 
@@ -938,6 +1035,76 @@ export function useSendLogic() {
     })
   })
 
+  // ---- 队列定时发送 ----
+  const handleBatchQueueSchedule = async () => {
+    if (batchQueue.value.length === 0) {
+      return ElMessage.warning('发送队列为空')
+    }
+    if (!scheduleForm.title) {
+      return ElMessage.warning('请填写任务标题')
+    }
+    // 检查群组：如果所有 item 都有 targetGroupIds 则不需要全局 groups
+    const allHaveTargets = batchQueue.value.every(item => item.targetGroupIds?.length)
+    if (!allHaveTargets && form.groups.length === 0) {
+      return ElMessage.warning('请至少选择一个群组')
+    }
+
+    isScheduling.value = true
+    try {
+      // 构建 batch_items
+      const batchItems: Array<{ msg_type: string; content_json: any; variables_json: any; group_ids: number[] | null }> = []
+
+      // 推送预告（可选）
+      if (notifyEnabled.value && notifyCustomText.value.trim()) {
+        batchItems.push({
+          msg_type: 'markdown',
+          content_json: { content: notifyCustomText.value },
+          variables_json: {},
+          group_ids: allHaveTargets ? null : [...form.groups],
+        })
+      }
+
+      // 消息 + 备注
+      for (const item of batchQueue.value) {
+        batchItems.push({
+          msg_type: item.msg_type,
+          content_json: item.contentJson,
+          variables_json: item.variablesJson,
+          group_ids: item.targetGroupIds?.length ? [...item.targetGroupIds] : (allHaveTargets ? null : [...form.groups]),
+        })
+        if (item.remarkEnabled && item.remark?.trim()) {
+          batchItems.push({
+            msg_type: 'markdown',
+            content_json: { content: item.remark },
+            variables_json: {},
+            group_ids: item.targetGroupIds?.length ? [...item.targetGroupIds] : (allHaveTargets ? null : [...form.groups]),
+          })
+        }
+      }
+
+      await request.post('/v1/schedules', {
+        title: scheduleForm.title,
+        group_ids: allHaveTargets ? [0] : [...form.groups],  // 全局占位避免后端校验报错
+        schedule_type: scheduleForm.schedule_type,
+        run_at: scheduleForm.run_at || null,
+        cron_expr: scheduleForm.cron_expr || null,
+        timezone: scheduleForm.timezone || 'Asia/Shanghai',
+        approval_required: scheduleForm.approval_required,
+        skip_weekends: scheduleForm.skip_weekends,
+        skip_dates: [...scheduleForm.skip_dates],
+        msg_type: batchQueue.value[0]?.msg_type || 'markdown',
+        content_json: batchQueue.value[0]?.contentJson || {},
+        variables_json: batchQueue.value[0]?.variablesJson || {},
+        batch_items_json: batchItems,
+      })
+      ElMessage.success(`定时任务创建成功，包含 ${batchItems.length} 条消息`)
+    } catch (e: any) {
+      ElMessage.error('创建定时任务失败: ' + String(e))
+    } finally {
+      isScheduling.value = false
+    }
+  }
+
   return {
     groups,
     templates,
@@ -969,6 +1136,7 @@ export function useSendLogic() {
     isBatchItemPreviewing,
     selectBatchItem,
     handleBatchSelect,
+    handleRankingSelect,
     removeBatchItem,
     toggleBatchItemRemark,
     updateBatchItemRemark,
@@ -979,6 +1147,7 @@ export function useSendLogic() {
     handleBatchItemVariablesUpdate,
     handleBatchItemPreview,
     handleBatchItemSchedule,
+    handleBatchQueueSchedule,
     handleNotifyPreview,
     // 单条操作
     handleMsgTypeChange,

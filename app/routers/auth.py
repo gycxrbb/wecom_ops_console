@@ -9,6 +9,9 @@ router = APIRouter()
 
 @router.post('/login')
 def do_login(request: Request, username: str = Form(...), password: str = Form(...), db: Session = Depends(get_db)):
+    from ..security import decrypt_rsa_password
+    password = decrypt_rsa_password(password)
+
     try:
         user = authenticate(db, username, password)
     except CrmAdminAuthUnavailable:

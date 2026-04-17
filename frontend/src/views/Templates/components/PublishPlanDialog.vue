@@ -7,8 +7,10 @@
     :close-on-click-modal="false"
   >
     <div class="pub-intro">
-      <strong>将运营计划的所有节点按天转化为定时任务</strong>
-      <span>系统会根据开始日期和各时段发送时间，为每个节点创建一条"一次性"定时任务。</span>
+      <strong v-if="isCampaignMode">将积分运营计划按触发规则创建定时任务</strong>
+      <strong v-else>将运营计划的所有节点按天转化为定时任务</strong>
+      <span v-if="isCampaignMode">系统会根据每个阶段的触发规则自动创建 cron 或一次性任务。</span>
+      <span v-else>系统会根据开始日期和各时段发送时间，为每个节点创建一条"一次性"定时任务。</span>
     </div>
 
     <el-form label-width="96px" class="pub-form">
@@ -30,36 +32,49 @@
         </el-select>
       </el-form-item>
 
-      <el-form-item label="开始日期">
-        <el-date-picker
-          v-model="form.startDate"
-          type="date"
-          placeholder="选择开始日期"
-          value-format="YYYY-MM-DD"
-          style="width: 100%"
-          :disabled-date="disablePastDates"
-        />
-      </el-form-item>
-
-      <el-form-item label="发送时段">
-        <div class="pub-time-grid">
-          <div v-for="slot in timeSlots" :key="slot.key" class="pub-time-row">
-            <span class="pub-time-label">{{ slot.label }}</span>
-            <el-time-select
-              v-model="form.sendTimes[slot.key]"
-              :start="'06:00'"
-              :step="'00:15'"
-              :end="'23:00'"
-              placeholder="选择时间"
-              style="flex: 1"
-            />
-          </div>
+      <el-form-item :label="isCampaignMode ? '运营周期' : '开始日期'">
+        <div style="display: flex; gap: 8px; width: 100%">
+          <el-date-picker
+            v-model="form.startDate"
+            type="date"
+            :placeholder="isCampaignMode ? '开始日期' : '选择开始日期'"
+            value-format="YYYY-MM-DD"
+            style="flex: 1"
+            :disabled-date="disablePastDates"
+          />
+          <el-date-picker
+            v-if="isCampaignMode"
+            v-model="form.endDate"
+            type="date"
+            placeholder="结束日期"
+            value-format="YYYY-MM-DD"
+            style="flex: 1"
+            :disabled-date="disablePastDates"
+          />
         </div>
       </el-form-item>
 
-      <el-form-item label="跳过周末">
-        <el-switch v-model="form.skipWeekends" />
-      </el-form-item>
+      <template v-if="!isCampaignMode">
+        <el-form-item label="发送时段">
+          <div class="pub-time-grid">
+            <div v-for="slot in timeSlots" :key="slot.key" class="pub-time-row">
+              <span class="pub-time-label">{{ slot.label }}</span>
+              <el-time-select
+                v-model="form.sendTimes[slot.key]"
+                :start="'06:00'"
+                :step="'00:15'"
+                :end="'23:00'"
+                placeholder="选择时间"
+                style="flex: 1"
+              />
+            </div>
+          </div>
+        </el-form-item>
+
+        <el-form-item label="跳过周末">
+          <el-switch v-model="form.skipWeekends" />
+        </el-form-item>
+      </template>
 
       <el-form-item label="需要审批">
         <el-switch v-model="form.requireApproval" />
@@ -69,7 +84,7 @@
 
     <div v-if="previewCount > 0" class="pub-preview">
       <strong>预计创建 {{ previewCount }} 条定时任务</strong>
-      <span v-if="form.skipWeekends">（已跳过周末）</span>
+      <span v-if="!isCampaignMode && form.skipWeekends">（已跳过周末）</span>
     </div>
 
     <template #footer>
@@ -82,7 +97,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
 
@@ -92,6 +107,7 @@ const props = defineProps<{
   visible: boolean
   planId: number | null
   planName: string
+  planMode: string
   nodeCount: number
   dayCount: number
 }>()
@@ -101,12 +117,14 @@ const emit = defineEmits<{
   'published': []
 }>()
 
+const isCampaignMode = computed(() => props.planMode === 'points_campaign')
 const publishing = ref(false)
 const groups = ref<GroupItem[]>([])
 
 const form = reactive({
   groupIds: [] as number[],
   startDate: '',
+  endDate: '',
   sendTimes: {
     morning: '08:00',
     before_lunch: '11:00',
@@ -130,6 +148,9 @@ const timeSlots = [
 
 const previewCount = computed(() => {
   if (!props.nodeCount) return 0
+  if (isCampaignMode.value) {
+    return props.nodeCount
+  }
   if (form.skipWeekends) {
     const weekdays = Math.ceil(props.dayCount * 5 / 7)
     return weekdays * props.nodeCount / props.dayCount
@@ -137,9 +158,12 @@ const previewCount = computed(() => {
   return props.nodeCount
 })
 
-const canPublish = computed(() =>
-  form.groupIds.length > 0 && form.startDate && props.planId
-)
+const canPublish = computed(() => {
+  if (!props.planId || form.groupIds.length === 0) return false
+  if (!form.startDate) return false
+  if (isCampaignMode.value && !form.endDate) return false
+  return true
+})
 
 const disablePastDates = (date: Date) => date < new Date(new Date().setHours(0, 0, 0, 0))
 
@@ -157,6 +181,13 @@ watch(() => props.visible, (val) => {
     const tomorrow = new Date()
     tomorrow.setDate(tomorrow.getDate() + 1)
     form.startDate = tomorrow.toISOString().slice(0, 10)
+    if (isCampaignMode.value) {
+      const end = new Date(tomorrow)
+      end.setDate(end.getDate() + 30)
+      form.endDate = end.toISOString().slice(0, 10)
+    } else {
+      form.endDate = ''
+    }
   }
 })
 
@@ -167,6 +198,7 @@ const handlePublish = async () => {
     const result: any = await request.post(`/v1/operation-plans/${props.planId}/publish`, {
       group_ids: form.groupIds,
       start_date: form.startDate,
+      end_date: form.endDate,
       send_times: form.sendTimes,
       skip_weekends: form.skipWeekends,
       require_approval: form.requireApproval,
