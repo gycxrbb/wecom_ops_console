@@ -525,6 +525,7 @@ export function useSendLogic() {
   // ---- 手动队列发送（纯手写模式下管理多条消息）----
   const manualQueue = ref<BatchQueueItem[]>([])
   const isManualSending = ref(false)
+  const manualCancelled = ref(false)
   let isSwitchingManualQueueItem = false
 
   const activeManualQueueIndex = ref<number | null>(null)
@@ -688,6 +689,7 @@ export function useSendLogic() {
     saveFormToActiveManualQueueItem()
 
     isManualSending.value = true
+    manualCancelled.value = false
     for (const item of manualQueue.value) {
       item.status = 'pending'
       item.error = undefined
@@ -711,6 +713,13 @@ export function useSendLogic() {
     }
 
     for (const item of sendItems) {
+      if (manualCancelled.value) {
+        if (item.status === 'pending' || item.status === 'sending') {
+          item.status = 'failed'
+          item.error = '已取消'
+        }
+        break
+      }
       item.status = 'sending'
       try {
         const res = await request.post('/v1/send', {
@@ -741,13 +750,19 @@ export function useSendLogic() {
     const total = manualQueue.value.length
     const firstError = failedItems.length > 0 ? failedItems[0].error : ''
 
-    if (failed === 0) {
+    if (manualCancelled.value) {
+      ElMessage.warning(`队列发送已取消：${success}/${total} 成功`)
+    } else if (failed === 0) {
       ElMessage.success(`队列发送完成：${total} 条全部成功`)
     } else if (success === 0) {
       ElMessage.error(`队列发送失败：全部 ${total} 条发送失败${firstError ? '，原因：' + firstError : ''}`)
     } else {
       ElMessage.warning(`队列发送完成：${success} 成功，${failed} 失败${firstError ? '，原因：' + firstError : ''}`)
     }
+  }
+
+  const cancelManualSend = () => {
+    manualCancelled.value = true
   }
 
   // ---- 批量发送方法 ----
@@ -1164,6 +1179,7 @@ export function useSendLogic() {
     removeFromManualQueue,
     clearManualQueue,
     sendManualQueue,
+    cancelManualSend,
     toggleManualQueueRemark,
     updateManualQueueRemark,
     activeManualQueueIndex,

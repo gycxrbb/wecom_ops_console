@@ -9,8 +9,9 @@ import time
 from typing import Any
 
 from .crm_group_directory import fetch_crm_group_members, fetch_crm_group_members_bulk, crm_group_enabled
-from .crm_points_insights import detect_individual_insights
+from .crm_points_insights import detect_individual_insights_bulk
 from .crm_speech_templates import build_insight_speech
+from .crm_1v1_actions import generate_1v1_actions
 
 _log = logging.getLogger(__name__)
 
@@ -57,6 +58,7 @@ def _generate_group_ranking_message_from_members(
     rank_metric: str = 'current_points',
     include_week_month: bool = True,
     speech_style: str = 'professional',
+    insights: list[dict] | None = None,
 ) -> dict[str, Any] | None:
     if not members:
         return None
@@ -92,8 +94,10 @@ def _generate_group_ranking_message_from_members(
         )
 
     speech = _SPEECH_TEMPLATES.get(speech_style, _SPEECH_TEMPLATES['professional'])
-    insight_candidates = ranked_members[:_INSIGHT_MEMBER_LIMIT]
-    insights = detect_individual_insights(ranked_members, insight_candidates)
+    if insights is None:
+        insight_candidates = ranked_members[:_INSIGHT_MEMBER_LIMIT]
+        from .crm_points_insights import detect_individual_insights
+        insights = detect_individual_insights(ranked_members, insight_candidates)
     insight_speeches = []
     for insight in insights[:5]:
         insight_speeches.extend(build_insight_speech(insight, speech_style, max_speeches=1))
@@ -178,25 +182,59 @@ def preview_ranking_batch(
     load_members_started_at = time.perf_counter()
     group_members_map = fetch_crm_group_members_bulk(crm_group_ids)
     load_members_ms = int((time.perf_counter() - load_members_started_at) * 1000)
-    build_items_started_at = time.perf_counter()
-    slow_groups: list[dict[str, Any]] = []
+
+    # ── 预处理：为每群排序并收集洞察候选人 ──
+    preprocessed: list[tuple[int, str, list[dict], list[dict]]] = []  # (gid, name, members, ranked)
     for gid in crm_group_ids:
-        group_started_at = time.perf_counter()
         group_payload = group_members_map.get(gid)
         group_name = (
             group_payload.get('group_name')
             if group_payload
             else crm_group_names.get(gid, f'群#{gid}')
         )
+        members = group_payload.get('members', []) if group_payload else []
+        positive_members = [m for m in members if float(m.get('current_points', 0) or 0) > 0]
+        positive_members.sort(key=lambda m: float(m.get(rank_metric, 0) or 0), reverse=True)
+        ranked = positive_members[:top_n]
+        preprocessed.append((gid, group_name, members, ranked))
+
+    # ── 批量洞察：一次 point_logs 查询覆盖所有群 ──
+    insights_started_at = time.perf_counter()
+    groups_candidates: list[tuple[list[dict], list[dict]]] = []
+    valid_indices: list[int] = []  # 记录哪些索引有有效 ranked_list
+    for idx, (gid, gname, members, ranked) in enumerate(preprocessed):
+        if ranked:
+            groups_candidates.append((members, ranked[:_INSIGHT_MEMBER_LIMIT]))
+            valid_indices.append(idx)
+
+    bulk_insights_map: dict[int, list[dict]] = {}
+    insights_skipped = False
+    if groups_candidates:
+        try:
+            bulk_results = detect_individual_insights_bulk(groups_candidates)
+            for i, result_idx in enumerate(valid_indices):
+                bulk_insights_map[result_idx] = bulk_results[i]
+        except Exception as exc:
+            _log.warning('批量洞察查询失败，降级为纯排行: %s', exc)
+            insights_skipped = True
+    insights_ms = int((time.perf_counter() - insights_started_at) * 1000)
+    _log.info('批量洞察耗时: %dms (groups=%d candidates=%d)', insights_ms, len(preprocessed), len(groups_candidates))
+
+    # ── 生成消息 ──
+    build_items_started_at = time.perf_counter()
+    slow_groups: list[dict[str, Any]] = []
+    for idx, (gid, group_name, members, ranked) in enumerate(preprocessed):
+        group_started_at = time.perf_counter()
         try:
             msg = _generate_group_ranking_message_from_members(
                 crm_group_id=gid,
                 crm_group_name=group_name,
-                members=group_payload.get('members', []) if group_payload else [],
+                members=members,
                 top_n=top_n,
                 rank_metric=rank_metric,
                 include_week_month=include_week_month,
                 speech_style=speech_style,
+                insights=bulk_insights_map.get(idx),
             )
             if msg is None:
                 items.append(_build_skipped_item(gid, group_name, '该群无正积分成员'))
@@ -208,6 +246,11 @@ def preview_ranking_batch(
                     'local_group_id': None,
                     'local_group_name': None,
                     'has_binding': False,
+                    'followup_1v1': generate_1v1_actions(
+                        msg.get('insights', []),
+                        crm_group_name=group_name,
+                        speech_style=speech_style,
+                    ),
                 }
             )
         except Exception as exc:
@@ -220,7 +263,7 @@ def preview_ranking_batch(
                     {
                         'crm_group_id': gid,
                         'crm_group_name': group_name,
-                        'member_count': len(group_payload.get('members', [])) if group_payload else 0,
+                        'member_count': len(members),
                         'elapsed_ms': elapsed_ms,
                     }
                 )
@@ -233,6 +276,8 @@ def preview_ranking_batch(
         'returned_item_count': len(items),
         'skipped_group_count': skipped_group_count,
         'load_members_ms': load_members_ms,
+        'insights_ms': insights_ms,
+        'insights_skipped': insights_skipped,
         'generate_items_ms': generate_items_ms,
         'total_ms': total_ms,
         'slow_groups': sorted(slow_groups, key=lambda item: item['elapsed_ms'], reverse=True)[:5],

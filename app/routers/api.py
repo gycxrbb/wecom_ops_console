@@ -31,7 +31,7 @@ router = APIRouter(prefix='/api/v1', tags=['api_v1'], route_class=UnifiedRespons
 @router.get('/auth/public-key')
 async def api_public_key():
     from ..security import get_rsa_public_key
-    return {'code': 0, 'data': {'public_key': get_rsa_public_key()}}
+    return {'code': 0, 'message': 'success', 'data': {'public_key': get_rsa_public_key()}}
 
 @router.post('/auth/login')
 async def api_login(request: Request, db: Session = Depends(get_db)):
@@ -172,7 +172,9 @@ def get_schedule_status(schedule: models.Schedule) -> str:
 def sync_schedule_legacy_fields(schedule: models.Schedule) -> None:
     group_ids = json_loads(schedule.group_ids_json, [])
     schedule.name = schedule.title or schedule.name
-    schedule.group_id = int(group_ids[0]) if group_ids else 0
+    valid_gids = [g for g in group_ids if g and g != 0]
+    if valid_gids:
+        schedule.group_id = int(valid_gids[0])
     schedule.content_snapshot = schedule.content or schedule.content_snapshot
     schedule.skip_dates = schedule.skip_dates_json or schedule.skip_dates
     schedule.require_approval = 1 if schedule.approval_required else 0
@@ -937,12 +939,27 @@ async def create_or_update_schedule(request: Request, db: Session = Depends(get_
     if not group_ids and not batch_items:
         raise HTTPException(400, '请选择至少一个群')
     job.title = data['title']
+    # batch_items 模式：从 batch_items 中提取真实目标群 ID（前端可能传 [0] 占位）
+    if batch_items and (not group_ids or group_ids == [0]):
+        extracted_gids: set[int] = set()
+        for item in batch_items:
+            for gid in (item.get('group_ids') or []):
+                if gid and gid != 0:
+                    extracted_gids.add(gid)
+        if extracted_gids:
+            group_ids = sorted(extracted_gids)
     job.group_ids_json = json_dumps(group_ids) if group_ids else '[]'
     job.template_id = data.get('template_id')
     job.msg_type = data.get('msg_type', 'markdown')
     job.content = json_dumps(data.get('content_json', {}))
     job.variables = json_dumps(data.get('variables_json', {}))
     job.batch_items_json = json_dumps(batch_items) if batch_items else None
+    # group_id 外键：取第一个有效的群 ID
+    primary_gid = data.get('group_id')
+    if (not primary_gid or primary_gid == 0) and group_ids:
+        primary_gid = group_ids[0] if group_ids[0] != 0 else None
+    if primary_gid:
+        job.group_id = primary_gid
     job.schedule_type = data.get('schedule_type', 'none')
     run_at = data.get('run_at')
     job.run_at = datetime.fromisoformat(run_at) if run_at else None

@@ -29,4 +29,6 @@
   - 后端启动失败：环境缺少 `passlib`，报错 `ModuleNotFoundError: No module named 'passlib'`。
   - 前端构建失败：现有 `frontend/tsconfig.json` 的 `ignoreDeprecations` 配置与当前 `vue-tsc` 不兼容，非本次改动引入。
   - 前端 `npm run dev -- --host 0.0.0.0 --port 5173` 在当前环境 24 秒内未返回可用日志，进程超时退出，未能完成可用性确认。
+- 已基于现场慢日志 `total_ms=97495` 追加专项分析报告：`docs/CRM_POINTS_RANKING_TIMEOUT_REPORT.md`。
+- 报告已明确当前主要瓶颈不在成员排行本体，而在 `point_logs` 洞察仍按群串行实时执行；并给出批量查询、洞察降级、索引 `EXPLAIN`、画像聚合等优化优先级。
 - 下一步：如果继续推进，建议在具备 `passlib` 和可用前端 TypeScript 配置的环境里，实测一次“多群积分排行生成”并观察新加的后端阶段日志，确认真实耗时是否已经回落到 60 秒以内。

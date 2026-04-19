@@ -12,6 +12,7 @@ from ..database import get_db
 from ..route_helper import UnifiedResponseRoute
 from ..security import get_current_user
 from ..services import crm_group_bindings, crm_points_ranking, crm_group_directory
+from ..services.crm_global_ranking import generate_global_overview
 
 router = APIRouter(prefix='/api/v1/crm-points', tags=['crm-points'], route_class=UnifiedResponseRoute)
 _log = logging.getLogger(__name__)
@@ -33,6 +34,12 @@ class RankingPreviewReq(BaseModel):
     speech_style: str = 'professional'
     include_week_month: bool = True
     skip_empty_groups: bool = True
+
+
+class GlobalRankingReq(BaseModel):
+    crm_group_ids: list[int]
+    top_n: int = 10
+    speech_style: str = 'professional'
 
 
 # ── 发送映射 CRUD ────────────────────────────────────────────
@@ -150,3 +157,20 @@ def preview_ranking(req: RankingPreviewReq, request: Request, db: Session = Depe
         )
 
     return {'items': items, 'diagnostics': diagnostics}
+
+
+@router.post('/preview-global-ranking')
+def preview_global_ranking(req: GlobalRankingReq, request: Request, db: Session = Depends(get_db)):
+    """生成跨群全局排行消息（20 社群 PK + 跨群 TOP10），发送到指定单个群"""
+    get_current_user(request, db)
+
+    crm_group_names = crm_group_directory.fetch_crm_group_names(req.crm_group_ids)
+    result = generate_global_overview(
+        crm_group_ids=req.crm_group_ids,
+        crm_group_names=crm_group_names,
+        top_n=req.top_n,
+        speech_style=req.speech_style,
+    )
+    if not result:
+        return {'ok': False, 'message': '无有效积分数据'}
+    return {'ok': True, 'data': result}

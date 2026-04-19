@@ -53,6 +53,7 @@
           @removeQueueItem="removeFromManualQueue"
           @clearQueue="clearManualQueue"
           @sendQueue="handleSendQueue"
+          @cancelManualSend="cancelManualSend"
           @toggleQueueRemark="toggleManualQueueRemark"
           @updateQueueRemark="updateManualQueueRemark"
           @selectManualQueueItem="handleSelectManualQueueItem"
@@ -241,6 +242,7 @@ const {
   removeFromManualQueue,
   clearManualQueue,
   sendManualQueue,
+  cancelManualSend,
   toggleManualQueueRemark,
   updateManualQueueRemark,
   activeManualQueueIndex,

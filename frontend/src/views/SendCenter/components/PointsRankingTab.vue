@@ -153,6 +153,13 @@
         >
           生成排行消息 ({{ checkedGroupIds.size }} 群)
         </el-button>
+        <el-button
+          :disabled="checkedGroupIds.size === 0"
+          :loading="generatingGlobal"
+          @click="generateGlobalRanking"
+        >
+          跨群总排行 ({{ checkedGroupIds.size }} 群)
+        </el-button>
         <span v-if="generating && generateProgress" class="ranking-actions__progress">
           {{ generateProgress }}
         </span>
@@ -261,6 +268,7 @@ const emit = defineEmits<{
 
 const loading = ref(true)
 const generating = ref(false)
+const generatingGlobal = ref(false)
 const generateProgress = ref('')
 const autoBinding = ref(false)
 const crmAvailable = ref(false)
@@ -410,6 +418,49 @@ const createBinding = async (crmGroupId: number, crmGroupName: string, localGrou
     await fetchBindings()
   } catch (e: any) {
     ElMessage.error('绑定创建失败: ' + String(e))
+  }
+}
+
+const generateGlobalRanking = async () => {
+  const allIds = [...checkedGroupIds.value]
+  if (allIds.length === 0) return
+
+  // 需要一个发送目标群 — 优先用批量绑定的群
+  const targetBinding = bindings.value.find((b: any) => b.enabled)
+  if (!targetBinding) {
+    ElMessage.warning('请先绑定至少一个发送目标群')
+    return
+  }
+
+  generatingGlobal.value = true
+  try {
+    const res: any = await request.post('/v1/crm-points/preview-global-ranking', {
+      crm_group_ids: allIds,
+      top_n: 10,
+      speech_style: config.value.speechStyle,
+    }, { timeout: 120000 })
+
+    if (!res.ok || !res.data) {
+      ElMessage.warning(res.message || '无有效积分数据')
+      return
+    }
+
+    const data = res.data
+    const batchItems = [{
+      id: -1,
+      title: '🏆 首钢减重项目 — 跨群总排行',
+      msg_type: 'markdown',
+      description: `覆盖 ${data.group_count} 个社群，${data.member_count} 位活跃成员`,
+      contentJson: data.content_json,
+      variablesJson: {},
+      targetGroupIds: [targetBinding.local_group_id],
+    }]
+    emit('select-ranking', batchItems)
+    ElMessage.success(`已生成跨群总排行（${data.group_count} 群，TOP10 个人 + 社群 PK）`)
+  } catch (e: any) {
+    ElMessage.error('生成跨群排行失败: ' + String(e?.message || e))
+  } finally {
+    generatingGlobal.value = false
   }
 }
 

@@ -382,6 +382,15 @@
             >
               测试队列发送
             </el-button>
+            <el-button
+              v-if="isManualSending"
+              size="small"
+              type="danger"
+              text
+              @click="$emit('cancelManualSend')"
+            >
+              <el-icon><Close /></el-icon> 取消发送
+            </el-button>
           </div>
         </template>
       </div>
@@ -433,7 +442,7 @@ defineEmits([
   // 预告通知
   'update:notifyEnabled', 'update:notifyCustomText',
   // 手动队列
-  'addToQueue', 'removeQueueItem', 'clearQueue', 'sendQueue',
+  'addToQueue', 'removeQueueItem', 'clearQueue', 'sendQueue', 'cancelManualSend',
   'toggleQueueRemark', 'updateQueueRemark',
   'selectManualQueueItem'
 ])

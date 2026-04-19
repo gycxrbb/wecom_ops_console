@@ -72,6 +72,19 @@ POINTS_CAMPAIGN_STAGES: list[dict[str, Any]] = [
             {'node_type': 'group_ranking_publish', 'title': '积分排行发布', 'msg_type': 'markdown',
              'description': '自动生成各群积分排行并发送'},
         ],
+        'core_actions': [
+            '发榜：生成并推送各群积分排行',
+            '表扬前6名（金百花奖冲刺区）',
+            '表扬连续打卡成员',
+            '鼓励回归用户',
+            '提醒潜水/观望用户',
+            '提及社群月度PK',
+        ],
+        'followup_1v1': [
+            '私发TOP3：鼓励稳住排名',
+            '私发连续打卡7+天：肯定坚持',
+            '私发3天未打卡：温和提醒',
+        ],
     },
     {
         'stage_key': 'weekly_review',
@@ -83,6 +96,19 @@ POINTS_CAMPAIGN_STAGES: list[dict[str, Any]] = [
         'node_presets': [
             {'node_type': 'weekly_points_review', 'title': '周积分复盘', 'msg_type': 'markdown',
              'description': '本周各群积分汇总与亮点'},
+        ],
+        'core_actions': [
+            '本周积分总结：各群总分、个人TOP6',
+            '表扬周TOP6',
+            '表扬本周暴涨/黑马成员',
+            '鼓励掉队成员重新跟上',
+            '社群PK排名播报',
+            '轻科普：健康减重小知识',
+        ],
+        'followup_1v1': [
+            '表扬进步最快成员',
+            '邀请分享减重心得',
+            '2周未打卡成员1v1关怀',
         ],
     },
     {
@@ -97,6 +123,16 @@ POINTS_CAMPAIGN_STAGES: list[dict[str, Any]] = [
              'description': '识别并表扬近期积分爆发增长的成员'},
             {'node_type': 'group_pk_broadcast', 'title': '群PK播报', 'msg_type': 'markdown',
              'description': '跨群积分PK排行'},
+        ],
+        'core_actions': [
+            '倒计时提醒：结营还有XX天',
+            '动员前6名稳住排名',
+            '中间段成员冲刺动员',
+            '后段成员逆袭鼓励',
+        ],
+        'followup_1v1': [
+            '重点用户群内@提醒打卡',
+            '差几分进前6的私发鼓励',
         ],
     },
     {
@@ -114,6 +150,15 @@ POINTS_CAMPAIGN_STAGES: list[dict[str, Any]] = [
             {'node_type': 'group_pk_broadcast', 'title': '群PK播报', 'msg_type': 'markdown',
              'description': '跨群积分PK排行'},
         ],
+        'core_actions': [
+            '早晚双重动员提醒',
+            '强化前6名稳住',
+            '重点鼓励中间段冲刺',
+        ],
+        'followup_1v1': [
+            '差几分进前6的群内@鼓励',
+            '3天未打卡紧急提醒',
+        ],
     },
     {
         'stage_key': 'sprint_final_1',
@@ -128,6 +173,15 @@ POINTS_CAMPAIGN_STAGES: list[dict[str, Any]] = [
             {'node_type': 'group_pk_broadcast', 'title': '最终PK排行', 'msg_type': 'markdown',
              'description': '最终跨群PK排行'},
         ],
+        'core_actions': [
+            '最终冲刺提醒',
+            '最后打卡号召',
+            '强调明天就是结营',
+        ],
+        'followup_1v1': [
+            'TOP10务必打卡提醒',
+            '后6名最后鼓励',
+        ],
     },
     {
         'stage_key': 'closing_day',
@@ -141,6 +195,16 @@ POINTS_CAMPAIGN_STAGES: list[dict[str, Any]] = [
              'description': '最终积分排行发布'},
             {'node_type': 'dropout_reactivation', 'title': '未达标关怀', 'msg_type': 'markdown',
              'description': '对未达标成员的鼓励关怀'},
+        ],
+        'core_actions': [
+            '公布最终榜单',
+            '获奖公示（金百花奖 / 绿草莓奖）',
+            '感谢全员参与',
+            '社群PK最终排名',
+        ],
+        'followup_1v1': [
+            '获奖成员恭喜私发',
+            '绿草莓奖温柔鼓励',
         ],
     },
 ]
