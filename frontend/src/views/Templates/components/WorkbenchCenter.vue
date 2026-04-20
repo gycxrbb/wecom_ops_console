@@ -481,6 +481,26 @@ const updateTriggerTime = (val: string) => {
   background: rgba(251, 191, 36, 0.14);
   color: #fbbf24;
 }
+
+@media (max-width: 767px) {
+  .wb-center {
+    padding: 12px;
+    border-radius: 14px;
+  }
+  .wb-day-overview__header {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .wb-day-overview__actions {
+    flex-wrap: wrap;
+  }
+  .wb-center__timeline-actions {
+    flex-wrap: wrap;
+  }
+  .wb-node-item__head {
+    flex-wrap: wrap;
+  }
+}
 </style>
 
 <style>

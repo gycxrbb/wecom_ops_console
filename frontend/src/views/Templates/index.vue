@@ -11,7 +11,7 @@
       <div class="plans-hero__actions">
         <el-button plain size="large" @click="handleSwitchView('templates')">查看模板库</el-button>
         <el-button plain size="large" @click="openSopImportDialog">导入 SOP</el-button>
-        <el-button v-if="activeView === 'plans' && currentPlan" plain size="large" @click="publishDialogVisible = true">发布到群</el-button>
+        <el-button v-if="activeView === 'plans' && currentDay" plain size="large" @click="handlePublishToGroups">发送到群</el-button>
         <el-button type="primary" size="large" @click="openCreatePlan">新建运营主题</el-button>
       </div>
     </div>
@@ -556,15 +556,6 @@
       </div>
     </el-dialog>
 
-    <PublishPlanDialog
-      v-model:visible="publishDialogVisible"
-      :plan-id="currentPlan?.id ?? null"
-      :plan-name="currentPlan?.name ?? ''"
-      :plan-mode="currentPlan?.plan_mode ?? 'day_flow'"
-      :node-count="currentPlan?.node_count ?? 0"
-      :day-count="days.length"
-      @published="fetchPlans"
-    />
   </div>
 </template>
 
@@ -577,7 +568,7 @@ import { Search, ArrowDown } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import MessageEditor from '@/components/message-editor/index.vue'
 import PreviewCard from '@/views/SendCenter/components/PreviewCard.vue'
-import { onBeforeRouteLeave } from 'vue-router'
+import { onBeforeRouteLeave, useRouter } from 'vue-router'
 import { useTemplates, msgTypeLabel, msgTypeOptions, supportsVariables } from './composables/useTemplates'
 import type { TemplateItem } from './composables/useTemplates'
 import { useOperationPlans } from './composables/useOperationPlans'
@@ -586,7 +577,6 @@ import { useWorkbenchActions } from './composables/useWorkbenchActions'
 import WorkbenchLeftNav from './components/WorkbenchLeftNav.vue'
 import WorkbenchCenter from './components/WorkbenchCenter.vue'
 import WorkbenchEditor from './components/WorkbenchEditor.vue'
-import PublishPlanDialog from './components/PublishPlanDialog.vue'
 import request from '@/utils/request'
 import { useMobile } from '@/composables/useMobile'
 
@@ -671,8 +661,8 @@ const nodeDirty = ref(false)
 const dayDirty = ref(false)
 const nodeSaving = ref(false)
 const daySaving = ref(false)
-const publishDialogVisible = ref(false)
 
+const router = useRouter()
 const { isMobile } = useMobile()
 const activeMobilePanel = ref<'nav' | 'nodes' | 'editor'>('nav')
 
@@ -1083,6 +1073,32 @@ const handleApplyTemplate = async () => {
     variables_json: parseTemplateJson(template.variables_json ?? template.variable_schema)
   })
   ElMessage.success('模板内容已填入草稿，记得点击保存')
+}
+
+const handlePublishToGroups = () => {
+  if (!currentDay.value) {
+    ElMessage.warning('请先选择一天')
+    return
+  }
+  const items: { id: number; title: string; msg_type: string; description: string; contentJson: any; variablesJson: any }[] = []
+  for (const node of (nodes.value || [])) {
+    if (node.enabled && node.status === 'ready') {
+      items.push({
+        id: node.id,
+        title: node.title,
+        msg_type: node.msg_type,
+        description: node.description || '',
+        contentJson: node.content_json,
+        variablesJson: node.variables_json,
+      })
+    }
+  }
+  if (!items.length) {
+    ElMessage.warning('当前天没有可发布的节点')
+    return
+  }
+  sessionStorage.setItem('send-center-prefill', JSON.stringify(items))
+  router.push('/send')
 }
 
 watch(() => currentNode.value?.id, () => {

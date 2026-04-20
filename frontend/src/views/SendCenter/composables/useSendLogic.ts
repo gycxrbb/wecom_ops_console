@@ -785,6 +785,18 @@ export function useSendLogic() {
     selectedContentLabel.value = `批量发送 (${items.length} 项)`
   }
 
+  const consumePrefill = () => {
+    const raw = sessionStorage.getItem('send-center-prefill')
+    if (!raw) return
+    sessionStorage.removeItem('send-center-prefill')
+    try {
+      const items = JSON.parse(raw)
+      if (Array.isArray(items) && items.length > 0) {
+        handleBatchSelect(items)
+      }
+    } catch { /* ignore */ }
+  }
+
   const handleRankingSelect = (items: Array<{ id: number; title: string; msg_type: string; description?: string; contentJson: Record<string, any>; variablesJson: Record<string, any>; targetGroupIds: number[] }>) => {
     batchQueue.value = items.map(item => ({
       id: item.id,
@@ -1033,7 +1045,9 @@ export function useSendLogic() {
   )
 
   onMounted(() => {
-    fetchBaseData()
+    fetchBaseData().then(() => {
+      consumePrefill()
+    })
   })
 
   onBeforeUnmount(() => {

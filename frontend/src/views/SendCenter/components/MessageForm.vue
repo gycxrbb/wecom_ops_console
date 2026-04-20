@@ -750,6 +750,7 @@ const tagTypeByMsgType = (msgType: string) => {
 .action-footer__row {
   display: flex;
   gap: 10px;
+  flex-wrap: wrap;
 }
 .action-footer__sub {
   display: flex;
@@ -769,6 +770,7 @@ const tagTypeByMsgType = (msgType: string) => {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
 }
 .notify-label {
   font-size: 13px;

@@ -7,7 +7,7 @@
       <h3 class="card-header-title">定时任务</h3>
     </div>
     <div class="card-body">
-      <el-form label-width="90px" label-position="left">
+      <el-form label-width="90px" label-position="top">
         <el-form-item label="任务标题" required>
           <el-input v-model="scheduleForm.title" placeholder="如: 每日早报推送" />
         </el-form-item>

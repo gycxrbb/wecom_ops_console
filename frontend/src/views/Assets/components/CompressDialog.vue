@@ -206,6 +206,7 @@ const handleUploadOriginal = () => {
   align-items: center;
   gap: 12px;
   padding: 12px 14px;
+  flex-wrap: wrap;
   border: 1px solid var(--border-color);
   border-radius: 10px;
   cursor: pointer;
