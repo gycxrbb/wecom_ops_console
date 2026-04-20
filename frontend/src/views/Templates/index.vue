@@ -11,6 +11,7 @@
       <div class="plans-hero__actions">
         <el-button plain size="large" @click="handleSwitchView('templates')">查看模板库</el-button>
         <el-button plain size="large" @click="openSopImportDialog">导入 SOP</el-button>
+        <el-button plain size="large" @click="createCampaignFromPreset">创建积分运营计划</el-button>
         <el-button v-if="activeView === 'plans' && currentDay" plain size="large" @click="handlePublishToGroups">发送到群</el-button>
         <el-button type="primary" size="large" @click="openCreatePlan">新建运营主题</el-button>
       </div>
@@ -309,8 +310,17 @@
     <el-dialog v-model="sopImportDialogVisible" title="导入 SOP" width="760px">
       <div class="sop-import-dialog">
         <div class="sop-import-dialog__intro">
-          <strong>支持上传 SOP Excel 或阶段配置 JSON</strong>
-          <span>Excel 会解析第一个 sheet（sheet1），JSON 会按当前第一阶段配置格式直接导入，都会先做预检查再确认入库。</span>
+          <strong>选择导入类型并上传文件</strong>
+          <el-select v-model="sopImportType" style="margin-top: 8px; width: 100%">
+            <el-option label="日程运营类（SOP Excel / JSON）" value="daily_sop" />
+            <el-option label="积分运营类（积分阶段配置 Excel）" value="points_campaign" />
+          </el-select>
+          <span v-if="sopImportType === 'daily_sop'" style="margin-top:4px;display:block;font-size:12px;color:var(--text-secondary)">
+            Excel 解析 sheet1，JSON 按阶段配置格式导入，先预检查再入库。
+          </span>
+          <span v-else style="margin-top:4px;display:block;font-size:12px;color:var(--text-secondary)">
+            积分运营 Excel 需包含"阶段名称"和"核心动作"列表头的 sheet，可附带话术模板 sheet。
+          </span>
         </div>
 
         <el-upload
@@ -318,12 +328,14 @@
           drag
           :auto-upload="false"
           :limit="1"
-          accept=".xlsx,.json,application/json"
+          :accept="sopImportType === 'daily_sop' ? '.xlsx,.json,application/json' : '.xlsx'"
           :on-change="handleSopFileChange"
           :on-remove="handleSopFileRemove"
         >
-          <div>拖拽 `.xlsx` / `.json` 文件到这里，或点击选择文件</div>
-          <div class="el-upload__tip">Excel 当前专门适配 sheet1；JSON 当前专门适配你整理的阶段配置格式。</div>
+          <div>拖拽 `.xlsx`{{ sopImportType === 'daily_sop' ? ' / `.json`' : '' }} 文件到这里，或点击选择文件</div>
+          <div class="el-upload__tip">
+            {{ sopImportType === 'daily_sop' ? 'Excel 适配 sheet1；JSON 适配阶段配置格式。' : '积分运营类仅支持 .xlsx 格式。' }}
+          </div>
         </el-upload>
 
         <div class="sop-import-dialog__actions">
@@ -655,6 +667,7 @@ const sopImportFile = ref<File | null>(null)
 const sopImportPreview = ref<any | null>(null)
 const sopImportPreviewing = ref(false)
 const sopImporting = ref(false)
+const sopImportType = ref<'daily_sop' | 'points_campaign'>('daily_sop')
 const nodeDraft = ref<Partial<PlanNode> | null>(null)
 const dayDraft = ref<Partial<PlanDay> | null>(null)
 const nodeDirty = ref(false)
@@ -923,6 +936,7 @@ const openSopImportDialog = () => {
   sopImportDialogVisible.value = true
   sopImportPreview.value = null
   sopImportFile.value = null
+  sopImportType.value = 'daily_sop'
 }
 
 const handleSopFileChange = (uploadFile: any) => {
@@ -944,6 +958,7 @@ const previewSopImport = async () => {
   try {
     const formData = new FormData()
     formData.append('file', sopImportFile.value)
+    formData.append('import_type', sopImportType.value)
     sopImportPreview.value = await request.post('/v1/operation-plans/import/preview', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
@@ -961,6 +976,7 @@ const confirmSopImport = async () => {
   try {
     const formData = new FormData()
     formData.append('file', sopImportFile.value)
+    formData.append('import_type', sopImportType.value)
     const result: any = await request.post('/v1/operation-plans/import', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
@@ -979,6 +995,22 @@ const confirmSopImport = async () => {
     ElMessage.error('SOP 导入失败')
   } finally {
     sopImporting.value = false
+  }
+}
+
+const createCampaignFromPreset = async () => {
+  try {
+    const result: any = await request.post('/v1/operation-plans/create-campaign')
+    await fetchPlans()
+    if (result?.plan_id) {
+      activeView.value = 'plans'
+      window.localStorage.setItem('templates-active-view', 'plans')
+      await handleSelectPlan(result.plan_id)
+    }
+    ElMessage.success('积分运营计划已创建（6 阶段）')
+  } catch (error) {
+    console.error(error)
+    ElMessage.error('创建积分运营计划失败')
   }
 }
 

@@ -1,21 +1,36 @@
 """积分运营话术模板库
 
 按 scene_key + style 组织话术模板。
-基于首钢减重健康群积分激励专属话术 Excel 提炼。
-后续可迁移到数据库表，现阶段用代码管理。
+支持数据库优先读取（带 120s 缓存），fallback 到硬编码种子。
 """
 from __future__ import annotations
 
+import logging
+import time
 from typing import Any
 
-# 话术风格枚举
+_log = logging.getLogger(__name__)
+
 STYLES = ('professional', 'encouraging', 'competitive')
 
-# ── 场景 → 话术模板 ────────────────────────────────────────
-# 每个场景支持 3 种风格，使用 {name} {rank} {detail} {activity} 占位符
+# 场景标签映射
+SCENE_LABELS: dict[str, str] = {
+    'top_leader': '头部领先 (TOP3)',
+    'top_six': '前六冲刺',
+    'top_ten': '前十竞争',
+    'consistent': '连续活跃',
+    'surge': '积分暴涨',
+    'comeback': '强势回归',
+    'dropout_recovery': '掉队归队',
+    'rapid_progress': '进步飞快',
+    'reverse_bottom': '后段激励 (绿草莓奖)',
+    'lurker_remind': '潜水提醒',
+    'daily_remind': '每日氛围',
+    'group_pk': '社群 PK',
+}
 
-TEMPLATES: dict[str, dict[str, str]] = {
-    # ── 排名前几名专属激励（Excel 序号 1-4） ──
+# ── 种子数据（硬编码 fallback） ──
+_SEED_TEMPLATES: dict[str, dict[str, str]] = {
     'top_leader': {
         'professional': (
             '🏆 @所有人 【积分冲刺提醒】\n'
@@ -64,8 +79,6 @@ TEMPLATES: dict[str, dict[str, str]] = {
             '每天多打卡就能逆袭，「金百花奖」还有你的位置，给我冲！'
         ),
     },
-
-    # ── 连续稳定活跃用户（Excel 序号 5-8） ──
     'consistent': {
         'professional': (
             '特别表扬 {name}！连续多日坚持打卡、认真学习减重课件，{detail}。'
@@ -83,8 +96,6 @@ TEMPLATES: dict[str, dict[str, str]] = {
             '全场最佳就是你，减重路上的标杆，给我焊死在榜一！'
         ),
     },
-
-    # ── 异常增长 / 突然爆发型（Excel 序号 9-12） ──
     'surge': {
         'professional': (
             '近期发现 {name} 突然恢复打卡、积极互动，积分出现明显上涨，{detail}。\n'
@@ -102,8 +113,6 @@ TEMPLATES: dict[str, dict[str, str]] = {
             '「金百花奖」还有位置，给我冲！'
         ),
     },
-
-    # ── 强势回归 / 中途掉队重新跟上（Excel 序号 9-10 + 13-15） ──
     'comeback': {
         'professional': (
             '欢迎 {name} 归队！{detail}。\n'
@@ -120,8 +129,6 @@ TEMPLATES: dict[str, dict[str, str]] = {
             '积分还能追，体重还能降，别摆烂，跟紧大部队，结营一起瘦成闪电！'
         ),
     },
-
-    # ── 中途掉队但重新跟上（Excel 序号 13-15） ──
     'dropout_recovery': {
         'professional': (
             '{name} 虽曾短暂中断打卡，但已重新跟上节奏，恢复日常参与。\n'
@@ -137,8 +144,6 @@ TEMPLATES: dict[str, dict[str, str]] = {
             '积分还能追，体重还能降，别摆烂，跟紧大部队！'
         ),
     },
-
-    # ── 积分上升明显 / 进步飞快（Excel 序号 16-18） ──
     'rapid_progress': {
         'professional': (
             '进步看得见！{name} 近期活跃度明显提升，{activity}，积分一路飙升，{detail}。\n'
@@ -153,8 +158,6 @@ TEMPLATES: dict[str, dict[str, str]] = {
             '照这个节奏下去，排名还能再往上冲，大家都可以学起来！'
         ),
     },
-
-    # ── 提醒观望 / 潜水用户（Excel 序号 19-20） ──
     'lurker_remind': {
         'professional': (
             '仍在观望的伙伴请积极参与日常打卡与互动：\n'
@@ -173,8 +176,6 @@ TEMPLATES: dict[str, dict[str, str]] = {
             '跟着大部队一起瘦，一起拿奖！'
         ),
     },
-
-    # ── 反向激励：绿草莓奖 / 后6名（Excel 序号 26-27） ──
     'reverse_bottom': {
         'professional': (
             '{name} 积分暂时靠后，本次结营设置「绿草莓奖」幽默反向激励，'
@@ -192,8 +193,6 @@ TEMPLATES: dict[str, dict[str, str]] = {
             '赶紧动起来，把积分冲上去，把体重降下来，逆袭就在下一个榜单！'
         ),
     },
-
-    # ── 每日氛围带动通用话术（Excel 序号 23-25） ──
     'daily_remind': {
         'professional': (
             '今日积分榜单已更新，看看自己排在第几？\n'
@@ -211,8 +210,6 @@ TEMPLATES: dict[str, dict[str, str]] = {
             '咱们一起健康减重，一起拿奖！'
         ),
     },
-
-    # ── 20 社群月度 PK 团队奖激励（Excel 序号 21-22） ──
     'group_pk': {
         'professional': (
             '【月度社群 PK 提醒】\n'
@@ -233,10 +230,116 @@ TEMPLATES: dict[str, dict[str, str]] = {
     },
 }
 
+# 保持 TEMPLATES 别名兼容
+TEMPLATES = _SEED_TEMPLATES
+
+# ── DB 读取缓存（120 秒） ──
+_db_cache: dict[str, tuple[float, dict[str, dict[str, str]]]] = {}
+_DB_CACHE_TTL = 120
+
+
+def _load_from_db(db) -> dict[str, dict[str, str]] | None:
+    from .. import models
+    rows = db.query(models.SpeechTemplate).order_by(
+        models.SpeechTemplate.scene_key, models.SpeechTemplate.style,
+    ).all()
+    if not rows:
+        return None
+    result: dict[str, dict[str, str]] = {}
+    for row in rows:
+        result.setdefault(row.scene_key, {})[row.style] = row.content
+    return result
+
+
+def _get_cached_templates(db) -> dict[str, dict[str, str]]:
+    now = time.time()
+    cache_key = '_global'
+    if cache_key in _db_cache:
+        ts, data = _db_cache[cache_key]
+        if now - ts < _DB_CACHE_TTL:
+            return data
+
+    db_data = _load_from_db(db)
+    if db_data is None:
+        return _SEED_TEMPLATES
+
+    _db_cache[cache_key] = (now, db_data)
+    return db_data
+
+
+def seed_speech_templates(db) -> int:
+    """首次运行时灌入种子数据，返回插入数量"""
+    from .. import models
+    existing = db.query(models.SpeechTemplate).first()
+    if existing:
+        return 0
+    count = 0
+    for scene_key, styles in _SEED_TEMPLATES.items():
+        label = SCENE_LABELS.get(scene_key, scene_key)
+        for style, content in styles.items():
+            db.add(models.SpeechTemplate(
+                scene_key=scene_key,
+                style=style,
+                label=label,
+                content=content,
+                is_builtin=1,
+            ))
+            count += 1
+    db.commit()
+    _log.info('已灌入 %d 条话术模板种子数据', count)
+    return count
+
+
+def invalidate_cache() -> None:
+    _db_cache.clear()
+
+
+def get_all_templates(db) -> dict[str, list[dict]]:
+    """返回按 scene_key 分组的全部模板（DB 优先）"""
+    from .. import models
+    rows = db.query(models.SpeechTemplate).order_by(
+        models.SpeechTemplate.scene_key, models.SpeechTemplate.style,
+    ).all()
+    if not rows:
+        rows = []
+        for scene_key, styles in _SEED_TEMPLATES.items():
+            label = SCENE_LABELS.get(scene_key, scene_key)
+            for style, content in styles.items():
+                rows.append(type('Row', (), {
+                    'id': 0, 'scene_key': scene_key, 'style': style,
+                    'label': label, 'content': content, 'is_builtin': 1,
+                })())
+    result: dict[str, list[dict]] = {}
+    for row in rows:
+        result.setdefault(row.scene_key, []).append({
+            'id': row.id,
+            'scene_key': row.scene_key,
+            'style': row.style,
+            'label': row.label,
+            'content': row.content,
+            'is_builtin': row.is_builtin,
+        })
+    return result
+
 
 def get_speech(scene_key: str, style: str = 'professional', **kwargs: Any) -> str:
-    """获取场景话术，填充占位符"""
-    templates = TEMPLATES.get(scene_key)
+    """获取场景话术，填充占位符（使用硬编码 fallback）"""
+    templates = _SEED_TEMPLATES.get(scene_key)
+    if not templates:
+        return ''
+    text = templates.get(style) or templates.get('professional', '')
+    if not text:
+        return ''
+    try:
+        return text.format(**kwargs)
+    except KeyError:
+        return text
+
+
+def get_speech_from_db(db, scene_key: str, style: str = 'professional', **kwargs: Any) -> str:
+    """从 DB 获取话术（带缓存），fallback 到硬编码"""
+    all_templates = _get_cached_templates(db)
+    templates = all_templates.get(scene_key)
     if not templates:
         return ''
     text = templates.get(style) or templates.get('professional', '')

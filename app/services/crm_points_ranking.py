@@ -158,6 +158,7 @@ def preview_ranking_batch(
     include_week_month: bool = True,
     speech_style: str = 'professional',
     skip_empty_groups: bool = True,
+    enabled_scenes: list[str] | None = None,
 ) -> dict[str, Any]:
     """批量预览积分排行消息。
 
@@ -200,18 +201,24 @@ def preview_ranking_batch(
 
     # ── 批量洞察：一次 point_logs 查询覆盖所有群 ──
     insights_started_at = time.perf_counter()
+    scenes_set = set(enabled_scenes) if enabled_scenes else None
     groups_candidates: list[tuple[list[dict], list[dict]]] = []
-    valid_indices: list[int] = []  # 记录哪些索引有有效 ranked_list
+    valid_indices: list[int] = []
     for idx, (gid, gname, members, ranked) in enumerate(preprocessed):
-        if ranked:
-            groups_candidates.append((members, ranked[:_INSIGHT_MEMBER_LIMIT]))
-            valid_indices.append(idx)
+        if not ranked:
+            continue
+        # 扩展候选人：top N + 底部 6 名（覆盖 reverse_bottom）
+        candidates = list(ranked[:_INSIGHT_MEMBER_LIMIT])
+        if len(ranked) > _INSIGHT_MEMBER_LIMIT:
+            candidates.extend(ranked[-6:])
+        groups_candidates.append((members, candidates))
+        valid_indices.append(idx)
 
     bulk_insights_map: dict[int, list[dict]] = {}
     insights_skipped = False
     if groups_candidates:
         try:
-            bulk_results = detect_individual_insights_bulk(groups_candidates)
+            bulk_results = detect_individual_insights_bulk(groups_candidates, scenes_set)
             for i, result_idx in enumerate(valid_indices):
                 bulk_insights_map[result_idx] = bulk_results[i]
         except Exception as exc:

@@ -34,6 +34,23 @@
             <el-option label="鼓励" value="encouraging" />
             <el-option label="竞技" value="competitive" />
           </el-select>
+          <label>洞察场景</label>
+          <el-select
+            v-model="config.enabledScenes"
+            multiple
+            collapse-tags
+            collapse-tags-tooltip
+            size="small"
+            style="width: 240px"
+            placeholder="全部场景"
+          >
+            <el-option
+              v-for="s in insightScenes"
+              :key="s.key"
+              :label="s.label"
+              :value="s.key"
+            />
+          </el-select>
         </div>
       </div>
 
@@ -228,6 +245,11 @@
           </div>
         </div>
       </div>
+
+      <FollowupActionsPanel
+        v-if="totalFollowupCount > 0"
+        :actions-by-group="lastFollowupActions"
+      />
     </template>
   </div>
 </template>
@@ -237,6 +259,7 @@ import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Link } from '@element-plus/icons-vue'
 import request from '@/utils/request'
+import FollowupActionsPanel from './FollowupActionsPanel.vue'
 
 type RankingSlowGroup = {
   crm_group_id: number
@@ -282,6 +305,7 @@ const generateElapsedSeconds = ref(0)
 const generateProgressPercent = ref(0)
 const generateStageLabel = ref('')
 const lastGenerateDiagnostics = ref<RankingDiagnostics | null>(null)
+const lastFollowupActions = ref<Record<string, any[]>>({})
 const lastGenerateSummary = ref<null | {
   requestedCount: number
   queuedCount: number
@@ -298,11 +322,18 @@ const config = ref({
   speechStyle: 'professional',
   includeWeekMonth: true,
   skipEmptyGroups: true,
+  enabledScenes: [] as string[],
 })
+
+const insightScenes = ref<Array<{key: string; label: string}>>([])
 
 // ── 全选逻辑 ──
 const isAllChecked = computed(() => crmGroups.value.length > 0 && checkedGroupIds.value.size === crmGroups.value.length)
 const isIndeterminate = computed(() => checkedGroupIds.value.size > 0 && checkedGroupIds.value.size < crmGroups.value.length)
+
+const totalFollowupCount = computed(() => {
+  return Object.values(lastFollowupActions.value).reduce((s, arr) => s + arr.length, 0)
+})
 
 const toggleAll = (checked: boolean) => {
   if (checked) {
@@ -473,7 +504,7 @@ const generateRanking = async () => {
   lastGenerateDiagnostics.value = null
   lastGenerateSummary.value = null
 
-  const reqConfig = { rank_metric: config.value.rankMetric, speech_style: config.value.speechStyle, include_week_month: config.value.includeWeekMonth, skip_empty_groups: config.value.skipEmptyGroups, top_n: config.value.topNEnabled ? config.value.topN : 9999 }
+  const reqConfig = { rank_metric: config.value.rankMetric, speech_style: config.value.speechStyle, include_week_month: config.value.includeWeekMonth, skip_empty_groups: config.value.skipEmptyGroups, top_n: config.value.topNEnabled ? config.value.topN : 9999, enabled_scenes: config.value.enabledScenes }
 
   try {
     const res: any = await request.post('/v1/crm-points/preview-ranking', {
@@ -486,6 +517,16 @@ const generateRanking = async () => {
     finishGenerateProgress(previewItems.length)
     const skipped = previewItems.filter((item: any) => item.skipped)
     const validItems = previewItems.filter((item: any) => !item.skipped)
+
+    // 提取 1v1 跟进动作
+    const followupMap: Record<string, any[]> = {}
+    for (const item of validItems) {
+      const actions = item.followup_1v1 || []
+      if (actions.length > 0) {
+        followupMap[item.crm_group_name || `群#${item.crm_group_id}`] = actions
+      }
+    }
+    lastFollowupActions.value = followupMap
 
     if (validItems.length === 0) {
       lastGenerateSummary.value = {
@@ -579,8 +620,17 @@ const fetchLocalGroups = async () => {
   }
 }
 
+const fetchInsightScenes = async () => {
+  try {
+    const res: any = await request.get('/v1/crm-points/insight-scenes')
+    insightScenes.value = res || []
+  } catch {
+    insightScenes.value = []
+  }
+}
+
 onMounted(() => {
-  Promise.all([fetchCrmGroups(), fetchBindings(), fetchLocalGroups()])
+  Promise.all([fetchCrmGroups(), fetchBindings(), fetchLocalGroups(), fetchInsightScenes()])
 })
 
 onBeforeUnmount(() => {

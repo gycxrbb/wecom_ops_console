@@ -46,6 +46,12 @@
         <span>飞书文档</span>
       </el-menu-item>
 
+      <div class="menu-group" style="margin-top: 20px;">运营配置</div>
+      <el-menu-item index="/speech-templates" v-if="userStore.user?.role === 'admin'">
+        <el-icon><ChatLineSquare /></el-icon>
+        <span>话术管理</span>
+      </el-menu-item>
+
       <div class="menu-group" style="margin-top: 20px;">系统设置</div>
       <el-menu-item index="/logs" v-if="moduleVisible('log')">
         <el-icon><Tickets /></el-icon>
@@ -92,7 +98,7 @@
 </template>
 
 <script setup lang="ts">
-import { DataBoard, Promotion, ChatDotRound, Document, Picture, Timer, Tickets, Stamp, User, Lock, CaretBottom, Notebook } from '@element-plus/icons-vue'
+import { DataBoard, Promotion, ChatDotRound, Document, Picture, Timer, Tickets, Stamp, User, Lock, CaretBottom, Notebook, ChatLineSquare } from '@element-plus/icons-vue'
 import { moduleVisible as checkVisible, type PermissionKey } from '@/utils/permissions'
 
 const props = defineProps<{

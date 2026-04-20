@@ -136,6 +136,7 @@ const getRouteName = () => {
     '/send': '发送中心',
     '/groups': '群管理',
     '/templates': '模板中心',
+    '/speech-templates': '话术管理',
     '/assets': '素材库',
     '/schedules': '定时任务',
     '/logs': '发送记录',

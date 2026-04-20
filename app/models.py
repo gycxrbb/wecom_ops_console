@@ -306,3 +306,15 @@ class AuditLog(Base, TimestampMixin):
     detail: Mapped[str] = mapped_column(Text, default='{}')
     ip: Mapped[str] = mapped_column(String(64), default='')
     user = relationship('User')
+
+
+class SpeechTemplate(Base, TimestampMixin):
+    __tablename__ = 'speech_templates'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    scene_key: Mapped[str] = mapped_column(String(64), index=True)
+    style: Mapped[str] = mapped_column(String(32))
+    label: Mapped[str] = mapped_column(String(128), default='')
+    content: Mapped[str] = mapped_column(Text, default='')
+    is_builtin: Mapped[int] = mapped_column(Integer, default=1)
+    owner_id: Mapped[int | None] = mapped_column(ForeignKey('users.id'), nullable=True)
+    owner = relationship('User')

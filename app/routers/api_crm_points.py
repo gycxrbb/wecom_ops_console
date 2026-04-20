@@ -34,6 +34,7 @@ class RankingPreviewReq(BaseModel):
     speech_style: str = 'professional'
     include_week_month: bool = True
     skip_empty_groups: bool = True
+    enabled_scenes: list[str] = []
 
 
 class GlobalRankingReq(BaseModel):
@@ -96,6 +97,23 @@ def batch_bind(req: BatchBindReq, request: Request, db: Session = Depends(get_db
 
 # ── 积分排行预览 ─────────────────────────────────────────────
 
+@router.get('/insight-scenes')
+def list_insight_scenes(request: Request, db: Session = Depends(get_db)):
+    get_current_user(request, db)
+    from ..services.crm_speech_templates import TEMPLATES
+    scene_labels = {
+        'top_leader': '头部领先 (TOP3)', 'top_six': '前六冲刺', 'top_ten': '前十竞争',
+        'consistent': '连续活跃', 'surge': '积分暴涨', 'comeback': '强势回归',
+        'dropout_recovery': '掉队归队', 'rapid_progress': '进步飞快',
+        'reverse_bottom': '后段激励 (绿草莓奖)', 'lurker_remind': '潜水提醒',
+        'daily_remind': '每日氛围', 'group_pk': '社群 PK',
+    }
+    return [
+        {'key': key, 'label': scene_labels.get(key, key), 'styles': list(tmpl.keys())}
+        for key, tmpl in TEMPLATES.items()
+    ]
+
+
 @router.post('/preview-ranking')
 def preview_ranking(req: RankingPreviewReq, request: Request, db: Session = Depends(get_db)):
     get_current_user(request, db)
@@ -122,6 +140,7 @@ def preview_ranking(req: RankingPreviewReq, request: Request, db: Session = Depe
         include_week_month=req.include_week_month,
         speech_style=req.speech_style,
         skip_empty_groups=req.skip_empty_groups,
+        enabled_scenes=req.enabled_scenes or None,
     )
     items = preview_result.get('items', [])
     diagnostics = dict(preview_result.get('diagnostics') or {})

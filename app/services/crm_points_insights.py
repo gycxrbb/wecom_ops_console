@@ -110,28 +110,33 @@ def _build_member_scenes(
     rank: int,
     total_members: int,
     current_points: float = 0,
+    enabled_scenes: set[str] | None = None,
 ) -> list[dict]:
-    """为单个成员构建洞察场景列表"""
+    """为单个成员构建洞察场景列表，enabled_scenes 为空时返回全部"""
     scenes: list[dict] = []
     now = datetime.utcnow()
+
+    def _add(key: str, label: str, detail: str) -> None:
+        if enabled_scenes is None or key in enabled_scenes:
+            scenes.append({'key': key, 'label': label, 'detail': detail})
 
     # 场景1: 排名位置
     for threshold, key, label in [(3, 'top_leader', '头部领先'), (6, 'top_six', '前六冲刺'), (10, 'top_ten', '前十竞争')]:
         if rank <= threshold:
-            scenes.append({'key': key, 'label': label, 'detail': f'当前排名第{rank}'})
+            _add(key, label, f'当前排名第{rank}')
             break
 
     # 场景2: 连续稳定活跃
     active_days = _count_active_days(cust_logs, cid)
     if active_days >= 7:
-        scenes.append({'key': 'consistent', 'label': '连续活跃', 'detail': f'近14天活跃{active_days}天'})
+        _add('consistent', '连续活跃', f'近14天活跃{active_days}天')
 
     # 场景3: 异常增长/突然爆发
     recent_3 = _sum_period_points(cust_logs, cid, 3)
     recent_7 = _sum_period_points(cust_logs, cid, 7)
     baseline_avg = recent_7 / 7 if recent_7 > 0 else 0
     if recent_3 > 0 and baseline_avg > 0 and (recent_3 / 3) > baseline_avg * 2:
-        scenes.append({'key': 'surge', 'label': '积分暴涨', 'detail': f'近3天+{recent_3:.0f}，日均显著高于前7天'})
+        _add('surge', '积分暴涨', f'近3天+{recent_3:.0f}，日均显著高于前7天')
 
     # 场景4: 久未活跃后回归
     recent_3_pts = _sum_period_points(cust_logs, cid, 3)
@@ -141,7 +146,7 @@ def _build_member_scenes(
                       and l['created_at'] < now - timedelta(days=3)]
         older_active = _count_active_days(older_logs, cid)
         if older_active == 0:
-            scenes.append({'key': 'comeback', 'label': '强势回归', 'detail': '沉寂后重新活跃'})
+            _add('comeback', '强势回归', '沉寂后重新活跃')
 
     # 场景5: 中途掉队但重新跟上
     if recent_3_pts > 0 and active_days >= 3:
@@ -156,7 +161,7 @@ def _build_member_scenes(
         early_active = _count_active_days(early_logs, cid)
         mid_active = _count_active_days(mid_logs, cid)
         if early_active > 0 and mid_active == 0:
-            scenes.append({'key': 'dropout_recovery', 'label': '掉队归队', 'detail': '中断后重新跟上节奏'})
+            _add('dropout_recovery', '掉队归队', '中断后重新跟上节奏')
 
     # 场景6: 积分上升明显/进步飞快
     recent_7_pts = _sum_period_points(cust_logs, cid, 7)
@@ -169,29 +174,21 @@ def _build_member_scenes(
     if recent_7_pts > 0 and prev_7_pts > 0:
         ratio = (recent_7_pts / 7) / (prev_7_pts / 7)
         if ratio > 1.5 and not any(s['key'] == 'surge' for s in scenes):
-            scenes.append({
-                'key': 'rapid_progress', 'label': '进步飞快',
-                'detail': f'近7天日均积分提升{ratio:.1f}倍',
-            })
+            _add('rapid_progress', '进步飞快', f'近7天日均积分提升{ratio:.1f}倍')
 
     # 场景7: 反向激励 - 后6名
     if total_members >= 10 and rank > total_members - 6:
-        scenes.append({
-            'key': 'reverse_bottom', 'label': '需要激励',
-            'detail': f'当前排名第{rank}（后段）',
-        })
+        _add('reverse_bottom', '需要激励', f'当前排名第{rank}（后段）')
 
-    # 场景8: 提醒观望/潜水用户（近14天活跃天数≤2且有一定积分基础）
+    # 场景8: 提醒观望/潜水用户
     if active_days <= 2 and current_points > 0 and rank > 10:
-        scenes.append({
-            'key': 'lurker_remind', 'label': '潜水用户',
-            'detail': f'近14天仅活跃{active_days}天',
-        })
+        _add('lurker_remind', '潜水用户', f'近14天仅活跃{active_days}天')
 
     return scenes
 
 def detect_individual_insights_bulk(
     groups_candidates: list[tuple[list[dict], list[dict]]],
+    enabled_scenes: set[str] | None = None,
 ) -> list[list[dict]]:
     """批量识别多群的个人洞察（一次 point_logs 查询）
 
@@ -231,7 +228,7 @@ def detect_individual_insights_bulk(
             rank = i + 1
 
             pts = float(m.get('current_points', 0) or 0)
-            scenes = _build_member_scenes(cust_logs, cid, rank, len(ranked_list), pts)
+            scenes = _build_member_scenes(cust_logs, cid, rank, len(ranked_list), pts, enabled_scenes)
             if not scenes:
                 continue
 

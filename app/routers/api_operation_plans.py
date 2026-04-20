@@ -4,7 +4,7 @@ import re
 from typing import Any
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -13,6 +13,7 @@ from .. import models
 from ..database import get_db
 from ..services.operation_plan_export import export_plan_to_excel_bytes, export_plan_to_json_bytes
 from ..services.operation_plan_import import parse_operation_plan_file
+from ..services.operation_plan_import_points import build_default_campaign_plan
 from ..services.operation_plan_publish import publish_plan_to_groups
 from ..services.operation_plan_constants import NODE_PRESETS, NODE_PRESET_MAP, POINTS_CAMPAIGN_STAGES
 from ..security import get_current_user, json_dumps, json_loads, require_role, require_permission
@@ -305,11 +306,12 @@ def get_campaign_stages(request: Request, db: Session = Depends(get_db)):
 async def preview_operation_plan_import(
     request: Request,
     file: UploadFile = File(...),
+    import_type: str = Form('daily_sop'),
     db: Session = Depends(get_db),
 ):
     user = get_user_or_401(request, db)
     require_role(user, 'admin', 'coach')
-    parsed = await parse_operation_plan_file(file)
+    parsed = await parse_operation_plan_file(file, import_type=import_type)
     day_numbers = [day['day_number'] for day in parsed['days']]
     duplicate_days = sorted({day for day in day_numbers if day_numbers.count(day) > 1})
     errors: list[str] = []
@@ -356,11 +358,12 @@ async def preview_operation_plan_import(
 async def import_operation_plan(
     request: Request,
     file: UploadFile = File(...),
+    import_type: str = Form('daily_sop'),
     db: Session = Depends(get_db),
 ):
     user = get_user_or_401(request, db)
     require_role(user, 'admin', 'coach')
-    parsed = await parse_operation_plan_file(file)
+    parsed = await parse_operation_plan_file(file, import_type=import_type)
 
     day_numbers = [day['day_number'] for day in parsed['days']]
     if len(set(day_numbers)) != len(day_numbers):
@@ -383,6 +386,63 @@ async def import_operation_plan(
             plan_id=plan.id,
             day_number=day_payload['day_number'],
             title=day_payload['day_title'] or f"第{day_payload['day_number']}天",
+            focus=day_payload['day_focus'],
+            trigger_rule_json=json_dumps(day_payload.get('trigger_rule_json', {})),
+            status='draft',
+            owner_id=user.id,
+        )
+        db.add(day)
+        db.flush()
+        for node_payload in day_payload['nodes']:
+            node = models.PlanNode(
+                plan_day_id=day.id,
+                node_type=node_payload['node_type'],
+                title=node_payload['title'],
+                description=node_payload['description'],
+                sort_order=node_payload['sort_order'],
+                template_id=None,
+                msg_type=node_payload['msg_type'],
+                content_json=json_dumps({'content': node_payload['content']}),
+                variables_json=json_dumps(node_payload.get('variables_json', {})),
+                status=node_payload.get('status', 'draft'),
+                enabled=1 if node_payload.get('enabled', True) else 0,
+                owner_id=user.id,
+            )
+            db.add(node)
+
+    db.commit()
+    db.refresh(plan)
+    return {
+        'ok': True,
+        'plan_id': plan.id,
+        'plan': serialize_plan(get_plan_or_404(db, plan.id), include_days=True),
+    }
+
+
+@router.post('/create-campaign')
+def create_campaign_from_preset(request: Request, db: Session = Depends(get_db)):
+    """从预设常量一键创建积分运营计划（无需上传 Excel）"""
+    user = get_user_or_401(request, db)
+    require_role(user, 'admin', 'coach')
+    parsed = build_default_campaign_plan()
+
+    plan = models.Plan(
+        name=parsed['plan_name'],
+        topic=parsed['topic'],
+        stage=parsed['stage'],
+        description=parsed['description'],
+        plan_mode='points_campaign',
+        status='draft',
+        owner_id=user.id,
+    )
+    db.add(plan)
+    db.flush()
+
+    for day_payload in parsed['days']:
+        day = models.PlanDay(
+            plan_id=plan.id,
+            day_number=day_payload['day_number'],
+            title=day_payload['day_title'],
             focus=day_payload['day_focus'],
             trigger_rule_json=json_dumps(day_payload.get('trigger_rule_json', {})),
             status='draft',

@@ -495,7 +495,20 @@ def _parse_v2_json_days(
     return days
 
 
-async def parse_operation_plan_file(file: UploadFile) -> dict[str, Any]:
+async def parse_operation_plan_file(
+    file: UploadFile, import_type: str = 'daily_sop',
+) -> dict[str, Any]:
+    if import_type == 'points_campaign':
+        from .operation_plan_import_points import parse_points_campaign_excel
+        content = await file.read()
+        if not content:
+            raise HTTPException(400, "上传文件为空")
+        try:
+            workbook = openpyxl.load_workbook(BytesIO(content), data_only=True)
+        except Exception as exc:
+            raise HTTPException(400, f"无法解析 Excel 文件：{exc}") from exc
+        return parse_points_campaign_excel(workbook)
+
     filename = (file.filename or "").lower()
     if filename.endswith(".json"):
         content = await file.read()
