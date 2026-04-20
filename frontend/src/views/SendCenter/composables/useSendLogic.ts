@@ -834,6 +834,16 @@ export function useSendLogic() {
     item.remark = text
   }
 
+  const toggleAllRemarks = () => {
+    const allEnabled = batchQueue.value.every(item => item.remarkEnabled)
+    batchQueue.value.forEach(item => {
+      item.remarkEnabled = !allEnabled
+      if (item.remarkEnabled && !item.remark) {
+        item.remark = item.description || ''
+      }
+    })
+  }
+
   const clearBatch = () => {
     batchQueue.value = []
     isBatchSending.value = false
@@ -1168,6 +1178,7 @@ export function useSendLogic() {
     handleRankingSelect,
     removeBatchItem,
     toggleBatchItemRemark,
+    toggleAllRemarks,
     updateBatchItemRemark,
     clearBatch,
     cancelBatchSend,

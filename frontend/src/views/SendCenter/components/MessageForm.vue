@@ -108,6 +108,9 @@
             {{ batchProgress.done + (notifyEnabled && (notifySendStatus === 'success' || notifySendStatus === 'failed') ? 1 : 0) + 1 }} / {{ batchQueue.length + (notifyEnabled ? 1 : 0) }}
           </span>
           <span v-if="!isBatchSending" class="batch-queue__hint">点击查看详情</span>
+          <button v-if="!isBatchSending" type="button" class="batch-queue__toggle-remarks" @click.stop="$emit('toggleAllRemarks')">
+            {{ batchQueue.every(item => item.remarkEnabled) ? '关闭全部备注' : '开启全部备注' }}
+          </button>
         </div>
         <div class="batch-queue__list">
           <!-- 推送预告项 -->
@@ -438,7 +441,7 @@ defineEmits([
   'msgTypeChange', 'contentUpdate', 'variablesUpdate',
   // 批量模式
   'batchSelect', 'rankingSelect', 'batchSend', 'removeBatchItem', 'clearBatch', 'cancelBatchSend', 'selectBatchItem',
-  'toggleRemark', 'updateRemark',
+  'toggleRemark', 'toggleAllRemarks', 'updateRemark',
   // 预告通知
   'update:notifyEnabled', 'update:notifyCustomText',
   // 手动队列
@@ -625,6 +628,22 @@ const tagTypeByMsgType = (msgType: string) => {
   font-size: 11px;
   color: var(--text-muted);
   font-weight: 400;
+}
+.batch-queue__toggle-remarks {
+  appearance: none;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  padding: 2px 8px;
+  cursor: pointer;
+  margin-left: auto;
+  transition: all 0.15s;
+}
+.batch-queue__toggle-remarks:hover {
+  border-color: var(--el-color-primary);
+  color: var(--el-color-primary);
 }
 .batch-queue__list {
   max-height: 320px;
