@@ -25,6 +25,7 @@ const router = createRouter({
         { path: 'assets', name: 'Assets', component: () => import('@/views/Assets/index.vue'), meta: { requiresAuth: true, title: '素材库', permission: 'asset' as PermissionKey } },
         { path: 'schedules', name: 'Schedules', component: () => import('@/views/Schedules.vue'), meta: { requiresAuth: true, title: '定时任务', permission: 'schedule' as PermissionKey } },
         { path: 'sop-docs', name: 'SopDocuments', component: () => import('@/views/SopDocuments.vue'), meta: { requiresAuth: true, title: '飞书文档' } },
+        { path: 'system-teaching', name: 'SystemTeaching', component: () => import('@/views/SystemTeaching.vue'), meta: { requiresAuth: true, title: '系统教学' } },
         { path: 'logs', name: 'Logs', component: () => import('@/views/Logs.vue'), meta: { requiresAuth: true, title: '发送记录', permission: 'log' as PermissionKey } },
         { path: 'approvals', name: 'Approvals', component: () => import('@/views/Approvals.vue'), meta: { requiresAuth: true, title: '审批中心', permission: 'approval' as PermissionKey } },
         { path: 'users', name: 'Users', component: () => import('@/views/Users.vue'), meta: { requiresAuth: true, title: '用户管理', role: 'admin' } },

@@ -32,3 +32,13 @@
 - 已基于现场慢日志 `total_ms=97495` 追加专项分析报告：`docs/CRM_POINTS_RANKING_TIMEOUT_REPORT.md`。
 - 报告已明确当前主要瓶颈不在成员排行本体，而在 `point_logs` 洞察仍按群串行实时执行；并给出批量查询、洞察降级、索引 `EXPLAIN`、画像聚合等优化优先级。
 - 下一步：如果继续推进，建议在具备 `passlib` 和可用前端 TypeScript 配置的环境里，实测一次“多群积分排行生成”并观察新加的后端阶段日志，确认真实耗时是否已经回落到 60 秒以内。
+
+## 2026-04-21
+- 已完成系统现状恢复，梳理了当前侧边栏、路由、主要业务页和管理员页的功能入口与关键按钮。
+- 已输出新人教学文档初稿：`docs/SYSTEM_TEACHING_DRAFT.md`。
+- 已输出教学中心落地方案：`docs/SYSTEM_TEACHING_CENTER_PLAN.md`。
+- 当前推荐方案为：
+  - 侧边栏新增“系统教学”入口
+  - 文档正式真值使用 `docs/system_teaching/*.md`
+  - `admin` 支持系统内编辑 Markdown
+  - 教学图片复用现有七牛链路，统一走 `qiwei/docs/...`

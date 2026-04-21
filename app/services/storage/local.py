@@ -16,14 +16,17 @@ class LocalStorageProvider(StorageProvider):
         self.base_dir = base_dir or UPLOAD_DIR
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
-    def _build_object_key(self, filename: str) -> tuple[str, str]:
+    def _build_object_key(self, filename: str, custom_object_key: str = '') -> tuple[str, str]:
+        if custom_object_key:
+            normalized = custom_object_key.strip('/').replace('\\', '/')
+            return normalized, f"/uploads/{normalized}"
         suffix = Path(filename).suffix.lower()
         stored_name = f"{datetime.now():%Y/%m/%d}/{uuid4().hex}{suffix}"
         url_path = stored_name.replace('\\', '/')
         return stored_name, f"/uploads/{url_path}"
 
     def upload(self, payload: UploadPayload) -> StorageResult:
-        stored_name, public_url = self._build_object_key(payload.filename)
+        stored_name, public_url = self._build_object_key(payload.filename, payload.object_key)
         target_path = self.base_dir / stored_name
         target_path.parent.mkdir(parents=True, exist_ok=True)
         target_path.write_bytes(payload.content)

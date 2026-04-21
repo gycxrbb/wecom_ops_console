@@ -86,7 +86,9 @@ class QiniuStorageProvider(StorageProvider):
         if not self.config.access_key or not self.config.secret_key or not self.config.bucket or not self.config.public_domain:
             raise RuntimeError('七牛配置不完整，请检查 QINIU_ACCESS_KEY / QINIU_SECRET_KEY / QINIU_BUCKET / QINIU_PUBLIC_DOMAIN')
 
-    def _object_key(self, filename: str) -> str:
+    def _object_key(self, filename: str, custom_object_key: str = '') -> str:
+        if custom_object_key:
+            return custom_object_key.strip('/').replace('\\', '/')
         suffix = Path(filename).suffix.lower()
         base = _safe_slug(Path(filename).stem)
         date_part = datetime.now().strftime('%Y/%m/%d')
@@ -125,7 +127,7 @@ class QiniuStorageProvider(StorageProvider):
 
     def upload(self, payload: UploadPayload) -> StorageResult:
         self._ensure_ready()
-        object_key = self._object_key(payload.filename)
+        object_key = self._object_key(payload.filename, payload.object_key)
         token = self._upload_token(object_key)
         files = {'file': (Path(payload.filename).name, payload.content, payload.mime_type or 'application/octet-stream')}
         data = {'token': token, 'key': object_key}

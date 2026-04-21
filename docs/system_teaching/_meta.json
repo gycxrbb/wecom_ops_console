@@ -1,0 +1,44 @@
+{
+  "docs": [
+    {
+      "slug": "index",
+      "title": "系统总览",
+      "category": "基础上手",
+      "summary": "快速认识企微运营平台的模块划分、侧边栏导航和推荐上手顺序。",
+      "order": 1,
+      "filename": "00-index.md"
+    },
+    {
+      "slug": "quick-start",
+      "title": "10 分钟上手",
+      "category": "基础上手",
+      "summary": "面向新运营同学的最短上手路径，从看板、发送中心到排障入口。",
+      "order": 2,
+      "filename": "01-quick-start.md"
+    },
+    {
+      "slug": "send-center",
+      "title": "发送中心",
+      "category": "核心业务",
+      "summary": "学习如何单条发送、队列发送、批量发送、测试发送与创建定时任务。",
+      "order": 3,
+      "filename": "02-send-center.md"
+    },
+    {
+      "slug": "template-center",
+      "title": "模板中心与运营编排",
+      "category": "核心业务",
+      "summary": "了解模板库、运营主题、Day/Stage、节点编辑和发布到群的基本流程。",
+      "order": 4,
+      "filename": "03-template-center.md"
+    },
+    {
+      "slug": "admin-guide",
+      "title": "管理员手册",
+      "category": "管理员",
+      "summary": "管理员账号如何管理用户、权限、审批、话术和系统教学文档。",
+      "order": 5,
+      "filename": "04-admin-guide.md"
+    }
+  ]
+}

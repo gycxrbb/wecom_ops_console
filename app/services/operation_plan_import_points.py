@@ -25,7 +25,7 @@ def _detect_stages_sheet(rows: list[list[Any]]) -> bool:
     if not rows:
         return False
     first_row = [normalize_text(c) for c in rows[0]]
-    keywords = ['阶段名称', '阶段key', '核心动作']
+    keywords = ['阶段节点', '阶段key', '核心动作']
     return sum(1 for kw in keywords if any(kw in cell for cell in first_row)) >= 2
 
 
@@ -47,7 +47,7 @@ def _build_col_map(headers: list[str], rules: list[tuple[str, list[str]]]) -> di
 
 
 _STAGES_COL_RULES = [
-    ('name', ['阶段名称', '名称']),
+    ('name', ['阶段节点', '名称']),
     ('stage_key', ['阶段key', 'stage_key']),
     ('trigger_type', ['触发类型', '触发']),
     ('default_time', ['默认时间', '时间']),
@@ -247,7 +247,7 @@ def parse_points_campaign_excel(workbook: Any) -> dict[str, Any]:
     if not stages_data:
         raise HTTPException(
             400,
-            '未找到有效的积分运营阶段配置 sheet（需要包含"阶段名称"和"核心动作"列表头）',
+            '未找到有效的积分运营阶段配置 sheet（需要包含"阶段节点"和"核心动作"列表头）',
         )
     return build_points_campaign_plan(stages_data, speech_data)
 

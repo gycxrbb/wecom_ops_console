@@ -202,23 +202,42 @@
 
     <el-dialog v-model="contentDialogVisible" title="消息内容" width="760px" top="5vh">
       <div v-if="contentForm.id" class="content-dialog">
-        <div class="content-dialog__meta">
-          <span class="content-dialog__tag">
-            {{ msgTypeLabel(contentForm.msg_type) }}
-          </span>
-          <strong>{{ contentForm.title }}</strong>
-        </div>
-        <MessageEditor
-          v-model="contentForm.content_json"
-          :msg-type="contentForm.msg_type"
-          v-model:variables="contentForm.variables_json"
-          :show-variables="true"
-          style="width: 100%"
-        />
+        <!-- 队列模式：显示多条消息 -->
+        <template v-if="contentBatchItems.length > 1">
+          <div v-for="(item, idx) in contentBatchItems" :key="idx" class="content-dialog__batch-item">
+            <div class="content-dialog__meta">
+              <span class="content-dialog__tag">{{ msgTypeLabel(item.msg_type) }}</span>
+              <strong>第 {{ idx + 1 }} 条 / 共 {{ contentBatchItems.length }} 条</strong>
+            </div>
+            <MessageEditor
+              :model-value="item.content_json"
+              :msg-type="item.msg_type"
+              :variables="item.variables_json"
+              :show-variables="true"
+              style="width: 100%"
+            />
+          </div>
+        </template>
+        <!-- 单条消息 -->
+        <template v-else>
+          <div class="content-dialog__meta">
+            <span class="content-dialog__tag">
+              {{ msgTypeLabel(contentForm.msg_type) }}
+            </span>
+            <strong>{{ contentForm.title }}</strong>
+          </div>
+          <MessageEditor
+            v-model="contentForm.content_json"
+            :msg-type="contentForm.msg_type"
+            v-model:variables="contentForm.variables_json"
+            :show-variables="true"
+            style="width: 100%"
+          />
+        </template>
       </div>
       <template #footer>
         <el-button @click="contentDialogVisible = false">关闭</el-button>
-        <el-button type="primary" :loading="contentSaving" @click="handleSaveContent">保存内容</el-button>
+        <el-button v-if="contentBatchItems.length <= 1" type="primary" :loading="contentSaving" @click="handleSaveContent">保存内容</el-button>
       </template>
     </el-dialog>
   </div>
@@ -453,6 +472,7 @@ const handleClone = async (row: any) => {
 
 const contentDialogVisible = ref(false)
 const contentSaving = ref(false)
+const contentBatchItems = ref<any[]>([])
 const contentForm = ref<any>({
   id: null,
   title: '',
@@ -480,6 +500,13 @@ const msgTypeLabel = (type: string) => {
 }
 
 const openContentDialog = (row: any) => {
+  // 队列任务：解析 batch_items
+  const batchItems = Array.isArray(row.batch_items) ? row.batch_items : []
+  contentBatchItems.value = batchItems.map((item: any) => ({
+    msg_type: item.msg_type || 'text',
+    content_json: typeof item.content_json === 'string' ? JSON.parse(item.content_json) : { ...(item.content_json || {}) },
+    variables_json: typeof item.variables_json === 'string' ? JSON.parse(item.variables_json) : { ...(item.variables_json || {}) },
+  }))
   contentForm.value = {
     id: row.id,
     title: row.title || '',
@@ -784,6 +811,16 @@ onBeforeUnmount(() => {
   color: #2563eb;
   font-size: 12px;
   font-weight: 600;
+}
+.content-dialog__batch-item {
+  padding-bottom: 20px;
+  margin-bottom: 20px;
+  border-bottom: 1px dashed var(--border-color);
+}
+.content-dialog__batch-item:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
 }
 
 /* ---- Mobile / Tablet ---- */

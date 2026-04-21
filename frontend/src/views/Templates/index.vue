@@ -278,7 +278,7 @@
         <el-form-item label="主题标签">
           <el-input v-model="planForm.topic" placeholder="例如：血糖管理 / 代谢优化" />
         </el-form-item>
-        <el-form-item label="阶段名称">
+        <el-form-item label="阶段节点">
           <el-input v-model="planForm.stage" placeholder="例如：第一阶段" />
         </el-form-item>
         <el-form-item v-if="planForm.plan_mode === 'day_flow'" label="运营天数">
@@ -319,7 +319,7 @@
             Excel 解析 sheet1，JSON 按阶段配置格式导入，先预检查再入库。
           </span>
           <span v-else style="margin-top:4px;display:block;font-size:12px;color:var(--text-secondary)">
-            积分运营 Excel 需包含"阶段名称"和"核心动作"列表头的 sheet，可附带话术模板 sheet。
+            积分运营 Excel 需包含"阶段节点"和"核心动作"列表头的 sheet，可附带话术模板 sheet。
           </span>
         </div>
 

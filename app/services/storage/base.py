@@ -25,6 +25,7 @@ class UploadPayload:
     content: bytes
     filename: str
     mime_type: str = 'application/octet-stream'
+    object_key: str = ''
 
 
 class StorageProvider(ABC):

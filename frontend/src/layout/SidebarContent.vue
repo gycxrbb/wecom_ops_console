@@ -53,6 +53,10 @@
       </el-menu-item>
 
       <div class="menu-group" style="margin-top: 20px;">系统设置</div>
+      <el-menu-item index="/system-teaching">
+        <el-icon><Reading /></el-icon>
+        <span>系统教学</span>
+      </el-menu-item>
       <el-menu-item index="/logs" v-if="moduleVisible('log')">
         <el-icon><Tickets /></el-icon>
         <span>发送记录</span>
@@ -98,7 +102,7 @@
 </template>
 
 <script setup lang="ts">
-import { DataBoard, Promotion, ChatDotRound, Document, Picture, Timer, Tickets, Stamp, User, Lock, CaretBottom, Notebook, ChatLineSquare } from '@element-plus/icons-vue'
+import { DataBoard, Promotion, ChatDotRound, Document, Picture, Timer, Tickets, Stamp, User, Lock, CaretBottom, Notebook, ChatLineSquare, Reading } from '@element-plus/icons-vue'
 import { moduleVisible as checkVisible, type PermissionKey } from '@/utils/permissions'
 
 const props = defineProps<{

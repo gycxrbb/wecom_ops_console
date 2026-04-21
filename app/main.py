@@ -16,6 +16,7 @@ from .routers.api_profile import router as profile_router
 from .routers.api_schedule_tools import router as schedule_tools_router
 from .routers.api_permissions import router as permissions_router
 from .routers.api_sop import router as sop_router
+from .routers.api_system_docs import router as system_docs_router
 from .routers.api_crm_groups import router as crm_groups_router
 from .routers.api_crm_points import router as crm_points_router
 from .routers.api_speech_templates import router as speech_templates_router
@@ -93,6 +94,7 @@ app.include_router(profile_router)
 app.include_router(schedule_tools_router)
 app.include_router(permissions_router)
 app.include_router(sop_router)
+app.include_router(system_docs_router)
 app.include_router(crm_groups_router)
 app.include_router(crm_points_router)
 app.include_router(speech_templates_router)
