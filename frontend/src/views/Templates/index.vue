@@ -638,6 +638,7 @@ const {
   removePlan,
   renamePlan,
   copyDayContent,
+  pasteDayContent,
   batchCopyDayContent,
   syncNodeToPeerDays,
   exportPlan
@@ -889,6 +890,7 @@ const workbench = useWorkbenchActions({
   addNode,
   saveNodeDraft,
   confirmDiscardDraft,
+  pasteDayContent,
 })
 
 const handleSwitchView = async (view: 'plans' | 'templates') => {

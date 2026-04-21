@@ -487,6 +487,26 @@ export function useOperationPlans() {
     }
   }
 
+  const pasteDayContent = async (sourceDay: PlanDay, targetDay: PlanDay) => {
+    try {
+      const saved = await request.post(`/v1/operation-plans/days/${targetDay.id}/copy`, {
+        source_day_id: sourceDay.id
+      })
+      const plan = currentPlan.value
+      if (plan?.days) {
+        const index = plan.days.findIndex(d => d.id === saved.id)
+        if (index >= 0) {
+          plan.days.splice(index, 1, saved)
+        }
+      }
+      activeNodeId.value = saved.nodes?.[0]?.id || null
+      ElMessage.success(`已将第${sourceDay.day_number}天内容粘贴到第${targetDay.day_number}天`)
+    } catch (error: any) {
+      console.error(error)
+      ElMessage.error(error?.response?.data?.detail || '粘贴天内容失败')
+    }
+  }
+
   const buildNodePayload = (node: PlanNode) => ({
     node_type: node.node_type,
     title: node.title,
@@ -624,6 +644,7 @@ export function useOperationPlans() {
     removePlan,
     renamePlan,
     copyDayContent,
+    pasteDayContent,
     batchCopyDayContent,
     syncNodeToPeerDays,
     exportPlan

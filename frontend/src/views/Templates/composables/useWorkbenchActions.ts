@@ -14,6 +14,7 @@ interface WorkbenchDeps {
   addNode: (afterNodeId?: number | null, overrides?: Partial<PlanNode>) => Promise<void>
   saveNodeDraft: () => Promise<boolean>
   confirmDiscardDraft: () => Promise<boolean>
+  pasteDayContent: (sourceDay: PlanDay, targetDay: PlanDay) => Promise<void>
 }
 
 export function useWorkbenchActions(deps: WorkbenchDeps) {
@@ -83,6 +84,8 @@ export function useWorkbenchActions(deps: WorkbenchDeps) {
 
   const copiedNode = ref<PlanNode | null>(null)
 
+  const copiedDay = ref<PlanDay | null>(null)
+
   const copyNode = () => {
     const node = deps.currentNode.value
     if (!node) return
@@ -107,6 +110,40 @@ export function useWorkbenchActions(deps: WorkbenchDeps) {
     copiedNode.value = null
   }
 
+  const copyDay = () => {
+    const day = deps.currentDay.value
+    if (!day) return
+    copiedDay.value = { ...day }
+    ElMessage.success(`已复制第${day.day_number}天`)
+  }
+
+  const pasteDay = async () => {
+    if (!copiedDay.value) {
+      ElMessage.warning('没有已复制的天')
+      return
+    }
+    const targetDay = deps.currentDay.value
+    if (!targetDay) {
+      ElMessage.warning('请先选择目标天')
+      return
+    }
+    if (targetDay.id === copiedDay.value.id) {
+      ElMessage.warning('不能覆盖自己')
+      return
+    }
+    try {
+      await ElMessageBox.confirm(
+        `确认将第${copiedDay.value.day_number}天内容覆盖到第${targetDay.day_number}天？目标天原有内容将被替换。`,
+        '覆盖确认',
+        { confirmButtonText: '确认覆盖', cancelButtonText: '取消', type: 'warning' }
+      )
+    } catch {
+      return
+    }
+    await deps.pasteDayContent(copiedDay.value, targetDay)
+    copiedDay.value = null
+  }
+
   // ===== 键盘快捷键 =====
 
   const handleKeydown = (event: KeyboardEvent) => {
@@ -126,6 +163,20 @@ export function useWorkbenchActions(deps: WorkbenchDeps) {
       if (deps.nodeDirty.value && !deps.nodeSaving.value) {
         saveAndNext()
       }
+      return
+    }
+
+    // Ctrl+Alt+C: 复制天（必须在 Ctrl+C 之前判断）
+    if ((event.ctrlKey || event.metaKey) && event.altKey && event.key.toLowerCase() === 'c') {
+      event.preventDefault()
+      if (deps.currentDay.value) copyDay()
+      return
+    }
+
+    // Ctrl+Alt+V: 粘贴天（必须在 Ctrl+V 之前判断）
+    if ((event.ctrlKey || event.metaKey) && event.altKey && event.key.toLowerCase() === 'v') {
+      event.preventDefault()
+      if (copiedDay.value) pasteDay()
       return
     }
 
@@ -200,6 +251,9 @@ export function useWorkbenchActions(deps: WorkbenchDeps) {
     copyNode,
     pasteNode,
     copiedNode,
+    copyDay,
+    pasteDay,
+    copiedDay,
     currentDayProgress,
     overallProgress,
     completedCount,
