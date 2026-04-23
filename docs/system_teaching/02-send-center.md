@@ -1,5 +1,5 @@
 # 发送中心
-
+![image](https://cdn.mengfugui.com/qiwei/docs/images/2026/04/22/image-f5a0fc3b44cb.png)
 发送中心是平台最核心的执行页面。
 
 ## 这页能做什么

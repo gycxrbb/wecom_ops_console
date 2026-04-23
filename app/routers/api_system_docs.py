@@ -16,9 +16,14 @@ class SystemDocUpsert(BaseModel):
     title: str
     slug: str = ''
     category: str = '基础上手'
+    author: str = ''
     summary: str = ''
+    cover_image: str = ''
+    difficulty: str = 'beginner'
+    recommended_slugs: list[str] = []
     content: str = ''
     order: int | None = None
+    save_mode: str = 'publish'
 
 
 def _require_admin(request: Request, db: Session):
@@ -30,15 +35,25 @@ def _require_admin(request: Request, db: Session):
 
 @router.get('/tree')
 def get_tree(request: Request, db: Session = Depends(get_db)):
-    get_current_user(request, db)
-    return system_docs_service.list_system_docs()
+    user = get_current_user(request, db)
+    return system_docs_service.list_system_docs(include_unpublished=user.role == 'admin')
+
+
+@router.get('/search')
+def search_docs(request: Request, q: str = '', db: Session = Depends(get_db)):
+    user = get_current_user(request, db)
+    return system_docs_service.search_system_docs(q, include_unpublished=user.role == 'admin')
 
 
 @router.get('/entries/{slug}')
-def get_entry(slug: str, request: Request, db: Session = Depends(get_db)):
-    get_current_user(request, db)
+def get_entry(slug: str, request: Request, mode: str = 'published', db: Session = Depends(get_db)):
+    user = get_current_user(request, db)
     try:
-        return system_docs_service.get_system_doc(slug)
+        return system_docs_service.get_system_doc(
+            slug,
+            mode='draft' if user.role == 'admin' and mode == 'draft' else 'published',
+            include_unpublished=user.role == 'admin',
+        )
     except FileNotFoundError as exc:
         raise HTTPException(404, str(exc)) from exc
 
@@ -51,9 +66,14 @@ def create_entry(body: SystemDocUpsert, request: Request, db: Session = Depends(
             title=body.title,
             slug=body.slug,
             category=body.category,
+            author=body.author,
             summary=body.summary,
+            cover_image=body.cover_image,
+            difficulty=body.difficulty,
+            recommended_slugs=body.recommended_slugs,
             content=body.content,
             order=body.order,
+            save_mode=body.save_mode,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
@@ -68,9 +88,14 @@ def update_entry(slug: str, body: SystemDocUpsert, request: Request, db: Session
             title=body.title,
             slug=body.slug,
             category=body.category,
+            author=body.author,
             summary=body.summary,
+            cover_image=body.cover_image,
+            difficulty=body.difficulty,
+            recommended_slugs=body.recommended_slugs,
             content=body.content,
             order=body.order,
+            save_mode=body.save_mode,
         )
     except FileNotFoundError as exc:
         raise HTTPException(404, str(exc)) from exc

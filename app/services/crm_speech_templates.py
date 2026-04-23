@@ -381,3 +381,76 @@ def build_insight_speech(
             speeches.append(speech)
 
     return speeches
+
+
+# 场景描述片段，用于生成合并话术
+_SCENE_SUMMARY: dict[str, str] = {
+    'top_leader': '积分榜稳居 TOP3',
+    'top_six': '冲进积分前六',
+    'top_ten': '积分排名前十',
+    'consistent': '连续多日坚持打卡',
+    'surge': '近期积分暴涨',
+    'comeback': '强势回归打卡',
+    'dropout_recovery': '掉队后重新归队',
+    'rapid_progress': '近期进步飞快',
+    'reverse_bottom': '正在努力追赶',
+    'lurker_remind': '很久没冒泡了',
+}
+
+
+def build_grouped_insight_speeches(
+    insights: list[dict],
+    style: str = 'professional',
+    max_scenes: int = 5,
+) -> list[str]:
+    """按场景分组生成合并话术：同场景多人合成一句"""
+    def _build_multi_member_grouped_speech(scene_key: str, names: str, summary: str) -> str:
+        rank_scene_summary = {
+            'top_leader': '稳居积分榜 TOP3',
+            'top_six': '已经冲进积分榜前六',
+            'top_ten': '正在积分榜前十持续竞争',
+        }
+        normalized_summary = rank_scene_summary.get(scene_key, summary)
+
+        if style == 'encouraging':
+            return f'{names} 最近都很棒，{normalized_summary}，继续保持打卡、学习和互动，大奖会越来越近！'
+        if style == 'competitive':
+            return f'{names} 这波一起 {normalized_summary}，状态拉满，继续冲，别给后面的人反超机会！'
+        return f'{names} {normalized_summary}，继续保持当前节奏，也请带动群内伙伴一起进步。'
+
+    from collections import OrderedDict
+    grouped: OrderedDict[str, list[dict]] = OrderedDict()
+    for insight in insights:
+        for scene in insight.get('scenes', []):
+            key = scene['key']
+            grouped.setdefault(key, []).append({
+                'name': insight.get('customer_name', ''),
+                'rank': insight.get('rank', 0),
+                'detail': scene.get('detail', ''),
+                'activity': insight.get('activity_types', {}),
+            })
+
+    speeches: list[str] = []
+    for scene_key, members in grouped.items():
+        if len(speeches) >= max_scenes:
+            break
+        if not members:
+            continue
+        names = '、'.join(m['name'] for m in members if m['name'])
+        if not names:
+            continue
+        summary = _SCENE_SUMMARY.get(scene_key, '表现突出')
+        detail = members[0].get('detail', '')
+
+        if len(members) > 1:
+            speeches.append(_build_multi_member_grouped_speech(scene_key, names, summary))
+            continue
+
+        # 单人场景仍沿用原模板渲染
+        template_speech = get_speech(scene_key, style, name=names, rank=members[0].get('rank', 0), detail=detail, activity='积极参与')
+        if template_speech:
+            speeches.append(template_speech)
+        else:
+            speeches.append(f'{names} {summary}！{detail}')
+
+    return speeches

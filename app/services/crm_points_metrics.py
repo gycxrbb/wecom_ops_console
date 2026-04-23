@@ -9,7 +9,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any
 
-from .crm_group_directory import _get_connection
+from .crm_group_directory import _get_connection, _return_connection
 
 _log = logging.getLogger(__name__)
 
@@ -88,7 +88,7 @@ def fetch_customer_period_points(
         _log.warning('CRM 客户周期积分查询失败: %s', exc)
     finally:
         if conn:
-            conn.close()
+            _return_connection(conn)
     return result
 
 
@@ -153,7 +153,7 @@ def fetch_customer_period_points_dual(
         _log.warning('CRM 客户周/月积分联合查询失败: %s', exc)
     finally:
         if conn:
-            conn.close()
+            _return_connection(conn)
     return week_result, month_result
 
 
@@ -194,7 +194,7 @@ def fetch_group_period_points(
         _log.warning('CRM 群组周期积分查询失败: %s', exc)
     finally:
         if conn:
-            conn.close()
+            _return_connection(conn)
     return result
 
 
@@ -260,5 +260,5 @@ def fetch_group_period_points_dual(
         _log.warning('CRM 群组周/月积分联合查询失败: %s', exc)
     finally:
         if conn:
-            conn.close()
+            _return_connection(conn)
     return week_result, month_result

@@ -6,7 +6,7 @@ import time
 from datetime import datetime, timedelta
 from typing import Any
 
-from .crm_group_directory import _get_connection
+from .crm_group_directory import _get_connection, _return_connection
 
 _log = logging.getLogger(__name__)
 
@@ -56,7 +56,7 @@ def _fetch_recent_logs(customer_ids: list[int], days: int = 14) -> list[dict]:
         return []
     finally:
         if conn:
-            conn.close()
+            _return_connection(conn)
 
 def _count_active_days(logs: list[dict], cid: int) -> int:
     return len({l['created_at'].date() for l in logs if l['customer_id'] == cid and l.get('created_at')})
@@ -65,6 +65,10 @@ def _sum_period_points(logs: list[dict], cid: int, days: int) -> float:
     cutoff = datetime.utcnow() - timedelta(days=days)
     return sum(float(l.get('num', 0) or 0) for l in logs
                if l['customer_id'] == cid and l.get('created_at') and l['created_at'] >= cutoff)
+
+
+def _sum_points_in_logs(logs: list[dict], cid: int) -> float:
+    return sum(float(l.get('num', 0) or 0) for l in logs if l['customer_id'] == cid)
 
 def _parse_activity_types(logs: list[dict], customer_id: int) -> dict[str, int]:
     category_map = {
@@ -138,15 +142,37 @@ def _build_member_scenes(
     if recent_3 > 0 and baseline_avg > 0 and (recent_3 / 3) > baseline_avg * 2:
         _add('surge', '积分暴涨', f'近3天+{recent_3:.0f}，日均显著高于前7天')
 
-    # 场景4: 久未活跃后回归
+    recent_logs = [
+        l for l in cust_logs
+        if l.get('created_at') and l['created_at'] >= now - timedelta(days=3)
+    ]
+    recent_3_active = _count_active_days(recent_logs, cid)
+
+    older_logs = [
+        l for l in cust_logs
+        if l.get('created_at') and l['created_at'] < now - timedelta(days=3)
+    ]
+    older_active = _count_active_days(older_logs, cid)
+    older_points = _sum_points_in_logs(older_logs, cid)
+
+    # 场景4: 最近明显活跃回来了
     recent_3_pts = _sum_period_points(cust_logs, cid, 3)
-    if recent_3_pts > 0:
-        older_logs = [l for l in cust_logs
-                      if l.get('created_at')
-                      and l['created_at'] < now - timedelta(days=3)]
-        older_active = _count_active_days(older_logs, cid)
+    recent_daily_avg = recent_3_pts / recent_3_active if recent_3_active > 0 else 0
+    older_daily_avg = older_points / older_active if older_active > 0 else 0
+    if recent_3_pts > 0 and recent_3_active >= 2:
+        has_clear_rebound = False
+        rebound_detail = ''
         if older_active == 0:
-            _add('comeback', '强势回归', '沉寂后重新活跃')
+            has_clear_rebound = True
+            rebound_detail = f'近3天活跃{recent_3_active}天，沉寂后重新活跃'
+        elif older_active <= 2 and recent_3_active >= older_active + 1:
+            has_clear_rebound = True
+            rebound_detail = f'近3天活跃{recent_3_active}天，活跃度明显回升'
+        elif older_daily_avg > 0 and recent_daily_avg >= older_daily_avg * 1.8 and recent_3_pts >= older_points * 0.6:
+            has_clear_rebound = True
+            rebound_detail = f'近3天+{recent_3_pts:.0f}分，近期参与明显回暖'
+        if has_clear_rebound:
+            _add('comeback', '强势回归', rebound_detail)
 
     # 场景5: 中途掉队但重新跟上
     if recent_3_pts > 0 and active_days >= 3:

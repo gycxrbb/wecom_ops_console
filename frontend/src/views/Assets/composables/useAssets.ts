@@ -50,6 +50,9 @@ export function useAssets() {
       if (!silent) ElMessage.warning(validation.message)
       throw new Error(validation.message)
     }
+    if (validation.warning && !silent) {
+      ElMessage.info(validation.warning)
+    }
 
     // 尝试客户端直传
     try {
@@ -58,12 +61,18 @@ export function useAssets() {
         mime_type: file.type || 'application/octet-stream',
       })
       if (prepareRes.mode === 'qiniu' && prepareRes.upload_url && prepareRes.token) {
-        // 客户端直传七牛
+        // 客户端直传七牛，带超时控制
         const qiniuForm = new FormData()
         qiniuForm.append('token', prepareRes.token)
         qiniuForm.append('key', prepareRes.object_key)
         qiniuForm.append('file', file)
-        await fetch(prepareRes.upload_url, { method: 'POST', body: qiniuForm })
+        const controller = new AbortController()
+        const uploadTimeout = setTimeout(() => controller.abort(), 120_000)
+        try {
+          await fetch(prepareRes.upload_url, { method: 'POST', body: qiniuForm, signal: controller.signal })
+        } finally {
+          clearTimeout(uploadTimeout)
+        }
         // 确认上传，创建数据库记录
         await request.post('/v1/assets/confirm-upload', {
           object_key: prepareRes.object_key,
@@ -85,7 +94,8 @@ export function useAssets() {
     formData.append('file', file)
     if (folderId != null) formData.append('folder_id', String(folderId))
     await request.post('/v1/assets', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 180_000,
     })
     if (!silent) ElMessage.success('上传成功')
   }

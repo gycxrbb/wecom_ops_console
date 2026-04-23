@@ -1,5 +1,14 @@
 # Progress
 
+## 2026-04-22
+- 已修复阻塞后端启动的 `crm_points_ranking.py` 语法错误：
+  - 问题点位于 `preview_ranking_batch()` 的消息构建阶段。
+  - 错误原因是把 `followup = generate_1v1_actions(...)` 和日志语句误嵌进了 `items.append(...)`。
+  - 当前已恢复为“先计算 `followup` -> 记录日志 -> 再 append 消息对象”的正常结构。
+- 本轮验证结果：
+  - `python -m py_compile app/services/crm_points_ranking.py app/routers/api_crm_points.py` 通过。
+  - 后端 `uvicorn app.main:app --host 0.0.0.0 --port 8003` 已确认监听成功，说明这次语法错误已解除。
+
 ## 2026-04-16
 - 已读取 `docs/CRM/mfgcrmdb_database_explanation.md` 和 `docs/CRM/mfgcrmdb_schema_knowledge.json`。
 - 已确认本次主要依赖表：`customers / customer_groups / groups / point_logs`。
@@ -42,3 +51,127 @@
   - 文档正式真值使用 `docs/system_teaching/*.md`
   - `admin` 支持系统内编辑 Markdown
   - 教学图片复用现有七牛链路，统一走 `qiwei/docs/...`
+- 已开始落地“系统教学”正式功能：
+  - 后端新增 `app/routers/api_system_docs.py`，提供目录读取、文档详情、管理员增删改、教学图片上传接口。
+  - 后端新增 `app/services/system_docs_service.py`，将 `docs/system_teaching/*.md` 作为正式文档真值，并负责 `_meta.json` 目录维护。
+  - 存储层新增 `UploadPayload.object_key`，本地存储和七牛存储均支持显式对象路径，教学图片可稳定复用到 `qiwei/docs/...`。
+  - 前端新增 `frontend/src/views/SystemTeaching.vue`，支持目录浏览、全文阅读、页内目录、管理员在线编辑、图片上传插入和 Markdown 预览。
+  - 侧边栏新增“系统教学”入口，路由已接入 `/system-teaching`。
+  - 已初始化首批正式教学文档：`docs/system_teaching/_meta.json` 与 4 篇上手/模块/管理员指南。
+- 当前聚焦验证结果：
+  - `python -m py_compile app/services/system_docs_service.py app/routers/api_system_docs.py app/services/storage/base.py app/services/storage/local.py app/services/storage/qiniu.py app/main.py` 通过。
+  - 前端 TypeScript 校验仍被仓库现有配置阻塞：`frontend/tsconfig.json(16,27): error TS5103: Invalid value for '--ignoreDeprecations'.`
+  - 启动级验证待继续执行；已知后端环境此前仍缺少 `passlib`，大概率会继续阻塞 `uvicorn` 启动。
+- 已继续完成启动验证阻塞清理与系统教学联调收口：
+  - 新增 `app/password_utils.py`，在 `passlib` 缺失时回退到兼容 `passlib pbkdf2_sha256` 格式的内置实现，保持现有本地账号 hash 可校验。
+  - `app/security.py` 与 `app/services/crm_admin_auth.py` 已切到共享密码上下文，不再因为 `passlib` 缺失导致整站 import 失败。
+  - `frontend/tsconfig.json` 的 `ignoreDeprecations` 已从 `6.0` 修正为与当前 TypeScript 5.2 兼容的 `5.0`。
+  - 顺手修复了两处已暴露的前端类型错误：`PointsRankingTab.vue` 定时器类型、`PublishPlanDialog.vue` 的重复 `ref` 导入。
+  - 已通过 `pip` 安装当前环境缺失但 `requirements.txt` 已声明的 `python-multipart` 和 `apscheduler`，解除后端启动链路阻塞。
+- 本轮验证结果：
+  - `python -m py_compile app/password_utils.py app/security.py app/services/crm_admin_auth.py app/services/system_docs_service.py app/routers/api_system_docs.py app/main.py` 通过。
+  - `cd frontend && .\\node_modules\\.bin\\vue-tsc.cmd --noEmit` 通过。
+  - `cd frontend && npm.cmd run build` 通过，已产出 `frontend/dist/assets/SystemTeaching-*.js/.css`。
+  - 后端 `uvicorn app.main:app --host 0.0.0.0 --port 8000` 已完成应用启动，但 8000 端口被现有进程占用。
+  - 后端改用 `8001` 端口验证后确认成功监听。
+  - 前端 `npm.cmd run dev -- --host 0.0.0.0 --port 5177` 后已确认 `5177` 端口处于监听状态，说明开发服务可起。
+- 已继续完成系统教学界面的视觉升级：
+  - 页面从普通后台三栏卡片风格调整为更偏“编辑部阅读台”的阅读界面，强化长文阅读、目录检索和正文聚焦。
+  - Hero 区新增文档统计、当前聚焦信息和更清晰的检索面板。
+  - 左侧目录改为带顺位编号的知识架卡片，正文改为纸张式阅读面板，右侧目录改为轻量导航卡。
+  - 将 `SystemTeaching.vue` 的样式拆到 `frontend/src/views/styles/systemTeaching.css`，降低单文件体积并便于后续持续打磨。
+  - 视觉升级后已再次通过 `vue-tsc --noEmit` 和 `npm run build` 验证。
+- 已继续完成系统教学的阅读闭环与管理员编辑提效：
+  - 左侧新增“最近阅读”，基于 `localStorage` 记住最近看过的教学文档。
+  - 正文底部新增“上一篇 / 下一篇”导航，让长文阅读不必频繁回目录。
+  - admin 编辑器新增常用 Markdown 区块快捷插入，覆盖标题、步骤、注意事项、示例代码、配图说明等常见教学结构。
+  - 上述增强已再次通过 `cd frontend && .\\node_modules\\.bin\\vue-tsc.cmd --noEmit` 和 `cd frontend && npm.cmd run build` 验证。
+- 已继续完成系统教学的结构化元信息与编辑保护：
+  - 后端文档元数据扩展为支持 `cover_image / difficulty / recommended_slugs`，正式真值仍落在 `docs/system_teaching/_meta.json`。
+  - 文档详情页已支持封面图、阅读难度、推荐阅读卡片展示，知识页开始具备更明显的“内容运营”表达能力。
+  - admin 编辑器新增封面图字段、难度选择、推荐阅读选择、写作辅助大纲，以及“最近上传图片设为封面”的快捷操作。
+  - 编辑器已增加未保存关闭确认与浏览器离开提醒，避免管理员误关弹窗丢内容。
+  - 本轮验证结果：
+    - `python -m py_compile app/services/system_docs_service.py app/routers/api_system_docs.py` 通过
+    - `cd frontend && .\\node_modules\\.bin\\vue-tsc.cmd --noEmit` 通过
+    - `cd frontend && npm.cmd run build` 通过
+    - 后端 `uvicorn app.main:app --host 0.0.0.0 --port 8002` 已确认监听成功
+    - 前端 `npm.cmd run dev -- --host 0.0.0.0 --port 5178` 已确认监听成功
+- 已根据 `docs/SYSTEM_TEACHING_UX_REVIEW.md` 对系统教学界面做了企业后台化收敛：
+  - 移除了原先阅读区顶部偏突兀的深色操作块，把搜索和新建动作收为同一条轻量 action bar。
+  - Hero 区从大卡片表达改为浅底分隔式头部，统计信息压缩为单行元信息，整体更贴近现有后台模块的节奏。
+  - 左侧目录去掉编号泡泡与重卡片感，改成细线高亮 + 轻背景选中态，减少“外嵌页面”感。
+  - 正文区把“最近更新 / 难度 / 标识 / 顺位”等信息从多宫格卡片收成一行 inline metadata，把视觉重心还给文档内容。
+  - 三栏布局保留，但系统教学主内容、推荐阅读、上一篇/下一篇、本页目录都改成更轻的边框和阴影策略，阅读负担明显下降。
+  - 本轮验证结果：
+    - `cd frontend && .\\node_modules\\.bin\\vue-tsc.cmd --noEmit` 通过
+    - `cd frontend && npm.cmd run build` 通过
+    - 后端 `uvicorn app.main:app --host 0.0.0.0 --port 8004` 后确认 `8004` 端口监听成功
+    - 前端 `cd frontend && npm.cmd run dev -- --host 0.0.0.0 --port 5178` 后确认 `5178` 端口监听成功
+- 已继续按 `docs/SYSTEM_TEACHING_UX_REVIEW.md` v3 收口系统教学的阅读与编辑交互：
+  - 阅读页新增搜索范围提示与结果状态反馈，目录区在搜索时会明确告诉用户“找到多少篇/未找到结果”，降低检索预期不清的问题。
+  - 本页大纲不再默认常驻占位，而是改为“标题较多时可展开/收起”的模式，三栏结构在无需大纲时自动退回双栏，正文宽度更稳定。
+  - 编辑器从“首屏长表单”改成“正文优先”的写作台：文档元数据统一收进“更多设置”抽屉，默认先写正文，再补分类、封面、推荐阅读等设置。
+  - 编辑区新增专注模式、顶部状态栏、快捷键提示，以及 `Ctrl/Cmd + S / B / I / K` 常用操作，整体更接近写作工具而不是 CMS 表单。
+  - 右侧写作辅助大纲保留，但在专注模式下会自动让位给正文；大纲点击会直接跳到编辑器预览里的对应章节。
+  - 本轮验证结果：
+    - `cd frontend && .\\node_modules\\.bin\\vue-tsc.cmd --noEmit` 通过
+    - `cd frontend && npm.cmd run build` 通过
+    - 后端 `python -m uvicorn app.main:app --host 0.0.0.0 --port 8004` 前台启动日志已到 `Application startup complete`
+    - 前端 `cd frontend && npm.cmd run dev -- --host 0.0.0.0 --port 5178` 后确认 `5178` 端口监听成功
+- 已继续补齐系统教学 v3 的状态流与检索能力：
+  - 后端系统教学文档现已支持“已发布内容 + 草稿内容”双层真值。新文档可先保存草稿不对外显示，已发布文档也可保留未发布草稿，只有执行发布后才覆盖阅读者看到的正式内容。
+  - 目录与详情接口开始按用户角色区分可见范围：普通用户只读已发布文档，管理员可见草稿与“已有未发布草稿”的文档状态。
+  - 新增全文检索接口，搜索范围已从标题/摘要扩展到正文内容，并返回 snippet 供前端在目录区展示命中上下文。
+  - 编辑器现已支持“保存草稿 / 发布”双动作、节流自动保存、保存状态回显，以及图片粘贴/拖拽自动上传插入。
+  - 教学图片对象路径已切到 `qiwei/docs/images/...`，与普通企微群发素材目录隔离。
+  - 本轮验证结果：
+    - `python -m py_compile app\\services\\system_docs_service.py app\\routers\\api_system_docs.py` 通过
+    - `cd frontend && .\\node_modules\\.bin\\vue-tsc.cmd --noEmit` 通过
+    - `cd frontend && npm.cmd run build` 通过
+    - 后端 `python -m uvicorn app.main:app --host 0.0.0.0 --port 8004` 前台启动日志已到 `Application startup complete`
+    - 前端 `cd frontend && npm.cmd run dev -- --host 0.0.0.0 --port 5178` 后确认 `5178` 端口监听成功
+- 已继续修复系统教学编辑器的布局遮挡与快捷工具样式：
+  - 为编辑弹窗补了全局 `el-dialog` 尺寸、body 滚动和 fullscreen 适配样式，修复顶部工具栏被压缩、正文区显示不全、内容被遮挡的问题。
+  - 工具栏和副信息条改成更稳的换行策略，按钮过多时不再把正文区域挤没，也降低了横向溢出的风险。
+  - 原先那排大块圆角快捷卡片已改成更轻的图标式插入工具条，更接近 Typora 这类写作工具的体感。
+  - textarea、预览区和右侧写作辅助都补了统一的视口高度约束，减少双滚动条和大片留白。
+  - 本轮验证结果：
+    - `cd frontend && .\\node_modules\\.bin\\vue-tsc.cmd --noEmit` 通过
+    - `cd frontend && npm.cmd run build` 通过
+    - 后端 `python -m uvicorn app.main:app --host 0.0.0.0 --port 8004` 前台启动日志已到 `Application startup complete`
+    - 前端 `cd frontend && npm.cmd run dev -- --host 0.0.0.0 --port 5178` 后确认 `5178` 端口监听成功
+- 已继续修复系统教学编辑弹窗“偏顶”和专注模式失效问题：
+  - 编辑弹窗已改为 `append-to-body`，不再局限在主内容区内渲染，专注模式会真正覆盖整个页面而不是只占中间区域。
+  - 修正了弹窗根节点样式选择器，之前普通态与 fullscreen 态很多尺寸规则没有真正命中 `el-dialog`，这次已经改成命中实际根节点。
+  - 普通编辑态上边距从更紧的顶部位置拉开到更合理的 `8vh`，弹窗整体不会再显得“贴顶”。
+  - 本轮验证结果：
+    - `cd frontend && .\\node_modules\\.bin\\vue-tsc.cmd --noEmit` 通过
+    - `cd frontend && npm.cmd run build` 通过
+- 已继续优化编辑器按钮观感与专注模式空间利用率：
+  - “Markdown 编辑 / 预览”模式按钮已改成中性底色 + 深色选中态，不再使用你明确不接受的“绿底蓝字”组合。
+  - 专注模式下进一步压缩了头部、说明条和四周内边距，更多垂直空间已经还给正文编辑区。
+  - 专注模式下 textarea / 预览区高度上调到更贴近视口上限，正文区域的可写面积明显增大。
+  - 本轮验证结果：
+    - `cd frontend && .\\node_modules\\.bin\\vue-tsc.cmd --noEmit` 通过
+    - `cd frontend && npm.cmd run build` 通过
+    - 后端 `python -m uvicorn app.main:app --host 0.0.0.0 --port 8004` 前台启动日志已到 `Application startup complete`
+    - 前端 `cd frontend && npm.cmd run dev -- --host 0.0.0.0 --port 5178` 后确认 `5178` 端口监听成功
+- 已修复系统教学编辑器“插入图片默认落到文末”的问题：
+  - 新增通用的“按当前选区插入文本”逻辑，图片上传成功后会优先插到光标所在位置，而不是统一追加到文档尾部。
+  - 这条修复同时覆盖了点击上传、粘贴图片、拖拽图片三种入口，因为它们现在共用同一条插入链路。
+  - 本轮验证结果：
+    - `cd frontend && .\\node_modules\\.bin\\vue-tsc.cmd --noEmit` 通过
+    - `cd frontend && npm.cmd run build` 通过
+    - 后端 `python -m uvicorn app.main:app --host 0.0.0.0 --port 8004` 前台启动日志已到 `Application startup complete`
+    - 前端 `cd frontend && npm.cmd run dev -- --host 0.0.0.0 --port 5178` 后确认 `5178` 端口监听成功
+- 已为系统教学文档补齐“作者”元数据：
+  - 后端 `SystemDocUpsert`、系统教学文档 service 和 `_meta.json` 归一化链路已支持 `author` 字段，后续作者信息会作为正式文档元数据持久化，而不是前端临时展示。
+  - 前端系统教学阅读页已支持显示作者，编辑器“更多设置”里新增了作者输入位，编辑副信息条也会实时展示当前作者值。
+  - 现有旧文档未填写作者时会安全回落为空，不会影响既有教学文档的读取和发布流程。
+  - 本轮验证结果：
+    - `python -m py_compile app\\services\\system_docs_service.py app\\routers\\api_system_docs.py` 通过
+    - `cd frontend && .\\node_modules\\.bin\\vue-tsc.cmd --noEmit` 通过
+    - `cd frontend && npm.cmd run build` 通过
+    - 后端 `python -m uvicorn app.main:app --host 0.0.0.0 --port 8004` 前台启动日志已到 `Application startup complete`
+    - 前端 `cd frontend && npm.cmd run dev -- --host 0.0.0.0 --port 5178` 在无沙箱验证下确认 `5178` 端口监听成功

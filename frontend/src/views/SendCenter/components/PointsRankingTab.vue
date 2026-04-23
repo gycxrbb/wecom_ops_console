@@ -208,6 +208,7 @@
           <span>入队 {{ lastGenerateSummary.queuedCount }} 条</span>
           <span v-if="lastGenerateSummary.skippedCount > 0">跳过 {{ lastGenerateSummary.skippedCount }} 个</span>
           <span v-if="lastGenerateSummary.unboundCount > 0">未绑定 {{ lastGenerateSummary.unboundCount }} 个</span>
+          <span v-if="lastGenerateSummary.insightCount > 0">命中洞察 {{ lastGenerateSummary.insightCount }} 条</span>
         </div>
         <div
           v-if="lastGenerateDiagnostics"
@@ -216,7 +217,8 @@
           <span>总耗时 {{ formatMs(lastGenerateDiagnostics.total_ms) }}</span>
           <span>群名查询 {{ formatMs(lastGenerateDiagnostics.group_name_lookup_ms) }}</span>
           <span>成员积分聚合 {{ formatMs(lastGenerateDiagnostics.load_members_ms) }}</span>
-          <span>排行与洞察 {{ formatMs(lastGenerateDiagnostics.generate_items_ms) }}</span>
+          <span>洞察分析 {{ formatMs(lastGenerateDiagnostics.insights_ms) }}</span>
+          <span>消息组装 {{ formatMs(lastGenerateDiagnostics.generate_items_ms) }}</span>
           <span>绑定检查 {{ formatMs(lastGenerateDiagnostics.binding_lookup_ms) }}</span>
         </div>
         <div
@@ -247,9 +249,12 @@
       </div>
 
       <FollowupActionsPanel
-        v-if="totalFollowupCount > 0"
+        v-if="lastGenerateSummary && totalFollowupCount > 0"
         :actions-by-group="lastFollowupActions"
       />
+      <div v-if="lastGenerateSummary && totalFollowupCount === 0" class="followup-empty-hint">
+        暂无 1v1 跟进建议（需要成员匹配洞察场景才会生成）
+      </div>
     </template>
   </div>
 </template>
@@ -272,6 +277,8 @@ type RankingDiagnostics = {
   total_ms: number
   group_name_lookup_ms: number
   load_members_ms: number
+  insights_ms: number
+  insights_skipped?: boolean
   generate_items_ms: number
   binding_lookup_ms: number
   slow_groups: RankingSlowGroup[]
@@ -311,9 +318,10 @@ const lastGenerateSummary = ref<null | {
   queuedCount: number
   skippedCount: number
   unboundCount: number
+  insightCount: number
   reasonLines: string[]
 }>(null)
-let generateTimer: ReturnType<typeof window.setInterval> | null = null
+let generateTimer: number | null = null
 
 const config = ref({
   topNEnabled: false,
@@ -517,6 +525,10 @@ const generateRanking = async () => {
     finishGenerateProgress(previewItems.length)
     const skipped = previewItems.filter((item: any) => item.skipped)
     const validItems = previewItems.filter((item: any) => !item.skipped)
+    const insightCount = validItems.reduce((sum: number, item: any) => sum + ((item.insights || []).length), 0)
+    const selectedSceneLabels = insightScenes.value
+      .filter(scene => config.value.enabledScenes.includes(scene.key))
+      .map(scene => scene.label)
 
     // 提取 1v1 跟进动作
     const followupMap: Record<string, any[]> = {}
@@ -534,7 +546,16 @@ const generateRanking = async () => {
         queuedCount: 0,
         skippedCount: skipped.length,
         unboundCount: 0,
-        reasonLines: skipped.map((item: any) => `${item.crm_group_name}: ${item.skip_reason || '未生成消息'}`),
+        insightCount,
+        reasonLines: [
+          ...skipped.map((item: any) => `${item.crm_group_name}: ${item.skip_reason || '未生成消息'}`),
+          ...(config.value.enabledScenes.length > 0 && insightCount === 0
+            ? [`当前所选洞察场景未命中任何成员: ${selectedSceneLabels.join('、')}`]
+            : []),
+          ...(lastGenerateDiagnostics.value?.insights_skipped
+            ? ['洞察分析已降级跳过，请查看后端日志中的“批量洞察查询失败”']
+            : []),
+        ],
       }
       ElMessage.warning('所选群组均无正积分成员，未生成排行消息')
       return
@@ -562,9 +583,16 @@ const generateRanking = async () => {
       queuedCount: batchItems.length,
       skippedCount: skipped.length,
       unboundCount: unbound.length,
+      insightCount,
       reasonLines: [
         ...skipped.map((item: any) => `${item.crm_group_name}: ${item.skip_reason || '未生成消息'}`),
         ...unbound.map((item: any) => `${item.crm_group_name}: 未绑定发送群`),
+        ...(config.value.enabledScenes.length > 0 && insightCount === 0
+          ? [`当前所选洞察场景未命中任何成员: ${selectedSceneLabels.join('、')}`]
+          : []),
+        ...(lastGenerateDiagnostics.value?.insights_skipped
+          ? ['洞察分析已降级跳过，请查看后端日志中的“批量洞察查询失败”']
+          : []),
       ],
     }
 
@@ -859,5 +887,14 @@ html.dark .ranking-group-item:hover {
     width: 100%;
     margin-left: 28px;
   }
+}
+.followup-empty-hint {
+  border: 1px dashed var(--border-color);
+  border-radius: 10px;
+  padding: 16px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 13px;
+  background: var(--card-bg);
 }
 </style>

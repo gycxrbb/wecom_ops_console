@@ -3,7 +3,7 @@ export const FILE_UPLOAD_LIMIT_BYTES = 20 * 1024 * 1024
 
 const MB = 1024 * 1024
 
-export const ASSET_UPLOAD_HINT = `图片不超过 ${(IMAGE_UPLOAD_LIMIT_BYTES / MB).toFixed(0)} MB，文件不超过 ${(FILE_UPLOAD_LIMIT_BYTES / MB).toFixed(0)} MB`
+export const ASSET_UPLOAD_HINT = `文件不超过 ${(FILE_UPLOAD_LIMIT_BYTES / MB).toFixed(0)} MB`
 
 const isImageFile = (file: File) => (file.type || '').startsWith('image/')
 
@@ -53,7 +53,7 @@ export const formatAssetDateTime = (dateStr?: string) => {
   }).format(date)
 }
 
-export const validateAssetUpload = (file: File, acceptType: 'image' | 'file' | 'all' = 'all') => {
+export const validateAssetUpload = (file: File, acceptType: 'image' | 'file' | 'all' = 'all'): { valid: boolean; message: string; warning?: string } => {
   const imageFile = isImageFile(file)
 
   if (acceptType === 'image' && !imageFile) {
@@ -64,13 +64,13 @@ export const validateAssetUpload = (file: File, acceptType: 'image' | 'file' | '
     return { valid: false, message: '当前入口只支持上传文件素材' }
   }
 
-  const limit = imageFile ? IMAGE_UPLOAD_LIMIT_BYTES : FILE_UPLOAD_LIMIT_BYTES
-  const limitLabel = `${(limit / MB).toFixed(0)} MB`
-
-  if (file.size > limit) {
-    return {
-      valid: false,
-      message: `${imageFile ? '图片' : '文件'}大小不能超过 ${limitLabel}`
+  if (imageFile) {
+    if (file.size > IMAGE_UPLOAD_LIMIT_BYTES) {
+      return { valid: true, message: '', warning: `图片较大（${(file.size / MB).toFixed(1)} MB），发送时将自动压缩` }
+    }
+  } else {
+    if (file.size > FILE_UPLOAD_LIMIT_BYTES) {
+      return { valid: false, message: `文件大小不能超过 ${(FILE_UPLOAD_LIMIT_BYTES / MB).toFixed(0)} MB` }
     }
   }
 

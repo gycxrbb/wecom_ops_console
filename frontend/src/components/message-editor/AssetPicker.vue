@@ -461,6 +461,9 @@ const handleUpload = async (options: any) => {
     ElMessage.warning(validation.message)
     return
   }
+  if (validation.warning) {
+    ElMessage.info(validation.warning)
+  }
 
   const formData = new FormData()
   formData.append('file', options.file)
@@ -472,7 +475,8 @@ const handleUpload = async (options: any) => {
     uploading.value = true
     uploadingFileName.value = options.file?.name || ''
     await request.post('/v1/assets', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 180_000,
     })
     ElMessage.success('上传成功')
     await Promise.all([fetchAssets(currentFolderId.value), fetchFolders()])

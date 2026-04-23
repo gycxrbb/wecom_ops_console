@@ -55,6 +55,36 @@ class WeComService:
         except Exception:
             return raw
 
+    @staticmethod
+    def _compress_image_if_needed(raw: bytes, max_size: int = 2 * 1024 * 1024) -> bytes:
+        if len(raw) <= max_size:
+            return raw
+        try:
+            from PIL import Image
+            img = Image.open(BytesIO(raw))
+            if img.mode in ('RGBA', 'LA', 'P'):
+                img = img.convert('RGBA')
+            else:
+                img = img.convert('RGB')
+            for quality in [85, 70, 55, 40, 30, 20]:
+                buf = BytesIO()
+                img.save(buf, format='JPEG', quality=quality)
+                if buf.tell() <= max_size:
+                    logger.info('图片压缩: %d -> %d bytes (quality=%d)', len(raw), buf.tell(), quality)
+                    return buf.getvalue()
+            for scale in [0.75, 0.5, 0.3]:
+                w, h = img.size
+                resized = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+                buf = BytesIO()
+                resized.save(buf, format='JPEG', quality=40)
+                if buf.tell() <= max_size:
+                    logger.info('图片压缩+缩放: %d -> %d bytes (scale=%.0f%%)', len(raw), buf.tell(), scale * 100)
+                    return buf.getvalue()
+            logger.warning('图片压缩后仍超过 %d bytes，将尽力发送', max_size)
+            return buf.getvalue()
+        except Exception:
+            return raw
+
     @classmethod
     def _read_asset_bytes(cls, content: dict, *, image: bool = False) -> bytes:
         handle = cls._storage_result_from_content(content)
@@ -108,8 +138,8 @@ class WeComService:
             return {'msgtype': 'news', 'news': {'articles': content.get('articles', [])}}
         if normalized_type == 'image':
             raw = cls._read_asset_bytes(content, image=True)
-            # GIF 不支持，转 PNG 第一帧
             raw = cls._ensure_static_image(raw)
+            raw = cls._compress_image_if_needed(raw)
             return {
                 'msgtype': 'image',
                 'image': {

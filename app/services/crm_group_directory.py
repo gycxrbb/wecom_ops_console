@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from typing import Any
 
@@ -20,6 +21,62 @@ _log = logging.getLogger(__name__)
 _CACHE_TTL = 120  # 2 分钟
 _cache: dict[str, tuple[Any, float]] = {}
 _indexes_ensured = False
+
+
+# ── 连接池（简单线程安全池，避免每次查询都新建 TCP 连接） ──────────
+
+_POOL_SIZE = 3
+_POOL: list[pymysql.connections.Connection] = []
+_POOL_LOCK = threading.Lock()
+
+
+def _create_connection() -> pymysql.connections.Connection:
+    return pymysql.connect(
+        host=settings.crm_admin_db_host,
+        port=settings.crm_admin_db_port,
+        user=settings.crm_admin_db_user,
+        password=settings.crm_admin_db_password,
+        database=settings.crm_admin_db_name,
+        charset='utf8mb4',
+        cursorclass=DictCursor,
+        connect_timeout=10,
+        read_timeout=30,
+        write_timeout=10,
+    )
+
+
+def _get_connection() -> pymysql.connections.Connection:
+    try:
+        with _POOL_LOCK:
+            if _POOL:
+                conn = _POOL.pop()
+                try:
+                    conn.ping(reconnect=True)
+                    return conn
+                except Exception:
+                    try:
+                        _return_connection(conn)
+                    except Exception:
+                        pass
+        return _create_connection()
+    except Exception as exc:
+        _log.warning('CRM 数据库连接失败: %s', exc)
+        raise CrmAdminAuthUnavailable(str(exc)) from exc
+
+
+def _return_connection(conn: pymysql.connections.Connection) -> None:
+    try:
+        conn.rollback()
+        with _POOL_LOCK:
+            if len(_POOL) < _POOL_SIZE:
+                _POOL.append(conn)
+                return
+    except Exception:
+        pass
+    try:
+        conn.close()
+    except Exception:
+        pass
 
 
 def _get_cached(key: str) -> Any | None:
@@ -45,25 +102,6 @@ def crm_group_enabled() -> bool:
         and settings.crm_admin_db_user
         and settings.crm_admin_db_name
     )
-
-
-def _get_connection() -> pymysql.connections.Connection:
-    try:
-        return pymysql.connect(
-            host=settings.crm_admin_db_host,
-            port=settings.crm_admin_db_port,
-            user=settings.crm_admin_db_user,
-            password=settings.crm_admin_db_password,
-            database=settings.crm_admin_db_name,
-            charset='utf8mb4',
-            cursorclass=DictCursor,
-            connect_timeout=5,
-            read_timeout=5,
-            write_timeout=5,
-        )
-    except Exception as exc:
-        _log.warning('CRM 数据库连接失败: %s', exc)
-        raise CrmAdminAuthUnavailable(str(exc)) from exc
 
 
 def _format_index_columns(columns: str | tuple[str, ...] | list[str]) -> str:
@@ -223,7 +261,7 @@ def fetch_crm_groups() -> dict[str, Any]:
         return {'available': False, 'groups': []}
     finally:
         if conn:
-            conn.close()
+            _return_connection(conn)
 
 
 def fetch_crm_group_names(group_ids: list[int]) -> dict[int, str]:
@@ -278,7 +316,7 @@ def fetch_crm_group_names(group_ids: list[int]) -> dict[int, str]:
         return {}
     finally:
         if conn:
-            conn.close()
+            _return_connection(conn)
 
 
 def fetch_crm_group_members(group_id: int) -> dict[str, Any]:
@@ -397,7 +435,7 @@ def fetch_crm_group_members_bulk(group_ids: list[int]) -> dict[int, dict[str, An
         return {}
     finally:
         if conn:
-            conn.close()
+            _return_connection(conn)
 
 
 def fetch_crm_individual_leaderboard(
@@ -468,7 +506,7 @@ def fetch_crm_individual_leaderboard(
         return {'available': False, 'list': [], 'pagination': {'page': page, 'page_size': page_size, 'total': 0}}
     finally:
         if conn:
-            conn.close()
+            _return_connection(conn)
 
 
 def fetch_crm_group_leaderboard(
@@ -544,7 +582,7 @@ def fetch_crm_group_leaderboard(
         return {'available': False, 'list': [], 'pagination': {'page': page, 'page_size': page_size, 'total': 0}}
     finally:
         if conn:
-            conn.close()
+            _return_connection(conn)
 
 
 def fetch_crm_group_stats() -> dict[str, Any]:
@@ -608,7 +646,7 @@ def fetch_crm_group_stats() -> dict[str, Any]:
         return {'available': False, 'total_groups': 0, 'total_customers': 0, 'total_points': 0}
     finally:
         if conn:
-            conn.close()
+            _return_connection(conn)
 
 
 def search_crm_customers(query: str, page: int = 1, page_size: int = 20) -> dict[str, Any]:
@@ -680,4 +718,4 @@ def search_crm_customers(query: str, page: int = 1, page_size: int = 20) -> dict
         return {'available': False, 'list': [], 'pagination': {'page': page, 'page_size': page_size, 'total': 0}}
     finally:
         if conn:
-            conn.close()
+            _return_connection(conn)

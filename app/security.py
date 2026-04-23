@@ -1,20 +1,21 @@
 import base64
 import hashlib
 import json
+from datetime import datetime, timedelta
 from typing import Any
-from cryptography.fernet import Fernet
-from cryptography.hazmat.primitives.asymmetric import rsa, padding
-from cryptography.hazmat.primitives import serialization
-from passlib.context import CryptContext
-from fastapi import HTTPException, Request, status
-from sqlalchemy.orm import Session
+
 import jwt
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa, padding
+from fastapi import HTTPException, Request, status
 from jwt.exceptions import PyJWTError
+from sqlalchemy.orm import Session
+
 from .config import settings
 from . import models
+from .password_utils import pwd_context
 from .services.crm_admin_auth import CrmAdminAuthUnavailable, authenticate_crm_admin, crm_admin_auth_enabled, sync_crm_admin_to_local
-
-pwd_context = CryptContext(schemes=['pbkdf2_sha256'], deprecated='auto')
 
 # Generate ephemeral RSA key pair at startup for password encryption
 _RSA_PRIVATE_KEY = rsa.generate_private_key(
@@ -194,8 +195,6 @@ def require_permission(user: models.User, key: str):
     perms = json_loads(user.permissions_json, {})
     if not perms.get(key):
         raise HTTPException(status_code=403, detail=f'缺少 {PERMISSION_LABELS.get(key, key)} 权限')
-import jwt
-from datetime import datetime, timedelta
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None):
     to_encode = data.copy()

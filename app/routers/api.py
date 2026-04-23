@@ -15,7 +15,7 @@ from .. import models
 from ..config import settings
 from ..database import get_db
 from ..security import decrypt_webhook, encrypt_webhook, get_current_user, json_dumps, json_loads, require_role, require_permission, hash_password
-from ..services.material_storage_service import build_storage_result_from_material, log_material_storage_event
+from ..services.material_storage_service import build_storage_result_from_material, log_material_storage_event, resolve_material_storage_path
 from ..services.audio_transcode import AudioTranscodeError, guess_audio_extension, is_amr_filename, is_supported_audio_upload, transcode_audio_to_amr
 from ..services.storage import UploadPayload, storage_facade
 from ..services.template_engine import default_context, render_value
@@ -688,13 +688,18 @@ async def confirm_asset_upload(request: Request, db: Session = Depends(get_db)):
     asset = models.Material(
         name=name,
         material_type=material_type,
+        storage_path=resolve_material_storage_path(object_key=object_key, public_url=public_url),
+        url=public_url,
         mime_type=mime_type,
         file_size=file_size,
         folder_id=int(folder_id) if folder_id and str(folder_id) not in ('', 'null', 'undefined') else None,
+        owner_id=user.id,
         storage_provider='qiniu',
         storage_status='ready',
         storage_key=object_key,
+        domain=urlparse(public_url).netloc if public_url else '',
         public_url=public_url,
+        source_filename=name,
         bucket_name=storage_facade.active_provider.config.bucket if hasattr(storage_facade.active_provider, 'config') else '',
     )
     db.add(asset)

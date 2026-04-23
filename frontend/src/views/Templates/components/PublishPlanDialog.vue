@@ -212,8 +212,6 @@ const handlePublish = async () => {
     publishing.value = false
   }
 }
-
-import { ref } from 'vue'
 </script>
 
 <style scoped>

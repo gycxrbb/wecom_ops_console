@@ -4,41 +4,86 @@
       "slug": "index",
       "title": "系统总览",
       "category": "基础上手",
+      "author": "熊睿",
       "summary": "快速认识企微运营平台的模块划分、侧边栏导航和推荐上手顺序。",
+      "cover_image": "",
+      "difficulty": "beginner",
+      "recommended_slugs": [],
+      "status": "published",
+      "published_at": "2026-04-22T07:31:15Z",
+      "draft_updated_at": "",
       "order": 1,
-      "filename": "00-index.md"
+      "filename": "00-index.md",
+      "draft_filename": "index.md",
+      "updated_at": "2026-04-22T07:31:15Z"
     },
     {
       "slug": "quick-start",
       "title": "10 分钟上手",
       "category": "基础上手",
+      "author": "熊睿",
       "summary": "面向新运营同学的最短上手路径，从看板、发送中心到排障入口。",
+      "cover_image": "",
+      "difficulty": "beginner",
+      "recommended_slugs": [],
+      "status": "published",
+      "published_at": "2026-04-22T07:31:26Z",
+      "draft_updated_at": "",
       "order": 2,
-      "filename": "01-quick-start.md"
+      "filename": "01-quick-start.md",
+      "draft_filename": "quick-start.md",
+      "updated_at": "2026-04-22T07:31:26Z"
     },
     {
       "slug": "send-center",
       "title": "发送中心",
       "category": "核心业务",
+      "author": "熊睿",
       "summary": "学习如何单条发送、队列发送、批量发送、测试发送与创建定时任务。",
+      "cover_image": "",
+      "difficulty": "beginner",
+      "recommended_slugs": [],
+      "status": "published",
+      "published_at": "2026-04-22T07:31:35Z",
+      "draft_updated_at": "",
       "order": 3,
-      "filename": "02-send-center.md"
+      "filename": "02-send-center.md",
+      "draft_filename": "send-center.md",
+      "updated_at": "2026-04-22T07:31:35Z"
     },
     {
       "slug": "template-center",
       "title": "模板中心与运营编排",
       "category": "核心业务",
+      "author": "熊睿",
       "summary": "了解模板库、运营主题、Day/Stage、节点编辑和发布到群的基本流程。",
+      "cover_image": "",
+      "difficulty": "beginner",
+      "recommended_slugs": [],
+      "status": "published",
+      "published_at": "2026-04-22T07:31:43Z",
+      "draft_updated_at": "",
       "order": 4,
-      "filename": "03-template-center.md"
+      "filename": "03-template-center.md",
+      "draft_filename": "template-center.md",
+      "updated_at": "2026-04-22T07:31:43Z"
     },
     {
       "slug": "admin-guide",
       "title": "管理员手册",
       "category": "管理员",
+      "author": "熊睿",
       "summary": "管理员账号如何管理用户、权限、审批、话术和系统教学文档。",
+      "cover_image": "",
+      "difficulty": "beginner",
+      "recommended_slugs": [],
+      "status": "published",
+      "published_at": "2026-04-22T07:31:53Z",
+      "draft_updated_at": "",
       "order": 5,
-      "filename": "04-admin-guide.md"
+      "filename": "04-admin-guide.md",
+      "draft_filename": "admin-guide.md",
+      "updated_at": "2026-04-22T07:31:53Z"
     }
   ]
 }

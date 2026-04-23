@@ -10,7 +10,7 @@ from typing import Any
 
 from .crm_group_directory import fetch_crm_group_members, fetch_crm_group_members_bulk, crm_group_enabled
 from .crm_points_insights import detect_individual_insights_bulk
-from .crm_speech_templates import build_insight_speech
+from .crm_speech_templates import build_insight_speech, build_grouped_insight_speeches
 from .crm_1v1_actions import generate_1v1_actions
 
 _log = logging.getLogger(__name__)
@@ -98,9 +98,7 @@ def _generate_group_ranking_message_from_members(
         insight_candidates = ranked_members[:_INSIGHT_MEMBER_LIMIT]
         from .crm_points_insights import detect_individual_insights
         insights = detect_individual_insights(ranked_members, insight_candidates)
-    insight_speeches = []
-    for insight in insights[:5]:
-        insight_speeches.extend(build_insight_speech(insight, speech_style, max_speeches=1))
+    insight_speeches = build_grouped_insight_speeches(insights, speech_style)
 
     if insight_speeches:
         lines.append('')
@@ -246,6 +244,18 @@ def preview_ranking_batch(
             if msg is None:
                 items.append(_build_skipped_item(gid, group_name, '该群无正积分成员'))
                 continue
+            followup = generate_1v1_actions(
+                msg.get('insights', []),
+                crm_group_name=group_name,
+                speech_style=speech_style,
+            )
+            _log.info(
+                '群 %d(%s) 洞察 %d 条, 1v1 动作 %d 条',
+                gid,
+                group_name,
+                len(msg.get('insights', [])),
+                len(followup),
+            )
             items.append(
                 {
                     **msg,
@@ -253,11 +263,7 @@ def preview_ranking_batch(
                     'local_group_id': None,
                     'local_group_name': None,
                     'has_binding': False,
-                    'followup_1v1': generate_1v1_actions(
-                        msg.get('insights', []),
-                        crm_group_name=group_name,
-                        speech_style=speech_style,
-                    ),
+                    'followup_1v1': followup,
                 }
             )
         except Exception as exc:

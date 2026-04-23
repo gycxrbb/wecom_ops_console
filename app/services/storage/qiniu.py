@@ -214,7 +214,7 @@ class QiniuStorageProvider(StorageProvider):
 
     @staticmethod
     def _post_upload(upload_host: str, *, data: dict, files: dict) -> httpx.Response:
-        return httpx.post(upload_host, data=data, files=files, timeout=60)
+        return httpx.post(upload_host, data=data, files=files, timeout=300)
 
     @staticmethod
     def _extract_region_upload_host(message: str) -> str:

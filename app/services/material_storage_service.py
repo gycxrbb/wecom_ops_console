@@ -11,6 +11,22 @@ from ..security import json_dumps
 from .storage import StorageResult, UploadPayload, storage_facade
 
 
+def resolve_material_storage_path(*, local_path: str = '', object_key: str = '', public_url: str = '') -> str:
+    normalized_local_path = (local_path or '').strip()
+    if normalized_local_path:
+        return normalized_local_path
+    normalized_object_key = (object_key or '').strip()
+    if normalized_object_key:
+        return normalized_object_key
+    return (public_url or '').strip()
+
+
+def resolve_material_local_fallback_path(material: models.Material) -> str:
+    if (material.storage_provider or 'local').strip().lower() != 'local':
+        return ''
+    return (material.storage_path or '').strip()
+
+
 def build_storage_result_from_material(material: models.Material) -> StorageResult:
     return StorageResult(
         provider=material.storage_provider or 'local',
@@ -21,7 +37,7 @@ def build_storage_result_from_material(material: models.Material) -> StorageResu
         mime_type=material.mime_type or 'application/octet-stream',
         file_size=material.file_size or 0,
         bucket=material.bucket_name or '',
-        local_path=material.storage_path or '',
+        local_path=resolve_material_local_fallback_path(material),
         extra={'etag': material.provider_etag or ''},
     )
 

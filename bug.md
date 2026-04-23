@@ -362,3 +362,65 @@
 - **复现条件**: 在 CRM 数据量较大、缓存未命中，或一次选择多个成员较多的外部群时，点击“生成排行消息”。
 - **解决方案**: 后端改为按需查询所选群名称、批量查询绑定关系、洞察分析只覆盖实际上榜成员且限制分析人数，并在路由/服务层输出阶段耗时日志与慢群诊断；前端新增进度卡片、耗时展示和后端返回的分段耗时摘要。
 - **关联文件**: app/routers/api_crm_points.py, app/services/crm_group_directory.py, app/services/crm_group_bindings.py, app/services/crm_points_insights.py, app/services/crm_points_ranking.py, frontend/src/views/SendCenter/components/PointsRankingTab.vue
+
+## Bug #38: 后端认证链路硬依赖 passlib，环境少装一个包就会导致整站无法启动
+
+- **日期**: 2026-04-21
+- **现象**: 执行 `uvicorn app.main:app --host 0.0.0.0 --port 8000` 时，应用在 import `app.security` 阶段直接报 `ModuleNotFoundError: No module named 'passlib'`，系统教学等任意新功能都无法继续做真实启动验证。
+- **根因**: `app/security.py` 和 `app/services/crm_admin_auth.py` 都直接从 `passlib.context` 导入 `CryptContext`，把一个本应可替换的密码哈希实现变成了启动期硬依赖；一旦当前解释器环境缺少 `passlib`，整个 FastAPI 应用会在路由注册前直接失败。
+- **复现条件**: 在未安装 `passlib` 的 Python 环境里启动后端。
+- **解决方案**: 新增 `app/password_utils.py` 作为共享密码上下文入口；优先使用 `passlib`，缺失时回退到兼容 `passlib pbkdf2_sha256` 格式的内置实现，从而保持现有本地账号 hash 仍可验证并让应用正常启动。
+- **关联文件**: app/password_utils.py, app/security.py, app/services/crm_admin_auth.py
+
+## Bug #39: 前端 tsconfig 的 ignoreDeprecations 配置高于当前 TypeScript 版本，导致类型检查在配置层直接失败
+
+- **日期**: 2026-04-21
+- **现象**: 执行 `cd frontend && .\\node_modules\\.bin\\vue-tsc.cmd --noEmit` 时，直接报 `TS5103: Invalid value for '--ignoreDeprecations'`，导致连新增页面的真实类型错误都看不到。
+- **根因**: 仓库锁定的 TypeScript 版本是 `5.2.2`，但 `frontend/tsconfig.json` 中把 `ignoreDeprecations` 写成了 `6.0`，超出了当前编译器支持范围。
+- **复现条件**: 在当前仓库依赖版本下执行 `vue-tsc --noEmit` 或 `npm run build`。
+- **解决方案**: 将 `frontend/tsconfig.json` 中的 `ignoreDeprecations` 改为当前编译器兼容的 `5.0`，让类型检查重新落到真实源码层；随后继续修复暴露出来的实际类型错误。
+- **关联文件**: frontend/tsconfig.json, frontend/src/views/SendCenter/components/PointsRankingTab.vue, frontend/src/views/Templates/components/PublishPlanDialog.vue
+
+## Bug #40: crm_points_ranking 合并时把赋值表达式塞进 items.append，导致后端启动直接语法错误
+
+- **日期**: 2026-04-22
+- **现象**: 执行 `uvicorn` 启动后端时，Python 在导入 `app/services/crm_points_ranking.py` 时报 `SyntaxError: invalid syntax. Perhaps you forgot a comma?`，整站无法启动。
+- **根因**: `preview_ranking_batch()` 在生成积分排行项时，本应先计算 `followup = generate_1v1_actions(...)`，再把结果放入 `items.append({...})`。但一次合并后误写成把赋值语句和日志语句直接塞进 `items.append(...)` 参数里，形成了非法 Python 语法。
+- **复现条件**: 启动后端并导入 `app.main`，加载到 `app.services.crm_points_ranking`。
+- **解决方案**: 将该段逻辑还原为三步：1) 单独计算 `followup`；2) 打印洞察和 1v1 动作日志；3) 再将完整消息对象追加到 `items`。
+- **关联文件**: app/services/crm_points_ranking.py
+
+## Bug #41: 七牛直传确认上传未给 `materials.storage_path` 保底，素材入库时被 MySQL 非空约束拦下
+
+- **日期**: 2026-04-22
+- **现象**: 在素材库通过七牛直传上传图片/文件后，请求 `/api/v1/assets/confirm-upload` 时后端抛出 `sqlalchemy.exc.IntegrityError: Column 'storage_path' cannot be null`，素材无法入库。
+- **根因**: 直传确认接口只写入了 `storage_key`、`public_url`、`storage_provider` 等新对象存储字段，但 `materials.storage_path` 这个历史正式列仍是 MySQL 非空字段，且接口没有给它提供兼容保底值。
+- **复现条件**: 开启七牛对象存储后，在素材库走“准备上传 -> 客户端直传 -> 确认上传”链路上传任意素材。
+- **解决方案**: 为素材存储新增统一的 `storage_path` 兼容保底逻辑；确认上传时在没有本地路径时回填 `object_key`，同时补齐 `url/domain/source_filename/owner_id` 等元信息；构建 `StorageResult` 时仅在本地存储场景把 `storage_path` 当作真实本地回退路径，避免对象存储素材误走本地文件兜底。
+- **关联文件**: app/routers/api.py, app/services/material_storage_service.py
+
+## Bug #42: CRM 群积分排行连接层被重复定义覆盖成 5 秒超时，导致周/月积分查询频繁丢连接
+
+- **日期**: 2026-04-23
+- **现象**: 在发送中心“引用内容 -> 积分排行”里选择多个 CRM 群生成排行时，后端日志频繁出现 `CRM 数据库连接失败: (2013, 'Lost connection to MySQL server during query')` 与 `CRM 群组周/月积分联合查询失败`；接口虽然仍返回 200，但阶段耗时明显升高，并伴随数据降级。
+- **根因**: `app/services/crm_group_directory.py` 里已经补过一套带简单连接池、`read_timeout=30` 的 `_get_connection()`，但文件下半段又残留了一份同名函数，实际运行时被 Python 后定义覆盖成了“无池化 + connect/read/write timeout 全是 5 秒”的版本。积分排行和 CRM 群列表中的联合聚合查询一旦稍慢，就会被 MySQL 直接打断。
+- **复现条件**: 打开发送中心积分排行或 CRM 群列表，在冷缓存、群成员较多或 `point_logs` 较大的环境下触发 `fetch_crm_groups()`、`fetch_crm_group_members_bulk()`、`fetch_group_period_points_dual()` 等查询。
+- **解决方案**: 删除重复的 5 秒 `_get_connection()` 定义，恢复统一的连接池与较宽松的超时配置；所有 CRM 群目录、群成员、周/月积分、CRM 管理员认证继续共用同一套 `_get_connection()` / `_return_connection()`。
+- **关联文件**: app/services/crm_group_directory.py, app/services/crm_points_metrics.py, app/services/crm_points_insights.py, app/services/crm_admin_auth.py
+## Bug #16: 系统教学编辑弹窗样式未命中根节点，导致弹窗偏顶且专注模式只在内容区内“伪全屏”
+
+- **日期**: 2026-04-22
+- **现象**: 点击“编辑文档”后，编辑弹窗整体偏向顶部，留白不足；点击“专注模式”后，界面没有真正全屏覆盖，而是只在主内容区内显示，顶部与侧边栏仍然可见，并伴随遮挡和显示不全。
+- **根因**: 给 `el-dialog` 写的关键尺寸/全屏修正样式使用了错误选择器，写成了 `.system-teaching-editor-dialog .el-dialog`，但自定义 class 实际是直接挂在 `.el-dialog` 根节点上，导致这些规则没有命中。另外弹窗未 `append-to-body`，fullscreen 实际只在当前内容容器内生效。
+- **复现条件**: 进入“系统教学”页面，点击“编辑文档”或切换“专注模式”。
+- **解决方案**: 将编辑弹窗改为 `append-to-body`，并把根节点样式选择器修正为 `.el-dialog.system-teaching-editor-dialog` 及其 fullscreen 变体；同时把普通编辑态顶部留白调整为更合理的 `8vh`。
+- **关联文件**: frontend/src/views/SystemTeaching.vue, frontend/src/views/styles/systemTeaching.css
+
+## Bug #43: 积分排行多人洞察复用单人模板时把 `{rank}` 默认值渲染成“第0名”
+
+- **日期**: 2026-04-23
+- **现象**: 在发送中心“积分排行”里勾选 `头部领先 (TOP3)` 等洞察场景后，如果同一群有多位成员同时命中同一场景，最终消息会出现“于A、于B、于C 目前积分榜排名第0”之类明显错误的文案。
+- **根因**: `app/services/crm_speech_templates.py` 的 `build_grouped_insight_speeches()` 会把同场景的多人洞察合并成一句，但它复用了单人模板，并固定传入 `rank=0` 作为占位值兜底。`top_leader` / `top_six` / `top_ten` 这类模板本身包含 `{rank}`，于是多人文案被直接格式化成“第0”。
+- **复现条件**: 发送中心生成积分排行时，同一群至少两位成员同时命中带 `{rank}` 占位符的洞察场景，例如 `top_leader`。
+- **解决方案**: 将多人同场景合并文案改为专门的多人表达，不再复用单人模板，也不再向模板注入 `rank=0`；单人场景仍沿用原模板，并继续使用真实 `rank`。
+- **关联文件**: app/services/crm_speech_templates.py

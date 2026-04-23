@@ -5,16 +5,13 @@ import logging
 import secrets
 from typing import Any
 
-import pymysql
-from passlib.context import CryptContext
-from pymysql.cursors import DictCursor
 from sqlalchemy.orm import Session
 
 from .. import models
 from ..config import settings
+from ..password_utils import pwd_context
 
 logger = logging.getLogger(__name__)
-pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
 
 class CrmAdminAuthUnavailable(RuntimeError):
@@ -44,19 +41,10 @@ def _candidate_hashes(password: str, salt: str) -> list[str]:
 
 
 def _fetch_crm_admin(username: str) -> dict[str, Any] | None:
+    from .crm_group_directory import _get_connection, _return_connection
+    connection = None
     try:
-        connection = pymysql.connect(
-            host=settings.crm_admin_db_host,
-            port=settings.crm_admin_db_port,
-            user=settings.crm_admin_db_user,
-            password=settings.crm_admin_db_password,
-            database=settings.crm_admin_db_name,
-            charset="utf8mb4",
-            cursorclass=DictCursor,
-            connect_timeout=5,
-            read_timeout=5,
-            write_timeout=5,
-        )
+        connection = _get_connection()
     except Exception as exc:  # pragma: no cover - depends on external db
         logger.exception("crm admin db connect failed")
         raise CrmAdminAuthUnavailable("CRM 用户库暂时不可用") from exc
@@ -73,7 +61,8 @@ def _fetch_crm_admin(username: str) -> dict[str, Any] | None:
         logger.exception("crm admin query failed")
         raise CrmAdminAuthUnavailable("CRM 用户库查询失败") from exc
     finally:
-        connection.close()
+        if connection:
+            _return_connection(connection)
 
 
 def authenticate_crm_admin(username: str, password: str) -> dict[str, Any] | None:
@@ -99,19 +88,10 @@ def fetch_all_crm_admins() -> list[dict[str, Any]]:
     """从 CRM 数据库拉取所有 status=1 的管理员列表"""
     if not crm_admin_auth_enabled():
         return []
+    from .crm_group_directory import _get_connection, _return_connection
+    connection = None
     try:
-        connection = pymysql.connect(
-            host=settings.crm_admin_db_host,
-            port=settings.crm_admin_db_port,
-            user=settings.crm_admin_db_user,
-            password=settings.crm_admin_db_password,
-            database=settings.crm_admin_db_name,
-            charset="utf8mb4",
-            cursorclass=DictCursor,
-            connect_timeout=5,
-            read_timeout=5,
-            write_timeout=5,
-        )
+        connection = _get_connection()
     except Exception as exc:
         logger.exception("crm admin db connect failed")
         raise CrmAdminAuthUnavailable("CRM 用户库暂时不可用") from exc
@@ -128,7 +108,8 @@ def fetch_all_crm_admins() -> list[dict[str, Any]]:
         logger.exception("crm admin query all failed")
         raise CrmAdminAuthUnavailable("CRM 用户库查询失败") from exc
     finally:
-        connection.close()
+        if connection:
+            _return_connection(connection)
 
 
 def sync_crm_admin_to_local(db: Session, admin: dict[str, Any]) -> models.User:

@@ -59,8 +59,10 @@ class StorageFacade:
     def upload(self, payload: UploadPayload) -> StorageResult:
         try:
             return self.active_provider.upload(payload)
-        except Exception:
+        except Exception as e:
             if self.fallback_provider.provider_name != self.active_provider.provider_name:
+                import logging
+                logging.getLogger(__name__).warning('主存储上传失败，回退到 %s: %s', self.fallback_provider.provider_name, e)
                 return self.fallback_provider.upload(payload)
             raise
 
