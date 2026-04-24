@@ -873,6 +873,7 @@ export function useSendLogic() {
 
     isBatchSending.value = true
     batchCancelled.value = false
+    const batchStartTime = Date.now()
 
     // 重置所有状态
     for (const item of batchQueue.value) {
@@ -1024,6 +1025,33 @@ export function useSendLogic() {
     } else {
       ElMessage.warning(`批量发送完成：${success} 成功，${failCount} 失败${firstBatchError ? '，原因：' + firstBatchError : ''}`)
     }
+
+    // 积分排行场景：自动补发摘要消息
+    if (selectedContentLabel.value?.startsWith('积分排行') && !batchCancelled.value) {
+      const successItems = batchQueue.value.filter(i => i.status === 'success')
+      if (successItems.length > 0) {
+        const elapsedSec = ((Date.now() - batchStartTime) / 1000).toFixed(1)
+        const groupNames = successItems.map(i => i.title.replace(/^📊 /, '').replace(/ 积分排行$/, ''))
+        const summaryMd = [
+          '📊 **积分排行推送完成**',
+          `✅ 成功：${successItems.length} / ${batchQueue.value.length} 条`,
+          `📦 已推送群：${groupNames.join('、')}`,
+          `⏱ 总耗时：${elapsedSec} 秒`,
+        ].join('\n')
+        const allTargetGroupIds = [...new Set(successItems.flatMap(i => i.targetGroupIds || []))]
+        const summaryTargetIds = allTargetGroupIds.length > 0 ? allTargetGroupIds : form.groups
+        if (summaryTargetIds.length > 0) {
+          try {
+            await request.post('/v1/send', {
+              group_ids: summaryTargetIds,
+              msg_type: 'markdown',
+              content_json: { content: summaryMd },
+              variables_json: {},
+            })
+          } catch { /* 摘要发送失败不影响主流程 */ }
+        }
+      }
+    }
   }
 
   // ---- 草稿自动保存（防抖 1s）----
@@ -1135,6 +1163,7 @@ export function useSendLogic() {
         content_json: batchQueue.value[0]?.contentJson || {},
         variables_json: batchQueue.value[0]?.variablesJson || {},
         batch_items_json: batchItems,
+        source_tag: selectedContentLabel.value?.startsWith('积分排行') ? 'ranking' : undefined,
       })
       ElMessage.success(`定时任务创建成功，包含 ${batchItems.length} 条消息`)
     } catch (e: any) {

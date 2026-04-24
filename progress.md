@@ -1,5 +1,29 @@
 # Progress
 
+## 2026-04-24
+- 已评审并重写 `docs/CRM_USER_PROFILE_AI_INTEGRATION_REPORT.md`：
+  - 原稿方向成立，但主体过度依赖字段枚举，缺少正式边界、接口契约、权限、隐私、医疗安全、审计和验收标准。
+  - 已将文档重构为“评审结论 + 当前真值 + MVP 数据域 + 版本化 CustomerProfileContext + AI 编排 + API 草案 + 前端页面 + 分期验收”的可落地规格。
+  - 已明确该能力当前仍是 candidate design，不是 official 已完成功能；CRM 字段和数据库解释文档只作为 support 依据。
+  - 已把 aihubmix 接入口径对齐当前仓库真值：第一期复用 OpenAI-compatible `/chat/completions`，SSE 和 function calling 暂列 P1/P2 candidate。
+  - 已补充 AI 安全门禁：敏感字段默认不传，过敏/禁忌/疾病风险必传，AI 输出定位为教练可复核草稿，不直接写回 CRM 或自动发送给客户。
+  - 已沉淀工程经验到 `memory.md`：客户级 AI 应先建设版本化上下文服务，而不是从全量字段注入开始。
+- 本轮 focused validation：
+  - 已人工对照当前仓库的 `app/config.py`、`app/services/ai_polish.py`、`app/services/crm_group_directory.py`、`app/routers/api_crm_groups.py`、`app/routers/api_crm_points.py`、`app/services/crm_admin_auth.py` 和 `docs/CRM/mfgcrmdb_database_explanation.md`。
+  - 文档已明确区分当前已存在的 CRM 群/积分只读能力和尚未实现的客户 360 / 客户级 AI 会话能力，避免把 candidate 写成 official。
+- 项目启动验证结果：
+  - 本轮为文档评审与方案优化，未改动后端/前端运行时代码，未执行后端或前端启动验证。
+- 已根据反馈补回 `docs/CRM_USER_PROFILE_AI_INTEGRATION_REPORT.md` 中的字段罗列：
+  - 字段清单现在保留为“附录 A：CRM 用户相关字段清单（开发用 support）”，作为后续开发 `CustomerProfileContext`、查询聚合、脱敏规则和前端信息架构时的恢复锚点。
+  - 附录从 `docs/CRM/mfgcrmdb_schema_knowledge.json` 机械生成，覆盖客户主数据、社群、健康记录、设备、习惯任务、计划、课程、AI 会话、标签、管理员、提醒服务、积分和异步任务等客户相关表。
+  - 文档主线保持“可执行方案”，字段池保留为 support 附录，避免开发时再临时现查字段。
+- 已继续锁定 AI 上下文字段绑定与加载实现：
+  - 已新增 P0/P1/P2 AI context 字段绑定白名单，明确 `basic_profile / safety_profile / goals_preferences / health_summary_7d / body_comp_latest_30d / points_engagement_14d / service_scope` 等模块的源表、源字段、规范化上下文字段、绑定级别和转换规则。
+  - 已新增禁止进入 AI 的字段清单，明确手机号、openid、unionid、地址、紧急联系人、登录 IP、未解析原始 JSON 等不得进入 prompt。
+  - 已确定第一版采用代码级 `Context Binding Registry`，通过 `ContextFieldBinding / ContextModuleSpec / ContextBuildPlan / ModulePayload` 组织加载，不开放后台任意字段直连 AI。
+  - 已补充模块缓存、超时、token 预算、加载计划 preset、预算裁剪顺序和 `binding_version=context_binding_registry.v1` 规则。
+  - 已沉淀工程经验到 `memory.md`：高风险 AI 上下文字段绑定优先用代码注册表，而不是后台自由配置。
+
 ## 2026-04-22
 - 已修复阻塞后端启动的 `crm_points_ranking.py` 语法错误：
   - 问题点位于 `preview_ranking_batch()` 的消息构建阶段。
@@ -198,11 +222,23 @@
   - 已新增事务型组合接口 `POST /api/v1/external-docs/quick-add`，作为前台“快速登记文档”的正式主入口，避免创建孤儿资源。
   - 已统一模板正式语义：模板通过 `template_hub` 工作台表达，不再使用 `relation_role=template`。
   - 已补充软删除与级联策略：`workspace` 归档时联动归档绑定，`resource` 不允许被工作台级联删除。
+- 已完成飞书文档模块一轮实现审阅后的收口修复：
+  - 后端已修复工作台详情页阶段排序缺字段问题，避免工作台下存在阶段数据时详情页崩溃。
+  - 后端已把“当前在用”主文档冲突校验收敛成统一函数，并让 `quick_add / create_binding / update_binding` 共用，避免快速登记写出多个正式主文档。
+  - 后端已新增“按当前用户最近打开”资源列表能力，首页“最近打开”不再拿全量更新时间假装最近打开。
+  - 前端已把飞书文档相关路由和侧边栏统一挂到 `sop` 权限下，避免页面可进但治理接口无权的错位。
+  - 前端已把首页、工作台详情页、快速登记弹窗、治理页的核心文案翻译成人话，如“登记飞书链接 / 查看待处理问题 / 当前在用 / 参考资料 / 备选方案”。
+  - 首页工作台现已拆成“我负责的项目/专题 / 常用入口 / 其他可查看的项目”，避免把系统工作台误写成“我负责的”。
+  - 工作台页打开文档现已统一经过 `/resources/{id}/open`，不会再绕开打开日志。
+  - 本轮顺手修复了前端验证阻塞项：`frontend/tsconfig.json` 的 `ignoreDeprecations` 已改回与当前 TypeScript 5.9 兼容的 `5.0`。
 - 本轮方案结论：
   - 推荐把“飞书文档”从单分类链接库升级为“资源层 + 工作台层 + 多维标签层 + 关系层”。
   - 正式建议新增 `doc_resources / doc_workspaces / doc_bindings` 三层最小模型，并用 `relation_role` 区分 `official / support / candidate / archive`。
   - 前台入口建议从“按分类浏览”切到“按工作台 / 当前阶段 / 产物类型找文档”。
 - 本轮 focused validation：
-  - 已人工复核方案文档与当前代码真值一致，当前正式实现确实仍是固定分类的外链管理，不存在文档中误写成已实现的工作台/多维关系能力。
+  - `python -m py_compile app\services\external_doc_service.py app\services\external_doc_workspace_service.py app\routers\api_external_docs.py app\models_external_docs.py` 通过。
+  - `cd frontend && .\node_modules\.bin\vue-tsc.cmd --noEmit` 通过。
+  - `cd frontend && npm.cmd run build` 通过。
 - 项目启动验证结果：
-  - 本轮为文档方案输出，未改动后端/前端代码，未重新执行启动验证。
+  - 后端 `python -m uvicorn app.main:app --host 0.0.0.0 --port 8004` 已确认启动日志到 `Application startup complete`。
+  - 前端 `cd frontend && npm.cmd run dev -- --host 0.0.0.0 --port 5178` 已确认 Vite dev server 正常启动并监听 `5178` 端口，随后已主动回收进程避免占用端口。

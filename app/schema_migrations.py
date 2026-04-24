@@ -17,6 +17,7 @@ SCHEDULE_COLUMN_SPECS = {
     "skip_dates_json": "TEXT",
     "last_error": "TEXT",
     "last_sent_at": "DATETIME",
+    "source_tag": "VARCHAR(32)",
 }
 
 MATERIAL_COLUMN_SPECS = {
@@ -316,3 +317,32 @@ def ensure_plan_schema(engine: Engine) -> None:
         if "batch_items_json" not in existing_cols:
             with engine.begin() as conn:
                 conn.execute(text("ALTER TABLE schedules ADD COLUMN batch_items_json TEXT"))
+
+
+def ensure_external_docs_schema(engine: Engine) -> None:
+    """确保 external_doc_* 系列索引存在。表由 Base.metadata.create_all 创建。"""
+    inspector = inspect(engine)
+    existing_tables = inspector.get_table_names()
+
+    idx_checks = [
+        ('uq_external_doc_resource_source', 'external_doc_resources',
+         'CREATE UNIQUE INDEX IF NOT EXISTS uq_external_doc_resource_source ON external_doc_resources(source_platform, source_doc_token, doc_type)'),
+        ('idx_external_doc_resources_status', 'external_doc_resources',
+         'CREATE INDEX IF NOT EXISTS idx_external_doc_resources_status ON external_doc_resources(status)'),
+        ('idx_external_doc_resources_owner', 'external_doc_resources',
+         'CREATE INDEX IF NOT EXISTS idx_external_doc_resources_owner ON external_doc_resources(owner_user_id)'),
+        ('uq_external_doc_terms', 'external_doc_terms',
+         'CREATE UNIQUE INDEX IF NOT EXISTS uq_external_doc_terms ON external_doc_terms(dimension, code, scope_type, scope_id)'),
+        ('idx_external_doc_bindings_ws_role', 'external_doc_bindings',
+         'CREATE INDEX IF NOT EXISTS idx_external_doc_bindings_ws_role ON external_doc_bindings(workspace_id, relation_role)'),
+        ('idx_external_doc_bindings_ws_stage', 'external_doc_bindings',
+         'CREATE INDEX IF NOT EXISTS idx_external_doc_bindings_ws_stage ON external_doc_bindings(workspace_id, primary_stage_term_id)'),
+        ('idx_external_doc_bindings_resource', 'external_doc_bindings',
+         'CREATE INDEX IF NOT EXISTS idx_external_doc_bindings_resource ON external_doc_bindings(resource_id)'),
+        ('uq_external_doc_term_binding', 'external_doc_term_bindings',
+         'CREATE UNIQUE INDEX IF NOT EXISTS uq_external_doc_term_binding ON external_doc_term_bindings(resource_id, term_id, binding_type)'),
+    ]
+    with engine.begin() as conn:
+        for idx_name, table, sql in idx_checks:
+            if table in existing_tables and not _has_named_index(inspector, table, idx_name):
+                conn.execute(text(sql))

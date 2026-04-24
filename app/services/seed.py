@@ -293,3 +293,63 @@ def seed_all(db: Session):
         new_templates_added = True
     if new_templates_added:
         db.commit()
+
+    # ── External Docs: seed workspaces, terms, migration ──
+    from ..models_external_docs import ExternalDocWorkspace, ExternalDocTerm, ExternalDocResource
+
+    # inbox workspace
+    if not db.query(ExternalDocWorkspace).filter(ExternalDocWorkspace.workspace_type == 'inbox').first():
+        db.add(ExternalDocWorkspace(name='收件箱', workspace_type='inbox', status='running'))
+        db.commit()
+
+    # template_hub workspace
+    if not db.query(ExternalDocWorkspace).filter(ExternalDocWorkspace.workspace_type == 'template_hub').first():
+        db.add(ExternalDocWorkspace(name='模板中心', workspace_type='template_hub', status='running'))
+        db.commit()
+
+    # stage terms
+    if db.query(ExternalDocTerm).filter(ExternalDocTerm.dimension == 'stage').count() == 0:
+        stage_terms = [
+            ExternalDocTerm(dimension='stage', code='lead_intake', label='线索接入', sort_order=1),
+            ExternalDocTerm(dimension='stage', code='solution_design', label='方案设计', sort_order=2),
+            ExternalDocTerm(dimension='stage', code='launch_preparation', label='启动准备', sort_order=3),
+            ExternalDocTerm(dimension='stage', code='delivery_running', label='执行中', sort_order=4),
+            ExternalDocTerm(dimension='stage', code='mid_review', label='中期复盘', sort_order=5),
+            ExternalDocTerm(dimension='stage', code='final_delivery', label='结项交付', sort_order=6),
+        ]
+        db.add_all(stage_terms)
+        db.commit()
+
+    # deliverable_type terms
+    if db.query(ExternalDocTerm).filter(ExternalDocTerm.dimension == 'deliverable_type').count() == 0:
+        deliverable_terms = [
+            ExternalDocTerm(dimension='deliverable_type', code='positioning_sheet', label='定位表', sort_order=1),
+            ExternalDocTerm(dimension='deliverable_type', code='schedule_sheet', label='排期表', sort_order=2),
+            ExternalDocTerm(dimension='deliverable_type', code='daily_report', label='日报', sort_order=3),
+            ExternalDocTerm(dimension='deliverable_type', code='weekly_review', label='周报', sort_order=4),
+            ExternalDocTerm(dimension='deliverable_type', code='material_list', label='物料清单', sort_order=5),
+            ExternalDocTerm(dimension='deliverable_type', code='script_sheet', label='话术表', sort_order=6),
+            ExternalDocTerm(dimension='deliverable_type', code='replay_sheet', label='复盘表', sort_order=7),
+            ExternalDocTerm(dimension='deliverable_type', code='delivery_checklist', label='交付清单', sort_order=8),
+        ]
+        db.add_all(deliverable_terms)
+        db.commit()
+
+    # legacy_category terms
+    if db.query(ExternalDocTerm).filter(ExternalDocTerm.dimension == 'legacy_category').count() == 0:
+        legacy_terms = [
+            ExternalDocTerm(dimension='legacy_category', code='运营流程', label='运营流程', sort_order=1),
+            ExternalDocTerm(dimension='legacy_category', code='话术库', label='话术库', sort_order=2),
+            ExternalDocTerm(dimension='legacy_category', code='经验库', label='经验库', sort_order=3),
+            ExternalDocTerm(dimension='legacy_category', code='营养知识', label='营养知识', sort_order=4),
+            ExternalDocTerm(dimension='legacy_category', code='培训手册', label='培训手册', sort_order=5),
+            ExternalDocTerm(dimension='legacy_category', code='其他', label='其他', sort_order=6),
+        ]
+        db.add_all(legacy_terms)
+        db.commit()
+
+    # migrate old sop_documents
+    from ..models import SopDocument
+    if db.query(SopDocument).count() > 0 and db.query(ExternalDocResource).count() == 0:
+        from .external_doc_migration import migrate_sop_documents
+        migrate_sop_documents(db)

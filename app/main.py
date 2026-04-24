@@ -9,7 +9,7 @@ from .database import Base, engine, SessionLocal
 from .routers.auth import router as auth_router
 from .routers.pages import router as pages_router
 from .routers.api import router as api_router
-from .schema_migrations import ensure_schedule_schema, ensure_asset_folders_schema, ensure_plan_schema, ensure_user_profile_schema
+from .schema_migrations import ensure_schedule_schema, ensure_asset_folders_schema, ensure_plan_schema, ensure_user_profile_schema, ensure_external_docs_schema
 from .routers.api_folders import router as folders_router
 from .routers.api_operation_plans import router as operation_plans_router
 from .routers.api_profile import router as profile_router
@@ -20,6 +20,7 @@ from .routers.api_system_docs import router as system_docs_router
 from .routers.api_crm_groups import router as crm_groups_router
 from .routers.api_crm_points import router as crm_points_router
 from .routers.api_speech_templates import router as speech_templates_router
+from .routers.api_external_docs import router as external_docs_router
 from .services.seed import seed_all
 from .services.scheduler_service import schedule_service
 import hashlib
@@ -33,6 +34,7 @@ async def lifespan(app: FastAPI):
     ensure_asset_folders_schema(engine)
     ensure_plan_schema(engine)
     ensure_user_profile_schema(engine)
+    ensure_external_docs_schema(engine)
     db = SessionLocal()
     try:
         seed_all(db)
@@ -98,6 +100,7 @@ app.include_router(system_docs_router)
 app.include_router(crm_groups_router)
 app.include_router(crm_points_router)
 app.include_router(speech_templates_router)
+app.include_router(external_docs_router)
 
 # Vue SPA 前端（必须在所有 API 路由之后 mount）
 if FRONTEND_DIR.exists():

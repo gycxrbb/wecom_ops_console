@@ -41,7 +41,7 @@
         <el-icon><Timer /></el-icon>
         <span>定时任务</span>
       </el-menu-item>
-      <el-menu-item index="/sop-docs">
+      <el-menu-item index="/sop-docs" v-if="moduleVisible('sop')">
         <el-icon><Notebook /></el-icon>
         <span>飞书文档</span>
       </el-menu-item>

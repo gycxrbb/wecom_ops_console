@@ -120,7 +120,7 @@
             <div class="quick-card__icon quick-card__icon--orange"><el-icon :size="22"><Timer /></el-icon></div>
             <span class="quick-card__label">定时任务</span>
           </div>
-          <div class="quick-card" @click="router.push('/sop-docs')">
+          <div v-if="canOpenSopDocs" class="quick-card" @click="router.push('/sop-docs')">
             <div class="quick-card__icon quick-card__icon--blue"><el-icon :size="22"><Notebook /></el-icon></div>
             <span class="quick-card__label">飞书文档</span>
           </div>
@@ -142,6 +142,7 @@
 import { computed, ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
+import { hasPermission } from '@/utils/permissions'
 import request from '@/utils/request'
 import {
   RefreshRight, ChatDotRound, Document, Timer, Tickets, Stamp,
@@ -160,6 +161,7 @@ const loading = ref(false)
 
 const userName = computed(() => userStore.user?.display_name || userStore.user?.username || '教练')
 const isAdmin = computed(() => userStore.user?.role === 'admin')
+const canOpenSopDocs = computed(() => hasPermission(userStore.user, 'sop'))
 
 const greeting = computed(() => {
   const h = new Date().getHours()

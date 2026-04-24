@@ -433,3 +433,30 @@
 - **复现条件**: 使用当前生产 Docker 构建/部署方式启动容器，并打开系统教学页面或调用 `/api/v1/system-docs/tree`。
 - **解决方案**: 在 `Dockerfile` 中显式复制 `docs/system_teaching/` 到 `/app/docs/system_teaching/`；在 `docker-compose.prod.yml` 中增加 `./docs/system_teaching:/app/docs/system_teaching` 挂载，确保首次构建可用且后续在系统内编辑文档后不会因容器重建丢失。
 - **关联文件**: Dockerfile, docker-compose.prod.yml
+
+## Bug #45: 飞书文档工作台详情缺少阶段排序字段，导致有阶段数据时详情页直接崩溃
+
+- **日期**: 2026-04-24
+- **现象**: 打开飞书文档工作台详情页时，只要某个工作台下已经挂了带阶段的文档，后端就可能在组装 `stages` 时抛错，详情页无法正常展示。
+- **根因**: `app/services/external_doc_workspace_service.py` 在构造 `term_info` 时只放了 `id/code/label`，但后续排序却直接访问 `term.sort_order`，导致实际有阶段数据时触发缺字段错误。
+- **复现条件**: 创建一个带 `primary_stage_term_id` 的飞书文档绑定，然后访问对应工作台详情页。
+- **解决方案**: 在 `term_info` 中补齐 `sort_order`，并继续按阶段顺序稳定排序；同时顺手把“缺少正式文档”的治理提示翻译成更面向运营的文案。
+- **关联文件**: app/services/external_doc_workspace_service.py
+
+## Bug #46: 飞书文档“快速登记”绕过正式主文档冲突校验，能写出多个“当前在用”真值
+
+- **日期**: 2026-04-24
+- **现象**: 通过飞书文档首页的“快速登记”弹窗，可以在同一项目、同一阶段下连续登记多个 `official + is_primary` 文档，系统不会拦截，导致“当前在用”文档真值冲突。
+- **根因**: `app/services/external_doc_service.py` 的 `quick_add()` 没有复用 `create_binding()` 里的正式主文档冲突校验逻辑，直接创建了绑定记录。
+- **复现条件**: 在同一工作台和阶段下，通过“快速登记”连续提交两篇角色为“正式/当前在用”的文档。
+- **解决方案**: 抽出统一的 `_ensure_primary_official_conflict()` 校验函数，并让 `create_binding()`、`update_binding()`、`quick_add()` 共用；同时给 `quick_add()` 增加事务回滚，避免失败时留下半成品数据。
+- **关联文件**: app/services/external_doc_service.py, app/routers/api_external_docs.py
+
+## Bug #47: 飞书文档首页把全量数据误写成“我负责/最近打开”，并对无权限用户强拉治理队列
+
+- **日期**: 2026-04-24
+- **现象**: 飞书文档首页把系统“收件箱/模板中心”等公共工作台混进“我负责的工作台”，把按更新时间排序的全量资源误标为“最近打开”；同时页面本身不设 `sop` 权限门槛，却会在初始化时请求需要 `sop` 权限的治理接口，导致用户可见范围、页面标题和真实行为三方错位。
+- **根因**: `useSopDocsHome()` 直接把 `/workspaces` 合并结果塞进 `myWorkspaces`，把 `/resources` 全量列表塞进 `recentDocs`；路由和侧边栏也没有同步 `sop` 权限控制。
+- **复现条件**: 登录任意账号进入飞书文档首页，观察“我负责的工作台”“最近打开”和治理队列的实际数据来源。
+- **解决方案**: 首页改成按“我负责的项目/专题”“常用入口”“其他可查看的项目”拆分工作台；最近打开改为基于当前用户打开日志；飞书文档相关路由和侧边栏统一受 `sop` 权限控制；页面文案同步改成人话，避免继续暴露内部术语。
+- **关联文件**: frontend/src/router/index.ts, frontend/src/layout/SidebarContent.vue, frontend/src/views/SopDocs/index.vue, frontend/src/views/SopDocs/composables/useSopDocsHome.ts, frontend/src/views/SopDocs/components/*.vue, frontend/src/views/SopDocs/Governance.vue, frontend/src/views/SopDocs/WorkspaceDetail.vue, app/routers/api_external_docs.py, app/services/external_doc_service.py

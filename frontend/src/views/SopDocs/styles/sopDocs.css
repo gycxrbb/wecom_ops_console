@@ -1,0 +1,114 @@
+/* ── SopDocs shared styles ── */
+
+.sop-page { padding: 20px; background: var(--card-bg, #fff); border-radius: 4px; }
+
+/* Hero */
+.sop-hero {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 20px 24px; background: var(--card-bg, #fff);
+  border-radius: 8px; margin-bottom: 20px;
+  border: 1px solid var(--border-color, #e5e7eb);
+}
+.sop-hero__left h1 { margin: 0 0 4px; font-size: 26px; color: var(--text-primary); }
+.sop-hero__left p { margin: 0; color: var(--text-muted); font-size: 14px; }
+.sop-hero__actions { display: flex; gap: 10px; }
+
+/* Section */
+.sop-section { margin-bottom: 24px; }
+.sop-section__header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 14px;
+}
+.sop-section__title { font-size: 16px; font-weight: 700; color: var(--text-primary); margin: 0; }
+
+/* Card grid */
+.sop-card-row {
+  display: flex; gap: 14px; overflow-x: auto; padding-bottom: 4px;
+}
+.sop-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+/* Workspace card */
+.ws-card {
+  flex-shrink: 0; width: 220px; padding: 16px;
+  border-radius: 8px; border: 1px solid var(--border-color, #e5e7eb);
+  background: var(--card-bg, #fff); cursor: pointer;
+  transition: all .2s;
+  text-align: left;
+  appearance: none;
+  font: inherit;
+}
+.ws-card:hover { transform: translateY(-2px); border-color: rgba(34,197,94,.4); box-shadow: 0 8px 20px rgba(0,0,0,.06); }
+.ws-card__name { font-size: 15px; font-weight: 700; color: var(--text-primary); margin-bottom: 6px; }
+.ws-card__meta { font-size: 12px; color: var(--text-muted); }
+.ws-card__badge {
+  display: inline-block; padding: 2px 8px; border-radius: 999px;
+  font-size: 11px; font-weight: 600; margin-right: 4px;
+}
+.ws-card__badge--project { background: rgba(59,130,246,.1); color: #2563eb; }
+.ws-card__badge--campaign { background: rgba(168,85,247,.1); color: #7c3aed; }
+.ws-card__badge--customer { background: rgba(234,179,8,.1); color: #b45309; }
+.ws-card__badge--template_hub { background: rgba(34,197,94,.1); color: #16a34a; }
+.ws-card__badge--inbox { background: rgba(107,114,128,.1); color: #6b7280; }
+.ws-card__badge--status { background: rgba(15,23,42,.06); color: #64748b; }
+
+/* Resource card */
+.res-card {
+  padding: 14px 16px; border-radius: 8px;
+  border: 1px solid var(--border-color, #e5e7eb);
+  background: var(--card-bg, #fff); cursor: pointer;
+  transition: all .2s;
+  width: 100%;
+  text-align: left;
+  appearance: none;
+  font: inherit;
+}
+.res-card:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(0,0,0,.05); }
+.res-card__title { font-size: 14px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px; }
+.res-card__meta { font-size: 12px; color: var(--text-muted); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+/* Role badge */
+.role-badge {
+  display: inline-flex; padding: 2px 8px; border-radius: 999px;
+  font-size: 11px; font-weight: 600;
+}
+.role-badge--official { background: rgba(34,197,94,.12); color: #16a34a; }
+.role-badge--support { background: rgba(59,130,246,.1); color: #2563eb; }
+.role-badge--candidate { background: rgba(234,179,8,.12); color: #b45309; }
+.role-badge--archive { background: rgba(107,114,128,.1); color: #6b7280; }
+
+/* Governance summary */
+.gov-summary {
+  display: flex; gap: 16px; flex-wrap: wrap;
+}
+.gov-summary__item {
+  padding: 12px 16px; border-radius: 8px;
+  border: 1px solid var(--border-color, #e5e7eb);
+  background: var(--card-bg, #fff); min-width: 140px; text-align: center;
+  appearance: none;
+  font: inherit;
+  cursor: pointer;
+  transition: all .2s ease;
+}
+.gov-summary__item:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(0,0,0,.05); }
+.gov-summary__count { font-size: 24px; font-weight: 800; color: var(--text-primary); }
+.gov-summary__label { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+/* Dark mode */
+:global(html.dark) .sop-hero { background: #1d1e1f; border-color: #414243; }
+:global(html.dark) .ws-card { background: rgba(39,40,42,.92); border-color: rgba(74,222,128,.15); }
+:global(html.dark) .ws-card:hover { border-color: rgba(74,222,128,.35); box-shadow: 0 8px 20px rgba(0,0,0,.25); }
+:global(html.dark) .res-card { background: rgba(39,40,42,.92); border-color: rgba(74,222,128,.15); }
+:global(html.dark) .gov-summary__item { background: rgba(39,40,42,.92); border-color: #414243; }
+:global(html.dark) .ws-card__badge--project { background: rgba(96,165,250,.18); color: #93c5fd; }
+:global(html.dark) .ws-card__badge--campaign { background: rgba(192,132,252,.15); color: #c4b5fd; }
+
+/* Responsive */
+@media (max-width: 768px) {
+  .sop-hero { flex-direction: column; gap: 12px; padding: 16px; }
+  .sop-hero__actions { width: 100%; }
+  .sop-card-grid { grid-template-columns: 1fr; }
+}

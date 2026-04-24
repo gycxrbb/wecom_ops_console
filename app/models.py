@@ -206,6 +206,7 @@ class Schedule(Base, TimestampMixin):
     next_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     owner_id: Mapped[int | None] = mapped_column(ForeignKey('users.id'), nullable=True)
     batch_items_json: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
+    source_tag: Mapped[str | None] = mapped_column(String(32), nullable=True, default=None)
     group = relationship('Group')
     template = relationship('Template')
     owner = relationship('User')
@@ -319,3 +320,6 @@ class SpeechTemplate(Base, TimestampMixin):
     is_builtin: Mapped[int] = mapped_column(Integer, default=1)
     owner_id: Mapped[int | None] = mapped_column(ForeignKey('users.id'), nullable=True)
     owner = relationship('User')
+
+
+from .models_external_docs import *  # noqa: F401,F403

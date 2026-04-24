@@ -2,6 +2,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
@@ -24,9 +25,11 @@ from ..services.scheduler_service import schedule_service
 from ..services.crm_admin_auth import CrmAdminAuthUnavailable
 from ..services import login_rate_limiter as rate_limiter
 from ..route_helper import UnifiedResponseRoute, _dt, _fmt
+from ..services.batch_summary import send_ranking_summary
 from ..security import create_access_token, create_refresh_token, authenticate
 
 router = APIRouter(prefix='/api/v1', tags=['api_v1'], route_class=UnifiedResponseRoute)
+logger = logging.getLogger(__name__)
 
 _TZ = ZoneInfo(settings.default_timezone)
 
@@ -235,6 +238,7 @@ def serialize_schedule(schedule: models.Schedule, group_names: dict[int, str] | 
         'last_error': schedule.last_error or '',
         'created_at': _dt(schedule.created_at),
         'batch_items': json_loads(schedule.batch_items_json, None) if schedule.batch_items_json else None,
+        'source_tag': schedule.source_tag,
     }
 
 
@@ -482,9 +486,12 @@ async def do_send_to_groups(db: Session, groups: list[models.Group], msg_type: s
     return list(results)
 
 async def perform_job_send(db: Session, schedule: models.Schedule, run_mode: str = 'scheduled'):
+    import time as _time
     user = schedule.owner or db.query(models.User).filter(models.User.role == 'admin').first()
     if schedule.approval_required and schedule.status != 'approved':
         return {'skipped': True, 'reason': 'pending approval'}
+
+    start_time = _time.time()
 
     # ── 队列模式：逐条执行 batch_items ──
     batch_items = json_loads(schedule.batch_items_json, None) if schedule.batch_items_json else None
@@ -507,15 +514,19 @@ async def perform_job_send(db: Session, schedule: models.Schedule, run_mode: str
                 all_results.extend(results or [])
             except Exception as exc:
                 last_error = str(exc)[:200]
-            # 限速：3.1s × 20 = 62s，确保不超过企微 20条/分钟 限制
-            await asyncio.sleep(3.1)
-            # 每发完 20 条额外等待，确保滑动窗口完全释放
-            if (idx + 1) % 20 == 0:
-                logger.info('队列发送已到 %d 条，等待滑动窗口释放...', idx + 1)
-                await asyncio.sleep(15)
+            # 同一 webhook 限 20条/分钟，由 WeComService._check_rate_limit 按 group_key 控制
+            # 队列项通常发到不同群，只需短暂间隔避免并发过载
+            await asyncio.sleep(1.0)
         schedule.last_error = last_error
         schedule.last_sent_at = datetime.now(ZoneInfo('Asia/Shanghai')).replace(tzinfo=None)
         db.commit()
+
+        if schedule.source_tag == 'ranking' and all_results:
+            try:
+                await send_ranking_summary(schedule.id, start_time)
+            except Exception as e:
+                logger.warning('排行摘要发送失败: %s', e)
+
         return all_results
 
     # ── 单条模式（原有逻辑） ──
@@ -997,6 +1008,7 @@ async def create_or_update_schedule(request: Request, db: Session = Depends(get_
     job.approval_required = 1 if data.get('approval_required', False) else 0
     job.skip_dates_json = json_dumps(data.get('skip_dates', []))
     job.skip_weekends = 1 if data.get('skip_weekends', False) else 0
+    job.source_tag = data.get('source_tag') or None
     if job.schedule_type == 'none':
         job.enabled = 0
     approval_state = 'approved' if job.approval_required and user.role == 'admin' else 'pending' if job.approval_required else 'not_required'
