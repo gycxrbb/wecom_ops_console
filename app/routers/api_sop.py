@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from ..database import get_db
 from .. import models
 from ..security import get_current_user, require_permission
+from ..route_helper import _dt
 
 router = APIRouter(prefix='/api/v1/sop-documents', tags=['sop-documents'])
 
@@ -37,8 +38,8 @@ def serialize_doc(doc: models.SopDocument) -> dict:
         'description': doc.description,
         'sort_order': doc.sort_order,
         'created_by': doc.created_by,
-        'created_at': doc.created_at.isoformat(),
-        'updated_at': doc.updated_at.isoformat(),
+        'created_at': _dt(doc.created_at),
+        'updated_at': _dt(doc.updated_at),
     }
 
 

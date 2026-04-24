@@ -12,11 +12,11 @@ echo "nameserver 8.8.8.8" > /etc/resolv.conf
 echo "nameserver 1.1.1.1" >> /etc/resolv.conf
 
 docker compose -f docker-compose.prod.yml build 
-docker compose -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.prod.yml up -d   
 
 执行脚本：bash /www/wwwroot/wecom-ops-console/deploy.sh
 
-## 七、常用运维命令
+## 七、常用运维命令    
 
 ```bash
 # 查看容器状态

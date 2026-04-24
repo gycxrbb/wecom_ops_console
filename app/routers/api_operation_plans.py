@@ -17,6 +17,7 @@ from ..services.operation_plan_import_points import build_default_campaign_plan
 from ..services.operation_plan_publish import publish_plan_to_groups
 from ..services.operation_plan_constants import NODE_PRESETS, NODE_PRESET_MAP, POINTS_CAMPAIGN_STAGES
 from ..security import get_current_user, json_dumps, json_loads, require_role, require_permission
+from ..route_helper import _dt
 
 router = APIRouter(prefix='/api/v1/operation-plans', tags=['operation-plans'])
 
@@ -136,7 +137,7 @@ def serialize_node(node: models.PlanNode) -> dict[str, Any]:
         'status': node.status,
         'enabled': bool(node.enabled),
         'created_by_id': node.owner_id,
-        'updated_at': node.updated_at.isoformat(),
+        'updated_at': _dt(node.updated_at),
     }
 
 
@@ -150,7 +151,7 @@ def serialize_day(day: models.PlanDay, include_nodes: bool = True) -> dict[str, 
         'trigger_rule_json': json_loads(day.trigger_rule_json, {}),
         'status': day.status,
         'created_by_id': day.owner_id,
-        'updated_at': day.updated_at.isoformat(),
+        'updated_at': _dt(day.updated_at),
         'node_count': len(day.nodes),
     }
     if include_nodes:
@@ -168,7 +169,7 @@ def serialize_plan(plan: models.Plan, include_days: bool = False) -> dict[str, A
         'plan_mode': getattr(plan, 'plan_mode', None) or 'day_flow',
         'status': plan.status,
         'created_by_id': plan.owner_id,
-        'updated_at': plan.updated_at.isoformat(),
+        'updated_at': _dt(plan.updated_at),
         'day_count': len(plan.days),
         'node_count': sum(len(day.nodes) for day in plan.days),
     }

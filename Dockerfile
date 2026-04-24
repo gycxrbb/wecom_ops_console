@@ -25,6 +25,7 @@ RUN pip install --no-cache-dir -r requirements.txt -i https://pypi.tuna.tsinghua
 # 后端代码
 COPY app/ ./app/
 COPY data/ ./data/
+COPY docs/system_teaching/ ./docs/system_teaching/
 
 # 前端构建产物
 COPY --from=frontend-builder /build/dist ./frontend/dist/

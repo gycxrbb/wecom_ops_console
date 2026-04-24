@@ -175,3 +175,21 @@
     - `cd frontend && npm.cmd run build` 通过
     - 后端 `python -m uvicorn app.main:app --host 0.0.0.0 --port 8004` 前台启动日志已到 `Application startup complete`
     - 前端 `cd frontend && npm.cmd run dev -- --host 0.0.0.0 --port 5178` 在无沙箱验证下确认 `5178` 端口监听成功
+
+## 2026-04-23
+- 已恢复“飞书文档”当前正式实现并完成结构升级方案文档：
+  - 当前正式实现仍是简单外链库，真值主要在 `app/models.py` 的 `SopDocument`、`app/routers/api_sop.py` 和 `frontend/src/views/SopDocuments.vue`。
+  - 已明确当前核心问题不在样式，而在底层只能表达“标题 + 分类 + 链接”，无法承载项目推进、阶段切换、模板/正式/参考关系。
+  - 已输出正式方案文档：`docs/FEISHU_DOCS_INFORMATION_ARCHITECTURE_PLAN.md`。
+- 已按新补充的共识继续深化方案文档：
+  - 已明确“飞书文档”模块只承担入口、维护、归档、关系管理和使用引导，不承担正文预览或编辑，用户查看/编辑仍跳转飞书。
+  - 已补充未来扩展边界，避免把底层模型写死在单一 URL 字段或单一分类维度上。
+  - 已强化运营视角的前端信息架构，建议首页先服务“我在推进什么 / 当前阶段该用什么”，而不是先丢给用户复杂分类树或重表单。
+- 本轮方案结论：
+  - 推荐把“飞书文档”从单分类链接库升级为“资源层 + 工作台层 + 多维标签层 + 关系层”。
+  - 正式建议新增 `doc_resources / doc_workspaces / doc_bindings` 三层最小模型，并用 `relation_role` 区分 `official / support / candidate / template / archive`。
+  - 前台入口建议从“按分类浏览”切到“按工作台 / 当前阶段 / 产物类型找文档”。
+- 本轮 focused validation：
+  - 已人工复核方案文档与当前代码真值一致，当前正式实现确实仍是固定分类的外链管理，不存在文档中误写成已实现的工作台/多维关系能力。
+- 项目启动验证结果：
+  - 本轮为文档方案输出，未改动后端/前端代码，未重新执行启动验证。

@@ -1,9 +1,23 @@
 from typing import Callable
 import json
 import uuid
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from fastapi.routing import APIRoute
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
+
+from .config import settings
+
+_TZ = ZoneInfo(settings.default_timezone)
+
+def _dt(val: datetime | None) -> str | None:
+    """naive UTC datetime → 本地时间 ISO 字符串"""
+    if val is None:
+        return None
+    if val.tzinfo is None:
+        val = val.replace(tzinfo=ZoneInfo('UTC'))
+    return val.astimezone(_TZ).strftime('%Y-%m-%d %H:%M:%S')
 
 class UnifiedResponseRoute(APIRoute):
     def get_route_handler(self) -> Callable:

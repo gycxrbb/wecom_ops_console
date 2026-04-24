@@ -12,6 +12,7 @@ from .. import models
 from ..database import get_db
 from ..security import get_current_user
 from ..services.scheduler_service import schedule_service
+from ..route_helper import _dt
 
 router = APIRouter(prefix="/api/v1/schedules", tags=["schedule_tools"])
 
@@ -51,8 +52,8 @@ def preview_schedule_runs(body: SchedulePreviewBody, request: Request, db: Sessi
 
     next_runs = schedule_service.compute_next_runs(job, count=5)
     return {
-        "next_runs": [item.isoformat() for item in next_runs],
-        "next_run_at": next_runs[0].isoformat() if next_runs else None,
+        "next_runs": [_dt(item) for item in next_runs],
+        "next_run_at": _dt(next_runs[0]) if next_runs else None,
     }
 
 
@@ -94,7 +95,7 @@ def get_schedule_calendar(
                 entry = {
                     "id": job.id,
                     "title": job.title,
-                    "run_at": run_local.isoformat(),
+                    "run_at": run_local.strftime('%Y-%m-%d %H:%M:%S'),
                     "msg_type": job.msg_type,
                     "schedule_type": job.schedule_type,
                     "status": job.status,

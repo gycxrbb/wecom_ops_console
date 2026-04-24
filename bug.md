@@ -424,3 +424,12 @@
 - **复现条件**: 发送中心生成积分排行时，同一群至少两位成员同时命中带 `{rank}` 占位符的洞察场景，例如 `top_leader`。
 - **解决方案**: 将多人同场景合并文案改为专门的多人表达，不再复用单人模板，也不再向模板注入 `rank=0`；单人场景仍沿用原模板，并继续使用真实 `rank`。
 - **关联文件**: app/services/crm_speech_templates.py
+
+## Bug #44: Docker 生产镜像未包含 `docs/system_teaching`，导致系统教学接口在容器内返回空列表
+
+- **日期**: 2026-04-23
+- **现象**: 服务器宿主机上 `docs/system_teaching/_meta.json` 和对应 Markdown 文档都存在，但线上访问 `/api/v1/system-docs/tree` 仍返回 `{"categories":[],"docs":[]}`，系统教学页面为空。
+- **根因**: `Dockerfile` 只复制了 `app/`、`data/` 和前端构建产物，没有把 `docs/system_teaching` 打进镜像；`docker-compose.prod.yml` 也只挂载了 `./data:/app/data`，没有把文档目录映射进容器。结果容器内 `/app/docs/system_teaching/_meta.json` 缺失，后端按代码逻辑静默返回空列表。
+- **复现条件**: 使用当前生产 Docker 构建/部署方式启动容器，并打开系统教学页面或调用 `/api/v1/system-docs/tree`。
+- **解决方案**: 在 `Dockerfile` 中显式复制 `docs/system_teaching/` 到 `/app/docs/system_teaching/`；在 `docker-compose.prod.yml` 中增加 `./docs/system_teaching:/app/docs/system_teaching` 挂载，确保首次构建可用且后续在系统内编辑文档后不会因容器重建丢失。
+- **关联文件**: Dockerfile, docker-compose.prod.yml

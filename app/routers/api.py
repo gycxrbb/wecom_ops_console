@@ -23,10 +23,12 @@ from ..services.wecom import WeComService
 from ..services.scheduler_service import schedule_service
 from ..services.crm_admin_auth import CrmAdminAuthUnavailable
 from ..services import login_rate_limiter as rate_limiter
-from ..route_helper import UnifiedResponseRoute
+from ..route_helper import UnifiedResponseRoute, _dt
 from ..security import create_access_token, create_refresh_token, authenticate
 
 router = APIRouter(prefix='/api/v1', tags=['api_v1'], route_class=UnifiedResponseRoute)
+
+_TZ = ZoneInfo(settings.default_timezone)
 
 @router.get('/auth/public-key')
 async def api_public_key():
@@ -110,7 +112,7 @@ def serialize_group(group: models.Group):
         'is_enabled': bool(group.enabled),
         'is_test_group': group.group_type == 'test',
         'webhook_configured': has_real_webhook(webhook),
-        'created_at': group.created_at.isoformat(),
+        'created_at': _dt(group.created_at),
     }
 
 
@@ -125,15 +127,11 @@ def serialize_template(tpl: models.Template):
         'variables_json': json_loads(tpl.default_variables, {}),
         'is_system': tpl.is_system,
         'created_by_id': tpl.owner_id,
-        'updated_at': tpl.updated_at.isoformat(),
+        'updated_at': _dt(tpl.updated_at),
     }
 
 
 def serialize_material(material: models.Material):
-    created_at = material.created_at
-    if created_at.tzinfo is None:
-        created_at = created_at.replace(tzinfo=ZoneInfo('UTC'))
-    created_at = created_at.astimezone(ZoneInfo(settings.default_timezone))
     preview_url = material.public_url if material.material_type == 'image' and material.public_url else (
         f'/api/v1/assets/{material.id}/preview' if material.material_type == 'image' else ''
     )
@@ -154,7 +152,7 @@ def serialize_material(material: models.Material):
         'url': public_url or download_url,
         'preview_url': preview_url,
         'download_url': download_url,
-        'created_at': created_at.isoformat(),
+        'created_at': _dt(material.created_at),
         'tags': json.loads(material.tags) if material.tags else [],
     }
 
@@ -216,22 +214,22 @@ def serialize_schedule(schedule: models.Schedule):
         'content_json': json_loads(schedule.content, {}),
         'variables_json': json_loads(schedule.variables, {}),
         'schedule_type': schedule.schedule_type,
-        'run_at': schedule.run_at.isoformat() if schedule.run_at else None,
-        'next_run_at': schedule.next_run_at.isoformat() if schedule.next_run_at else None,
-        'next_runs': [item.isoformat() for item in next_runs],
+        'run_at': _dt(schedule.run_at),
+        'next_run_at': _dt(schedule.next_run_at),
+        'next_runs': [_dt(item) for item in next_runs],
         'cron_expr': schedule.cron_expr,
         'timezone': schedule.timezone,
         'enabled': bool(schedule.enabled),
         'approval_required': bool(schedule.approval_required),
-        'approved_at': schedule.approved_at.isoformat() if schedule.approved_at else None,
+        'approved_at': _dt(schedule.approved_at),
         'status': get_schedule_status(schedule),
         'skip_dates': json_loads(schedule.skip_dates_json, []),
         'skip_weekends': bool(schedule.skip_weekends),
         'last_error': schedule.last_error or '',
         'created_by_id': schedule.owner_id,
-        'last_sent_at': schedule.last_sent_at.isoformat() if schedule.last_sent_at else None,
+        'last_sent_at': _dt(schedule.last_sent_at),
         'last_error': schedule.last_error or '',
-        'created_at': schedule.created_at.isoformat(),
+        'created_at': _dt(schedule.created_at),
         'batch_items': json_loads(schedule.batch_items_json, None) if schedule.batch_items_json else None,
     }
 
@@ -250,7 +248,7 @@ def serialize_log(log: models.MessageLog):
         'error_message': log.error_message,
         'request_json': json_loads(log.request_payload, {}),
         'response_json': json_loads(log.response_payload, {}),
-        'created_at': log.created_at.isoformat(),
+        'created_at': _dt(log.created_at),
     }
 
 
@@ -1157,7 +1155,7 @@ def list_users(request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
     require_role(user, 'admin')
     users = db.query(models.User).order_by(models.User.id.desc()).all()
-    return [{'id': u.id, 'username': u.username, 'display_name': u.display_name, 'role': u.role, 'is_active': u.status, 'created_at': u.created_at.isoformat()} for u in users]
+    return [{'id': u.id, 'username': u.username, 'display_name': u.display_name, 'role': u.role, 'is_active': u.status, 'created_at': _dt(u.created_at)} for u in users]
 
 @router.post('/users')
 async def upsert_user(request: Request, db: Session = Depends(get_db)):
@@ -1239,7 +1237,7 @@ def get_dashboard_summary(request: Request, db: Session = Depends(get_db)):
     result['today_schedules'] = [{
         'id': s.id,
         'title': s.title,
-        'run_at': s.run_at.isoformat() if s.run_at else None,
+        'run_at': _dt(s.run_at),
         'msg_type': s.msg_type,
         'group_ids': json_loads(s.group_ids_json, []),
     } for s in today_schedules]
@@ -1252,13 +1250,15 @@ def get_dashboard_summary(request: Request, db: Session = Depends(get_db)):
         'stage': p.stage,
         'status': p.status,
         'day_count': len(p.days) if p.days else 0,
-        'updated_at': p.updated_at.isoformat(),
+        'updated_at': _dt(p.updated_at),
     } for p in recent_plans]
 
-    # 今日已发送
+    # 今日已发送（sent_at 存 naive UTC，需用 UTC 范围匹配）
+    utc_today_start = today_start.astimezone(ZoneInfo('UTC')).replace(tzinfo=None)
+    utc_today_end = today_end.astimezone(ZoneInfo('UTC')).replace(tzinfo=None)
     today_sent = db.query(models.Message).filter(
-        models.Message.sent_at >= today_start,
-        models.Message.sent_at <= today_end,
+        models.Message.sent_at >= utc_today_start,
+        models.Message.sent_at <= utc_today_end,
         models.Message.status == 'sent',
     ).count()
     result['today_sent'] = today_sent
@@ -1323,7 +1323,7 @@ def list_approvals(page: int = 1, page_size: int = 20, status: str = None, reque
             "applicant_id": a.applicant_id,
             "reason": a.reason,
             "comment": a.comment,
-            "created_at": a.created_at.isoformat() if hasattr(a, 'created_at') else None
+            "created_at": _dt(a.created_at) if hasattr(a, 'created_at') else None
         } for a in approvals],
         "pagination": {
             "page": page,

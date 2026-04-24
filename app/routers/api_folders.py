@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from ..database import get_db
 from .. import models
 from .api import get_user_or_401, require_role
+from ..route_helper import _dt
 
 router = APIRouter(prefix='/api/v1/asset-folders', tags=['asset-folders'])
 
@@ -60,7 +61,7 @@ def serialize_folder(folder: models.AssetFolder, asset_count: int = 0, child_cou
         'is_system': is_system_folder(folder),
         'asset_count': asset_count,
         'child_count': child_count,
-        'created_at': folder.created_at.isoformat(),
+        'created_at': _dt(folder.created_at),
     }
 
 

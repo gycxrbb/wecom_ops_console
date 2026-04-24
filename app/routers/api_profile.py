@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..config import UPLOAD_DIR
 from ..security import get_current_user, hash_password, verify_password
+from ..route_helper import _dt
 from .. import models
 
 router = APIRouter(prefix="/api/v1/profile", tags=["profile"])
@@ -37,8 +38,8 @@ def _serialize_profile(user: models.User) -> dict:
         "role": user.role,
         "status": bool(user.status),
         "auth_source": user.auth_source or "local",
-        "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
-        "created_at": user.created_at.isoformat() if user.created_at else None,
+        "last_login_at": _dt(user.last_login_at),
+        "created_at": _dt(user.created_at),
         "password_change_available": (user.auth_source or "local") == "local",
     }
 
