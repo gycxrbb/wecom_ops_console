@@ -139,7 +139,8 @@
    - 运营同学首先想到的通常是“我要推进哪个项目”，不是“我要点哪个分类”。
 
 4. **结构化区分文档角色**
-   - 必须能区分 `official / support / candidate / template / archive`，避免把补充材料当正式真值。
+   - 必须能区分 `official / support / candidate / archive`，避免把补充材料当正式真值。
+   - 模板优先通过专门的模板工作台表达，而不是把 `template` 作为通用关系角色混入所有业务工作台。
 
 5. **阶段是字典，不是硬编码死枚举**
    - 系统可以内置“前期/中期/后期”，但要允许不同业务线扩展更细的阶段节点。
@@ -289,7 +290,7 @@
 | `workspace_id` | 对应 `doc_workspaces.id`，可为空 |
 | `primary_stage_term_id` | 当前主要阶段 |
 | `deliverable_term_id` | 当前主要产物类型 |
-| `relation_role` | `official / support / candidate / template / archive` |
+| `relation_role` | `official / support / candidate / archive` |
 | `is_primary` | 是否该工作台下的主文档 |
 | `due_at` | 该文档在流程中的应完成时间 |
 | `sort_order` | 同一视图下排序 |
@@ -303,12 +304,18 @@
    - 参考材料、补充资料，不等于正式真值
 3. `candidate`
    - 备选方案或待确认版本
-4. `template`
-   - 标准模板，不等于某个实际项目的正式执行文档
-5. `archive`
+4. `archive`
    - 历史归档，仅供追溯
 
 这一步能直接解决现在“链接很多但不知道哪个才是当前该用的”问题。
+
+模板不建议再作为通用 `relation_role` 挂到所有工作台里。
+
+更推荐的正式语义是：
+
+1. 模板通过 `template_hub` 这类专门工作台承载
+2. 在模板工作台内部，它同样可以有 `official / support / candidate / archive`
+3. 某篇项目文档如果要“沉淀为模板”，本质上是新增一条到模板工作台的绑定，而不是修改它在原项目里的角色
 
 这里建议把 `doc_bindings` 当成最核心真值，而不是附属表。
 
@@ -420,7 +427,7 @@
 
 ### 5.6 模板中心
 
-把 `relation_role = template` 的内容单独收进模板视图，避免模板和真实项目文档混在一起。
+把 `workspace_type = template_hub` 的内容单独收进模板视图，避免模板和真实项目文档混在一起。
 
 ### 5.7 待补齐与待清理
 
@@ -473,7 +480,7 @@
 这样运营同学在点开前就能判断：
 
 1. 这是不是当前项目的正式文档
-2. 这是模板还是实际执行表
+2. 这是模板工作台里的标准模板，还是实际执行表
 3. 这篇是不是历史版本
 
 ### 6.1 前端不应该让运营同学先做“信息管理”，而应该先做“找得到”
@@ -762,9 +769,15 @@
 
 ### 10.2 项目和模板是否共用一套结构
 
-建议共用结构，但在 `relation_role` 和 `workspace_type` 上区分。
+建议共用结构，但主要通过 `workspace_type` 区分。
 
 原因是模板和实际项目文档会互相引用，如果完全拆成两套，后面反而更难维护。
+
+更推荐的正式口径是：
+
+1. 模板中心是专门的 `template_hub` 工作台
+2. 模板资源在模板工作台内仍使用普通关系角色
+3. 项目文档要沉淀成模板时，是新增模板工作台绑定，而不是改写原项目绑定
 
 ### 10.3 是否要直接接飞书开放平台
 
@@ -817,7 +830,551 @@
 
 ---
 
-## 13. 最终建议
+## 13. 实现层落地目标
+
+这部分开始，不再讨论“应该长什么样”，而是讨论“按当前仓库怎么落下去”。
+
+详细规格说明见：
+
+1. `docs/FEISHU_DOCS_IMPLEMENTATION_SPEC.md`
+
+### 13.1 本轮实现层的正式目标
+
+如果进入研发，第一阶段建议只追 4 个结果：
+
+1. 把当前 `SopDocument` 的单分类链接库升级成可表达上下文关系的模型。
+2. 保持“点击后跳转飞书”的轻边界，不做正文托管。
+3. 先做运营高频入口和轻量治理能力，不先做复杂后台配置中心。
+4. 保证旧数据可迁移、旧入口可平滑过渡、旧权限可继续使用。
+
+### 13.2 本轮不做的实现层扩展
+
+即便进入研发，这轮也建议明确不做：
+
+1. 飞书正文同步
+2. 系统内正文预览器
+3. 飞书权限同步代理
+4. 复杂审批流
+5. 自动抓取飞书全文内容做全文索引
+
+### 13.3 研发落地后的用户可见结果
+
+这一轮做完后，用户应该能感知到：
+
+1. 首页不再是“分类卡片堆”，而是按工作台和阶段找文档。
+2. 新增文档更轻，重点变成“绑定到哪个上下文”。
+3. 一眼能看出某篇文档是 `official / support / archive`，以及它是否来自模板工作台。
+4. 能看到待整理、待补齐、待校验这些治理视图。
+
+---
+
+## 14. 后端实现关系图
+
+### 14.1 命名建议
+
+为了兼顾当前产品名“飞书文档”和未来可扩展性，建议：
+
+1. 前台产品名继续叫“飞书文档”
+2. 权限键短期继续复用现有 `sop`
+3. 新后端数据模型使用更中性的 `external_doc_*`
+
+也就是说：
+
+1. 用户层叫“飞书文档”
+2. 数据层叫“外部文档中心”
+
+这样未来如果接飞书表格、飞书多维表，甚至别的平台，不需要重建一套模型。
+
+### 14.2 实体关系建议
+
+详细字段、类型、索引、去重策略、事务接口和迁移规则统一以：
+
+1. `docs/FEISHU_DOCS_IMPLEMENTATION_SPEC.md`
+2. 其中第 4 章、第 6 章、第 9 章
+
+为正式真值。
+
+本节只保留实体职责与关系，不再重复字段级定义。
+
+#### 实体 1：`external_doc_resources`
+
+职责：记录外部文档本体。
+
+关系：
+
+1. 一个 `resource` 可以挂多个 `binding`
+2. 一个 `resource` 可以有多个 `term_binding`
+3. 一个 `resource` 可以有多条 `open_log`
+
+#### 实体 2：`external_doc_workspaces`
+
+职责：记录运营视角工作台。
+
+关系：
+
+1. 一个 `workspace` 可以挂多个 `binding`
+2. 一个 `workspace` 可以有一个当前阶段
+3. `template_hub` 和 `inbox` 都属于工作台的一种，不单独起系统
+
+#### 实体 3：`external_doc_terms`
+
+职责：承接阶段、产物类型、历史分类等字典项。
+
+关系：
+
+1. 一个 `term` 可以被多个 `resource` 通过 `term_binding` 复用
+2. 一个 `term` 也可以被 `workspace` 作为当前阶段引用
+
+#### 实体 4：`external_doc_bindings`
+
+职责：记录文档资源在某个工作台中的业务位置。
+
+关系：
+
+1. 一个 `binding` 只属于一个 `resource`
+2. 一个 `binding` 最多属于一个 `workspace`
+3. 一个 `binding` 可以声明当前阶段和主要产物类型
+4. 一个 `workspace` 下可以有多条 `binding`
+
+这里是正式业务真值最集中的层：
+
+1. `official / support / candidate / archive`
+2. 是否主文档
+3. 是否归档
+4. 是否属于模板工作台
+
+#### 实体 5：`external_doc_term_bindings`
+
+职责：给文档资源附加多维标签。
+
+关系：
+
+1. 一个 `resource` 可以绑定多个 `term`
+2. 一个 `term` 可以被多个 `resource` 复用
+
+#### 实体 6：`external_doc_open_logs`
+
+职责：记录打开行为，支撑最近使用与治理。
+
+### 14.3 ER 关系摘要
+
+1. `workspace 1:N bindings`
+2. `resource 1:N bindings`
+3. `resource 1:N term_bindings`
+4. `term 1:N term_bindings`
+5. `resource 1:N open_logs`
+6. `workspace 1:N open_logs`
+
+### 14.4 模板与项目的正式关系
+
+模板建议通过工作台语义表达，不再通过通用 `relation_role=template` 表达。
+
+推荐口径：
+
+1. `template_hub` 是模板工作台
+2. 某篇模板在模板工作台里仍然可以是 `official / support / candidate / archive`
+3. 某篇项目文档如果要沉淀为模板，是新增一条到模板工作台的绑定
+4. 原项目里的绑定角色不因此被改写
+
+### 14.5 软删除与级联原则
+
+1. `workspace` 删除或撤销时，优先做软删除或归档，不做物理删除
+2. `workspace` 归档时，其下 `binding` 应联动更新为 `archived` 或 `inactive`
+3. `resource` 不允许被 `workspace` 级联删除
+4. 只有在确认没有任何有效绑定后，`resource` 才能进入独立清理流程
+
+### 14.6 与现有 `SopDocument` 的关系
+
+建议不要在第一步直接硬删 `sop_documents`。
+
+推荐路径：
+
+1. 新表先上线
+2. 旧表数据迁入新表
+3. 前端新页面切新接口
+4. 旧接口进入兼容期
+5. 确认无回滚风险后，再决定是否废弃旧表
+
+这比直接在 `sop_documents` 上不断打补丁稳很多。
+
+### 14.7 后端代码组织建议
+
+为了避免把新逻辑继续堆进 `api_sop.py`，建议按资源拆开：
+
+1. `app/routers/api_external_doc_resources.py`
+2. `app/routers/api_external_doc_workspaces.py`
+3. `app/routers/api_external_doc_governance.py`
+4. `app/services/external_doc_service.py`
+5. `app/services/external_doc_governance_service.py`
+6. `app/schemas/external_docs.py`
+
+其中：
+
+1. router 只做参数接收、权限和响应
+2. service 负责创建资源、绑定关系、迁移规则、治理判断
+3. schema 负责请求/响应结构，不在路由里手拼 dict
+
+### 14.8 核心业务规则
+
+后端层需要统一落实这些规则：
+
+1. 粘贴链接时优先解析 `source_platform / doc_type / source_doc_token`
+2. 同平台同 token 的资源默认视为同一文档，避免重复建资源
+3. 当 `source_doc_token` 缺失时，必须以 `canonical_url` 兜底做显式查重
+4. UI 主新增链路应使用事务型组合接口，避免出现未绑定工作台的孤儿资源
+5. 允许同一资源绑定多个工作台，但需要显式记录关系
+6. `official` 和 `support` 必须严格区分，禁止混写
+7. 打开文档前只记录行为，不代理正文
+8. 失效文档、待校验文档、重复主文档都要能进入治理视图
+
+---
+
+## 15. API 设计草案
+
+### 15.1 路由口径建议
+
+为兼顾当前实现和未来扩展，建议：
+
+1. 旧接口 `/api/v1/sop-documents` 保留兼容期
+2. 新正式接口使用 `/api/v1/external-docs/*`
+
+这样前台仍可以叫“飞书文档”，但接口和模型不会被产品名绑死。
+
+### 15.2 推荐接口分组
+
+#### A. 资源接口
+
+1. `GET /api/v1/external-docs/resources`
+   - 全局搜索与筛选文档资源
+2. `POST /api/v1/external-docs/resources`
+   - 新增资源
+3. `GET /api/v1/external-docs/resources/{id}`
+   - 查看资源详情
+4. `PUT /api/v1/external-docs/resources/{id}`
+   - 更新资源基础信息
+5. `POST /api/v1/external-docs/resources/resolve-link`
+   - 解析链接，抽取标题、平台、token、文档类型
+6. `POST /api/v1/external-docs/resources/{id}/open`
+   - 记录打开行为并返回 `open_url`
+
+#### B. 工作台接口
+
+1. `GET /api/v1/external-docs/workspaces`
+2. `POST /api/v1/external-docs/workspaces`
+3. `GET /api/v1/external-docs/workspaces/{id}`
+4. `PUT /api/v1/external-docs/workspaces/{id}`
+5. `GET /api/v1/external-docs/workspaces/{id}/overview`
+   - 返回阶段、主文档、最近更新、治理提醒
+
+#### C. 绑定接口
+
+1. `POST /api/v1/external-docs/bindings`
+   - 把资源挂到工作台
+2. `PUT /api/v1/external-docs/bindings/{id}`
+   - 更新阶段、角色、是否主文档
+3. `DELETE /api/v1/external-docs/bindings/{id}`
+4. `GET /api/v1/external-docs/bindings`
+   - 用于复杂筛选
+
+#### D. 字典接口
+
+1. `GET /api/v1/external-docs/terms`
+2. `POST /api/v1/external-docs/terms`
+3. `PUT /api/v1/external-docs/terms/{id}`
+
+#### E. 治理接口
+
+1. `GET /api/v1/external-docs/governance/queue`
+   - 待整理 / 待补齐 / 待校验
+2. `GET /api/v1/external-docs/governance/broken-links`
+3. `GET /api/v1/external-docs/governance/duplicates`
+
+### 15.3 推荐的新增文档接口设计
+
+新增不建议只用一个大 `POST` 硬塞所有字段。
+
+更顺的做法是拆成两步：
+
+1. `resolve-link`
+   - 输入：飞书链接
+   - 输出：平台、token、文档类型、候选标题、标准链接
+2. `create + bind`
+   - 输入：资源最小信息 + 绑定信息
+
+这样前端就能做成：
+
+1. 粘贴链接
+2. 自动补信息
+3. 选择工作台/阶段/角色
+4. 保存
+
+### 15.4 推荐的响应结构
+
+建议前台高频展示接口直接返回“聚合 DTO”，不要让前端自己拼。
+
+例如工作台文档列表直接返回：
+
+1. `resource`
+2. `binding`
+3. `workspace_summary`
+4. `tags`
+5. `governance_flags`
+
+否则前端需要多次请求和本地拼接，交互会变慢，也容易漂移。
+
+### 15.5 权限建议
+
+建议延续现有 `sop` 权限，但细分动作：
+
+1. `read`
+2. `manage_resource`
+3. `manage_binding`
+4. `manage_workspace`
+5. `governance`
+
+如果当前权限系统暂时不支持细粒度拆分，第一阶段至少区分：
+
+1. 普通可读
+2. 具备 `sop` 的可维护
+3. admin 可治理
+
+---
+
+## 16. 前端实现方案
+
+### 16.1 页面结构建议
+
+当前单文件 `frontend/src/views/SopDocuments.vue` 不适合继续堆功能。
+
+建议拆成：
+
+```text
+frontend/src/views/SopDocs/
+  index.vue
+  WorkspaceDetail.vue
+  Governance.vue
+  components/
+    WorkspaceCard.vue
+    ResourceCard.vue
+    StageSection.vue
+    QuickAddDialog.vue
+    FilterBar.vue
+    GovernanceList.vue
+  composables/
+    useSopDocsHome.ts
+    useWorkspaceDetail.ts
+    useQuickAdd.ts
+  styles/
+    sopDocs.css
+```
+
+### 16.2 推荐页面分层
+
+#### 页面 1：飞书文档首页
+
+职责：高频使用入口。
+
+首页建议模块顺序：
+
+1. 我负责的工作台
+2. 最近打开
+3. 当前阶段必用文档
+4. 模板中心入口
+5. 待整理/待校验提醒
+
+#### 页面 2：工作台详情页
+
+职责：围绕某一条推进线查看文档。
+
+建议结构：
+
+1. 顶部概览
+   - 工作台名称、负责人、当前阶段、状态
+2. 中部阶段区
+   - 每个阶段下分 `official / support / candidate`
+3. 右侧或底部辅助区
+   - 最近更新、模板推荐、历史归档
+
+#### 页面 3：治理页
+
+职责：给 admin 或管理者处理脏数据。
+
+建议模块：
+
+1. 待整理
+2. 待校验
+3. 重复入口
+4. 缺少正式文档
+
+### 16.3 推荐的新增交互
+
+弹窗建议叫“快速登记文档”，而不是“新增文档表单”。
+
+推荐步骤：
+
+1. 输入或粘贴飞书链接
+2. 自动识别平台与标题
+3. 选择工作台
+4. 选择阶段
+5. 选择角色
+6. 可选补充摘要和负责人
+7. 保存并可立即打开
+
+这套交互的关键是：
+
+**用户的主要动作不是“录入资料”，而是“把一个外部文档放进正确的运营上下文”。**
+
+### 16.4 文档卡片应展示什么
+
+文档卡片不需要很花，但必须让用户点之前就能判断。
+
+建议最少展示：
+
+1. 标题
+2. 所属工作台
+3. 当前阶段
+4. 文档角色
+5. 负责人
+6. 最近更新时间
+7. 状态提示
+   - 如：待校验、链接异常、历史归档
+
+### 16.5 前端状态管理建议
+
+这块不建议一开始就做很重的全局 store。
+
+推荐：
+
+1. 首页数据用 composable 拉取
+2. 工作台详情页单独 composable
+3. 过滤条件以路由 query 持久化
+
+这样既够用，也便于分享链接和恢复现场。
+
+### 16.6 交互细节要求
+
+前端实现时要特别注意这几件事：
+
+1. 用户点击打开文档后要新标签页跳转，不打断当前管理现场
+2. 列表和卡片上必须有醒目的角色标识
+3. 筛选项不要首屏全展开，默认只给最常用 3-4 项
+4. 治理提示不要和主工作流混在一起，要作为辅助区
+5. 空状态要引导“先创建工作台 / 先登记文档”，而不是只显示没有数据
+
+---
+
+## 17. 迁移与上线策略
+
+### 17.1 旧数据迁移原则
+
+迁移时最重要的是：
+
+1. 不丢链接
+2. 不误判正式关系
+3. 不把旧分类强行解释成新真值
+
+### 17.2 旧表到新表的映射建议
+
+当前旧表字段：
+
+1. `title`
+2. `category`
+3. `url`
+4. `description`
+5. `sort_order`
+6. `created_by`
+
+推荐迁移规则：
+
+1. 每条旧数据先迁成一条 `external_doc_resources`
+2. `url` 同时写入 `canonical_url/open_url`
+3. `description` 迁入 `summary`
+4. `category` 不直接当成新主结构，而是迁入 `legacy_category` 维度
+5. 默认绑定到系统 `inbox` 工作台
+6. 默认 `relation_role = support`
+7. 默认 `verification_status = unverified`
+
+这样迁移后，旧数据会进入“待整理箱”，而不是假装已经被正确结构化。
+
+### 17.3 上线步骤建议
+
+建议按 5 步走：
+
+1. 上新表和新接口
+2. 执行迁移脚本，把旧数据导入 `inbox`
+3. 前端先灰度开放首页和工作台视图
+4. 管理员先做一轮整理
+5. 再逐步弱化旧分类页入口
+
+### 17.4 回滚策略
+
+只要旧表和旧接口在兼容期内保留，就具备安全回滚能力。
+
+建议兼容期至少保留：
+
+1. 一轮整理周期
+2. 一轮真实运营使用周期
+
+---
+
+## 18. 验收口径与验证方案
+
+### 18.1 功能验收口径
+
+这一轮上线后，至少要满足：
+
+1. 运营同学能在 3 次点击内打开目标文档
+2. 新增一篇飞书文档不需要填写大表单
+3. 能清楚区分 `official / support / template / archive`
+4. 能看到待整理或待校验内容
+5. 点击后稳定跳转，不在系统内预览
+
+### 18.2 focused validation 建议
+
+研发完成后，建议至少验证：
+
+1. 链接解析
+   - 常见飞书文档、表格、多维表链接能否正确识别
+2. 去重逻辑
+   - 同一文档重复登记时是否能识别
+3. 绑定逻辑
+   - 同一文档挂多个工作台是否正常
+4. 角色约束
+   - 同阶段多个主 `official` 是否能告警
+5. 打开行为
+   - 是否正确记录并新标签页跳转
+6. 迁移结果
+   - 旧数据是否全部进入 `inbox`
+
+### 18.3 启动验证要求
+
+如果后续进入代码开发，本模块完成后必须补启动验证：
+
+1. 后端启动：
+   - `uvicorn app.main:app --host 0.0.0.0 --port 8000`
+2. 前端启动：
+   - `cd frontend && npm run dev`
+3. 如涉及前端构建，还应补：
+   - `cd frontend && npm run build`
+
+### 18.4 面向项目负责人的验收表达
+
+验收时不要只说“新表和新接口做完了”。
+
+应该翻译成：
+
+1. 已经能做什么
+   - 运营能按工作台和阶段找到飞书文档
+2. 半能做什么
+   - 模板推荐、治理能力已初步可用但仍需整理数据
+3. 还不能做什么
+   - 仍不支持系统内预览和编辑
+4. blocker 是什么
+   - 旧数据整理和字典补齐需要一轮运营参与
+
+---
+
+## 19. 最终建议
 
 “飞书文档”这块最适合的正式方向不是：
 

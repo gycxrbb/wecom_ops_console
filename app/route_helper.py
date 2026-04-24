@@ -12,12 +12,21 @@ from .config import settings
 _TZ = ZoneInfo(settings.default_timezone)
 
 def _dt(val: datetime | None) -> str | None:
-    """naive UTC datetime → 本地时间 ISO 字符串"""
+    """naive UTC datetime → 本地时间字符串（+8h）"""
     if val is None:
         return None
     if val.tzinfo is None:
         val = val.replace(tzinfo=ZoneInfo('UTC'))
     return val.astimezone(_TZ).strftime('%Y-%m-%d %H:%M:%S')
+
+
+def _fmt(val: datetime | None) -> str | None:
+    """已经是本地时间的 naive datetime 或 tz-aware datetime → 直接格式化"""
+    if val is None:
+        return None
+    if val.tzinfo is not None:
+        val = val.astimezone(_TZ)
+    return val.strftime('%Y-%m-%d %H:%M:%S')
 
 class UnifiedResponseRoute(APIRoute):
     def get_route_handler(self) -> Callable:

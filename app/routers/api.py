@@ -23,7 +23,7 @@ from ..services.wecom import WeComService
 from ..services.scheduler_service import schedule_service
 from ..services.crm_admin_auth import CrmAdminAuthUnavailable
 from ..services import login_rate_limiter as rate_limiter
-from ..route_helper import UnifiedResponseRoute, _dt
+from ..route_helper import UnifiedResponseRoute, _dt, _fmt
 from ..security import create_access_token, create_refresh_token, authenticate
 
 router = APIRouter(prefix='/api/v1', tags=['api_v1'], route_class=UnifiedResponseRoute)
@@ -202,21 +202,25 @@ def resolve_schedule_status(schedule_type: str, enabled: bool, approval_required
     return 'scheduled'
 
 
-def serialize_schedule(schedule: models.Schedule):
+def serialize_schedule(schedule: models.Schedule, group_names: dict[int, str] | None = None):
+    gids = json_loads(schedule.group_ids_json, [])
     next_runs = schedule_service.compute_next_runs(schedule, count=5)
+    names_map = group_names or {}
+    group_labels = [names_map.get(gid, f'群#{gid}') for gid in gids if gid and gid != 0]
     return {
         'id': schedule.id,
         'title': schedule.title,
-        'group_ids': json_loads(schedule.group_ids_json, []),
-        'group_count': len(json_loads(schedule.group_ids_json, [])),
+        'group_ids': gids,
+        'group_names': group_labels,
+        'group_count': len(gids),
         'template_id': schedule.template_id,
         'msg_type': schedule.msg_type,
         'content_json': json_loads(schedule.content, {}),
         'variables_json': json_loads(schedule.variables, {}),
         'schedule_type': schedule.schedule_type,
-        'run_at': _dt(schedule.run_at),
-        'next_run_at': _dt(schedule.next_run_at),
-        'next_runs': [_dt(item) for item in next_runs],
+        'run_at': _fmt(schedule.run_at),
+        'next_run_at': _fmt(schedule.next_run_at),
+        'next_runs': [_fmt(item) for item in next_runs],
         'cron_expr': schedule.cron_expr,
         'timezone': schedule.timezone,
         'enabled': bool(schedule.enabled),
@@ -227,7 +231,7 @@ def serialize_schedule(schedule: models.Schedule):
         'skip_weekends': bool(schedule.skip_weekends),
         'last_error': schedule.last_error or '',
         'created_by_id': schedule.owner_id,
-        'last_sent_at': _dt(schedule.last_sent_at),
+        'last_sent_at': _fmt(schedule.last_sent_at),
         'last_error': schedule.last_error or '',
         'created_at': _dt(schedule.created_at),
         'batch_items': json_loads(schedule.batch_items_json, None) if schedule.batch_items_json else None,
@@ -245,6 +249,7 @@ def serialize_log(log: models.MessageLog):
         'msg_type': message.msg_type if message else '',
         'run_mode': 'retry' if log.attempt_no > 1 else (message.source_type if message else 'manual'),
         'success': bool(log.success),
+        'resolved': bool(log.resolved),
         'error_message': log.error_message,
         'request_json': json_loads(log.request_payload, {}),
         'response_json': json_loads(log.response_payload, {}),
@@ -432,7 +437,13 @@ async def _send_to_single_group(
                 return result
             except Exception as exc:
                 last_error = exc
-                if attempt < max_retries:
+                error_str = str(exc).lower()
+                # 检测到限流错误时，长等待让滑动窗口释放
+                if '45009' in error_str or 'freq out of limit' in error_str or 'api freq' in error_str:
+                    wait = 30 if attempt == 1 else 15
+                    logger.warning('触发限流(45009)，等待 %ds 后重试 (attempt %d/%d)', wait, attempt, max_retries)
+                    await asyncio.sleep(wait)
+                elif attempt < max_retries:
                     await asyncio.sleep(retry_delay)
 
         msg.status = 'failed'
@@ -481,7 +492,7 @@ async def perform_job_send(db: Session, schedule: models.Schedule, run_mode: str
         global_group_ids = json_loads(schedule.group_ids_json, [])
         all_results = []
         last_error = ''
-        for item in batch_items:
+        for idx, item in enumerate(batch_items):
             item_group_ids = item.get('group_ids') or global_group_ids
             if not item_group_ids:
                 last_error = f'队列项 {item.get("msg_type")} 缺少目标群'
@@ -496,8 +507,12 @@ async def perform_job_send(db: Session, schedule: models.Schedule, run_mode: str
                 all_results.extend(results or [])
             except Exception as exc:
                 last_error = str(exc)[:200]
-            # 限速：条目间等待 2 秒
-            await asyncio.sleep(2)
+            # 限速：3.1s × 20 = 62s，确保不超过企微 20条/分钟 限制
+            await asyncio.sleep(3.1)
+            # 每发完 20 条额外等待，确保滑动窗口完全释放
+            if (idx + 1) % 20 == 0:
+                logger.info('队列发送已到 %d 条，等待滑动窗口释放...', idx + 1)
+                await asyncio.sleep(15)
         schedule.last_error = last_error
         schedule.last_sent_at = datetime.now(ZoneInfo('Asia/Shanghai')).replace(tzinfo=None)
         db.commit()
@@ -923,7 +938,17 @@ def list_schedules(request: Request, db: Session = Depends(get_db)):
     if user.role != 'admin' and not perms.get('schedule'):
         query = query.filter(models.Schedule.owner_id == user.id)
     jobs = query.order_by(models.Schedule.created_at.desc()).all()
-    return [serialize_schedule(job) for job in jobs]
+    # 批量加载所有目标群组名称
+    all_gids: set[int] = set()
+    for job in jobs:
+        for gid in json_loads(job.group_ids_json, []):
+            if gid and gid != 0:
+                all_gids.add(gid)
+    group_names: dict[int, str] = {}
+    if all_gids:
+        for g in db.query(models.Group).filter(models.Group.id.in_(all_gids)).all():
+            group_names[g.id] = g.name
+    return [serialize_schedule(job, group_names) for job in jobs]
 
 @router.post('/schedules')
 async def create_or_update_schedule(request: Request, db: Session = Depends(get_db)):
@@ -1133,6 +1158,14 @@ async def retry_log(log_id: int, request: Request, db: Session = Depends(get_db)
             attempt_no=log.attempt_no + 1,
         )
         db.add(new_log)
+        # 重试成功：将同一 message 的所有失败日志标记为已补发
+        failed_logs = db.query(models.MessageLog).filter(
+            models.MessageLog.message_id == log.message_id,
+            models.MessageLog.success == 0,
+            models.MessageLog.resolved == False,
+        ).all()
+        for fl in failed_logs:
+            fl.resolved = True
         db.commit()
         return serialize_log(new_log)
     except Exception as exc:
@@ -1237,7 +1270,7 @@ def get_dashboard_summary(request: Request, db: Session = Depends(get_db)):
     result['today_schedules'] = [{
         'id': s.id,
         'title': s.title,
-        'run_at': _dt(s.run_at),
+        'run_at': _fmt(s.run_at),
         'msg_type': s.msg_type,
         'group_ids': json_loads(s.group_ids_json, []),
     } for s in today_schedules]

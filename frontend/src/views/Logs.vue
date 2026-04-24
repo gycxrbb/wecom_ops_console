@@ -23,7 +23,8 @@
       </el-table-column>
       <el-table-column label="操作" width="100">
         <template #default="{ row }">
-          <el-button type="primary" link @click="retryLog(row)" v-if="!row.success">重试</el-button>
+          <el-button type="primary" link @click="retryLog(row)" v-if="!row.success && !row.resolved">重试</el-button>
+          <el-tag v-else-if="!row.success && row.resolved" type="info" size="small">已补发</el-tag>
         </template>
       </el-table-column>
     </el-table>

@@ -54,7 +54,7 @@
         </div>
       </div>
 
-      <!-- 工具栏: 全选 + 一键绑定 -->
+      <!-- 工具栏: 全选 -->
       <div class="ranking-toolbar">
         <el-checkbox
           :model-value="isAllChecked"
@@ -63,59 +63,9 @@
         >
           全选 ({{ checkedGroupIds.size }}/{{ crmGroups.length }})
         </el-checkbox>
-
-        <el-popover
-          placement="bottom-start"
-          :width="280"
-          trigger="click"
-          v-model:visible="bindPopoverVisible"
-        >
-          <template #reference>
-            <el-button
-              size="small"
-              text
-              :disabled="crmGroups.length === 0"
-              class="bind-trigger-btn"
-            >
-              <el-icon style="margin-right: 4px"><Link /></el-icon>
-              一键绑定发送群
-            </el-button>
-          </template>
-          <div class="bind-popover">
-            <p class="bind-popover__tip">选择一个发送群，所有 CRM 群将绑定到该群</p>
-            <el-select
-              v-model="batchBindGroupId"
-              placeholder="选择目标发送群"
-              size="default"
-              style="width: 100%"
-              filterable
-            >
-              <el-option
-                v-for="lg in localGroups"
-                :key="lg.id"
-                :label="lg.name"
-                :value="lg.id"
-              />
-            </el-select>
-            <el-button
-              type="primary"
-              size="small"
-              style="width: 100%; margin-top: 8px"
-              :loading="autoBinding"
-              :disabled="!batchBindGroupId"
-              @click="handleBatchBind"
-            >
-              确认绑定全部 ({{ crmGroups.length }})
-            </el-button>
-          </div>
-        </el-popover>
-
-        <span v-if="unboundGroupCount > 0" class="ranking-toolbar__hint">
-          {{ unboundGroupCount }} 个群未绑定
-        </span>
       </div>
 
-      <!-- CRM 群列表 + 绑定 -->
+      <!-- CRM 群列表 -->
       <div class="ranking-groups">
         <div v-if="crmGroups.length === 0" class="content-selector__empty">
           <span>暂无 CRM 外部群数据</span>
@@ -133,29 +83,6 @@
           <div class="ranking-group-item__info">
             <span class="ranking-group-item__name">{{ g.name }}</span>
             <span class="ranking-group-item__meta">{{ g.member_count }} 人</span>
-          </div>
-          <div class="ranking-group-item__binding">
-            <template v-if="getBinding(g.id)">
-              <el-tag size="small" type="success">
-                → {{ getBinding(g.id).local_group_name }}
-              </el-tag>
-            </template>
-            <template v-else>
-              <el-select
-                :model-value="getLocalGroupId(g.id)"
-                @change="(val: number) => createBinding(g.id, g.name, val)"
-                placeholder="绑定发送群"
-                size="small"
-                style="width: 140px"
-              >
-                <el-option
-                  v-for="lg in localGroups"
-                  :key="lg.id"
-                  :label="lg.name"
-                  :value="lg.id"
-                />
-              </el-select>
-            </template>
           </div>
         </div>
       </div>
@@ -179,9 +106,6 @@
         </el-button>
         <span v-if="generating && generateProgress" class="ranking-actions__progress">
           {{ generateProgress }}
-        </span>
-        <span v-if="uncheckedBindingCount > 0" class="ranking-actions__warn">
-          {{ uncheckedBindingCount }} 个群未绑定发送目标，将跳过
         </span>
       </div>
 
@@ -207,7 +131,7 @@
           <span>选中 {{ lastGenerateSummary.requestedCount }} 个群</span>
           <span>入队 {{ lastGenerateSummary.queuedCount }} 条</span>
           <span v-if="lastGenerateSummary.skippedCount > 0">跳过 {{ lastGenerateSummary.skippedCount }} 个</span>
-          <span v-if="lastGenerateSummary.unboundCount > 0">未绑定 {{ lastGenerateSummary.unboundCount }} 个</span>
+
           <span v-if="lastGenerateSummary.insightCount > 0">命中洞察 {{ lastGenerateSummary.insightCount }} 条</span>
         </div>
         <div
@@ -219,7 +143,6 @@
           <span>成员积分聚合 {{ formatMs(lastGenerateDiagnostics.load_members_ms) }}</span>
           <span>洞察分析 {{ formatMs(lastGenerateDiagnostics.insights_ms) }}</span>
           <span>消息组装 {{ formatMs(lastGenerateDiagnostics.generate_items_ms) }}</span>
-          <span>绑定检查 {{ formatMs(lastGenerateDiagnostics.binding_lookup_ms) }}</span>
         </div>
         <div
           v-if="lastGenerateSummary.reasonLines.length > 0"
@@ -262,7 +185,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Link } from '@element-plus/icons-vue'
 import request from '@/utils/request'
 import FollowupActionsPanel from './FollowupActionsPanel.vue'
 
@@ -280,7 +202,6 @@ type RankingDiagnostics = {
   insights_ms: number
   insights_skipped?: boolean
   generate_items_ms: number
-  binding_lookup_ms: number
   slow_groups: RankingSlowGroup[]
 }
 
@@ -300,14 +221,9 @@ const loading = ref(true)
 const generating = ref(false)
 const generatingGlobal = ref(false)
 const generateProgress = ref('')
-const autoBinding = ref(false)
 const crmAvailable = ref(false)
 const crmGroups = ref<any[]>([])
-const localGroups = ref<any[]>([])
-const bindings = ref<any[]>([])
 const checkedGroupIds = ref<Set<number>>(new Set())
-const bindPopoverVisible = ref(false)
-const batchBindGroupId = ref<number | null>(null)
 const generateElapsedSeconds = ref(0)
 const generateProgressPercent = ref(0)
 const generateStageLabel = ref('')
@@ -349,27 +265,6 @@ const toggleAll = (checked: boolean) => {
   } else {
     checkedGroupIds.value = new Set()
   }
-}
-
-// ── 未绑定群计数 ──
-const unboundGroupCount = computed(() => {
-  return crmGroups.value.filter(g => !getBinding(g.id)).length
-})
-
-const uncheckedBindingCount = computed(() => {
-  let count = 0
-  for (const gid of checkedGroupIds.value) {
-    if (!getBinding(gid)) count++
-  }
-  return count
-})
-
-const getBinding = (crmGroupId: number) => {
-  return bindings.value.find((b: any) => b.crm_group_id === crmGroupId && b.enabled)
-}
-
-const getLocalGroupId = (crmGroupId: number): number | undefined => {
-  return getBinding(crmGroupId)?.local_group_id
 }
 
 const toggleGroup = (gid: number) => {
@@ -423,53 +318,9 @@ const formatMs = (value?: number) => {
   return `${value}ms`
 }
 
-// ── 一键绑定 ──
-const handleBatchBind = async () => {
-  if (!batchBindGroupId.value) return
-  autoBinding.value = true
-  try {
-    const crmGroupNames: Record<number, string> = {}
-    for (const g of crmGroups.value) {
-      crmGroupNames[g.id] = g.name
-    }
-    const res: any = await request.post('/v1/crm-points/batch-bind', {
-      crm_group_ids: crmGroups.value.map(g => g.id),
-      crm_group_names: crmGroupNames,
-      local_group_id: batchBindGroupId.value,
-    })
-    ElMessage.success(`已绑定 ${res.total} 个 CRM 群 → ${res.local_group_name || '发送群'}`)
-    bindPopoverVisible.value = false
-    await fetchBindings()
-  } catch (e: any) {
-    ElMessage.error('一键绑定失败: ' + String(e))
-  } finally {
-    autoBinding.value = false
-  }
-}
-
-const createBinding = async (crmGroupId: number, crmGroupName: string, localGroupId: number) => {
-  try {
-    await request.post('/v1/crm-points/bindings', {
-      crm_group_id: crmGroupId,
-      crm_group_name: crmGroupName,
-      local_group_id: localGroupId,
-    })
-    await fetchBindings()
-  } catch (e: any) {
-    ElMessage.error('绑定创建失败: ' + String(e))
-  }
-}
-
 const generateGlobalRanking = async () => {
   const allIds = [...checkedGroupIds.value]
   if (allIds.length === 0) return
-
-  // 需要一个发送目标群 — 优先用批量绑定的群
-  const targetBinding = bindings.value.find((b: any) => b.enabled)
-  if (!targetBinding) {
-    ElMessage.warning('请先绑定至少一个发送目标群')
-    return
-  }
 
   generatingGlobal.value = true
   try {
@@ -492,7 +343,7 @@ const generateGlobalRanking = async () => {
       description: `覆盖 ${data.group_count} 个社群，${data.member_count} 位活跃成员`,
       contentJson: data.content_json,
       variablesJson: {},
-      targetGroupIds: [targetBinding.local_group_id],
+      targetGroupIds: [],
     }]
     emit('select-ranking', batchItems)
     ElMessage.success(`已生成跨群总排行（${data.group_count} 群，TOP10 个人 + 社群 PK）`)
@@ -561,13 +412,8 @@ const generateRanking = async () => {
       return
     }
 
-    const unbound = validItems.filter((item: any) => !item.has_binding)
-    if (unbound.length > 0) {
-      ElMessage.warning(`${unbound.length} 个群未绑定发送目标，将被跳过`)
-    }
-
     const batchItems = validItems
-      .filter((item: any) => item.has_binding && item.content_json)
+      .filter((item: any) => item.content_json)
       .map((item: any) => ({
         id: item.crm_group_id,
         title: `📊 ${item.crm_group_name} 积分排行`,
@@ -575,29 +421,28 @@ const generateRanking = async () => {
         description: `${item.member_count} 人上榜`,
         contentJson: item.content_json,
         variablesJson: {},
-        targetGroupIds: [item.local_group_id],
+        targetGroupIds: [],
       }))
 
     lastGenerateSummary.value = {
       requestedCount: allIds.length,
       queuedCount: batchItems.length,
       skippedCount: skipped.length,
-      unboundCount: unbound.length,
+      unboundCount: 0,
       insightCount,
       reasonLines: [
         ...skipped.map((item: any) => `${item.crm_group_name}: ${item.skip_reason || '未生成消息'}`),
-        ...unbound.map((item: any) => `${item.crm_group_name}: 未绑定发送群`),
         ...(config.value.enabledScenes.length > 0 && insightCount === 0
           ? [`当前所选洞察场景未命中任何成员: ${selectedSceneLabels.join('、')}`]
           : []),
         ...(lastGenerateDiagnostics.value?.insights_skipped
-          ? ['洞察分析已降级跳过，请查看后端日志中的“批量洞察查询失败”']
+          ? ['洞察分析已降级跳过，请查看后端日志中的”批量洞察查询失败”']
           : []),
       ],
     }
 
     if (batchItems.length === 0) {
-      ElMessage.warning('没有可发送的排行消息（所有群未绑定或无正积分成员）')
+      ElMessage.warning('没有可发送的排行消息（所选群组无正积分成员）')
       return
     }
 
@@ -630,24 +475,6 @@ const fetchCrmGroups = async () => {
   }
 }
 
-const fetchBindings = async () => {
-  try {
-    const res: any = await request.get('/v1/crm-points/bindings')
-    bindings.value = res.bindings || []
-  } catch {
-    bindings.value = []
-  }
-}
-
-const fetchLocalGroups = async () => {
-  try {
-    const res: any = await request.get('/v1/crm-points/local-groups')
-    localGroups.value = res.groups || []
-  } catch {
-    localGroups.value = []
-  }
-}
-
 const fetchInsightScenes = async () => {
   try {
     const res: any = await request.get('/v1/crm-points/insight-scenes')
@@ -658,7 +485,7 @@ const fetchInsightScenes = async () => {
 }
 
 onMounted(() => {
-  Promise.all([fetchCrmGroups(), fetchBindings(), fetchLocalGroups(), fetchInsightScenes()])
+  Promise.all([fetchCrmGroups(), fetchInsightScenes()])
 })
 
 onBeforeUnmount(() => {
@@ -697,25 +524,6 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 10px;
   padding: 4px 0;
-}
-.ranking-toolbar .bind-trigger-btn {
-  font-size: 13px;
-  color: var(--el-color-primary);
-}
-.ranking-toolbar__hint {
-  font-size: 12px;
-  color: var(--el-color-warning);
-}
-
-.bind-popover {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.bind-popover__tip {
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin: 0 0 4px;
 }
 
 .ranking-groups {
@@ -761,9 +569,6 @@ html.dark .ranking-group-item:hover {
 .ranking-group-item__meta {
   font-size: 12px;
   color: var(--text-muted);
-  flex-shrink: 0;
-}
-.ranking-group-item__binding {
   flex-shrink: 0;
 }
 
@@ -882,10 +687,6 @@ html.dark .ranking-group-item:hover {
   .ranking-group-item {
     flex-wrap: wrap;
     padding: 10px;
-  }
-  .ranking-group-item__binding {
-    width: 100%;
-    margin-left: 28px;
   }
 }
 .followup-empty-hint {

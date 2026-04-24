@@ -185,9 +185,22 @@
   - 已明确“飞书文档”模块只承担入口、维护、归档、关系管理和使用引导，不承担正文预览或编辑，用户查看/编辑仍跳转飞书。
   - 已补充未来扩展边界，避免把底层模型写死在单一 URL 字段或单一分类维度上。
   - 已强化运营视角的前端信息架构，建议首页先服务“我在推进什么 / 当前阶段该用什么”，而不是先丢给用户复杂分类树或重表单。
+- 已继续把方案往实现层落地：
+  - 已在 `docs/FEISHU_DOCS_INFORMATION_ARCHITECTURE_PLAN.md` 中补充后端表结构草案、API 设计草案、前端页面拆分建议、迁移策略和验收口径。
+  - 已明确建议新数据模型采用 `external_doc_*` 命名，前台仍保持“飞书文档”产品名，兼顾当前认知和未来平台扩展。
+  - 已明确旧表 `sop_documents` 的迁移策略：旧数据进入系统 `inbox` 工作台和 `legacy_category` 维度，避免把历史链接误写成新结构下的正式真值。
+- 已继续产出详细规格文档：
+  - 新增 `docs/FEISHU_DOCS_IMPLEMENTATION_SPEC.md`，把实现层进一步细化成表结构 SQL 草案、接口 request/response、前端线框、迁移脚本规则和开发分期。
+  - 已在总方案文档 `docs/FEISHU_DOCS_INFORMATION_ARCHITECTURE_PLAN.md` 中补充对规格文档的引用，形成“方向文档 + 规格文档”双文档结构。
+- 已根据新一轮审阅意见继续收口文档真值：
+  - 已大幅收缩 `docs/FEISHU_DOCS_INFORMATION_ARCHITECTURE_PLAN.md` 第 14 章，只保留实体职责、ER 关系、模板语义和软删除/级联原则，字段级真值统一收口到 `docs/FEISHU_DOCS_IMPLEMENTATION_SPEC.md`。
+  - 已在 `docs/FEISHU_DOCS_IMPLEMENTATION_SPEC.md` 中补充 `canonical_url_hash` 兜底防重策略，并明确当 `source_doc_token` 缺失时必须按标准化 `canonical_url` 做显式查重。
+  - 已新增事务型组合接口 `POST /api/v1/external-docs/quick-add`，作为前台“快速登记文档”的正式主入口，避免创建孤儿资源。
+  - 已统一模板正式语义：模板通过 `template_hub` 工作台表达，不再使用 `relation_role=template`。
+  - 已补充软删除与级联策略：`workspace` 归档时联动归档绑定，`resource` 不允许被工作台级联删除。
 - 本轮方案结论：
   - 推荐把“飞书文档”从单分类链接库升级为“资源层 + 工作台层 + 多维标签层 + 关系层”。
-  - 正式建议新增 `doc_resources / doc_workspaces / doc_bindings` 三层最小模型，并用 `relation_role` 区分 `official / support / candidate / template / archive`。
+  - 正式建议新增 `doc_resources / doc_workspaces / doc_bindings` 三层最小模型，并用 `relation_role` 区分 `official / support / candidate / archive`。
   - 前台入口建议从“按分类浏览”切到“按工作台 / 当前阶段 / 产物类型找文档”。
 - 本轮 focused validation：
   - 已人工复核方案文档与当前代码真值一致，当前正式实现确实仍是固定分类的外链管理，不存在文档中误写成已实现的工作台/多维关系能力。

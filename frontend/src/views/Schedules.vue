@@ -25,7 +25,7 @@
           <div class="m-card__meta">
             <el-tag :type="row.schedule_type === 'cron' ? 'primary' : 'info'" size="small">{{ row.schedule_type === 'cron' ? '周期' : '一次性' }}</el-tag>
             <span>{{ row.schedule_type === 'cron' ? row.cron_expr : formatDate(row.run_at) }}</span>
-            <span>{{ row.group_count || row.group_ids?.length || 0 }}个群</span>
+            <span>{{ row.group_names?.length ? row.group_names.join('、') : `${row.group_count || row.group_ids?.length || 0}个群` }}</span>
           </div>
           <div v-if="row.last_error" class="m-card__error">{{ row.last_error }}</div>
           <div class="m-card__footer">
@@ -44,9 +44,13 @@
       <el-table v-else :data="schedules" v-loading="loading" style="width: 100%">
         <el-table-column prop="id" label="ID" width="80" />
         <el-table-column prop="title" label="任务名称" />
-        <el-table-column label="目标群组" width="120">
+        <el-table-column label="目标群组" min-width="140">
           <template #default="scope">
-            {{ scope.row.group_count || scope.row.group_ids?.length || 0 }} 个群
+            <div v-if="scope.row.group_names?.length" class="group-name-list">
+              <el-tag v-for="name in scope.row.group_names.slice(0, 3)" :key="name" size="small" class="group-name-tag">{{ name }}</el-tag>
+              <el-tag v-if="scope.row.group_names.length > 3" size="small" type="info">+{{ scope.row.group_names.length - 3 }}</el-tag>
+            </div>
+            <span v-else>{{ scope.row.group_count || scope.row.group_ids?.length || 0 }} 个群</span>
           </template>
         </el-table-column>
         <el-table-column prop="schedule_type" label="类型" width="100">
@@ -135,8 +139,8 @@
         </el-form-item>
         <el-form-item label="目标群组" v-if="isEditMode">
           <div class="readonly-field">
-            {{ form.group_count }} 个群组
-            <span v-if="form.group_ids?.length"> · ID: {{ form.group_ids.join(', ') }}</span>
+            <span v-if="form.group_names?.length">{{ form.group_names.join('、') }}</span>
+            <span v-else>{{ form.group_count }} 个群组</span>
           </div>
         </el-form-item>
         <el-form-item label="执行时间" v-if="form.schedule_type === 'once'">
@@ -350,7 +354,7 @@ const formatDate = (dateStr: string) => {
   if (!dateStr) return '-'
   return new Date(dateStr).toLocaleString('zh-CN', {
     month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit'
+    hour: '2-digit', minute: '2-digit', second: '2-digit'
   })
 }
 
@@ -388,6 +392,7 @@ const handleEdit = (row: any) => {
     skip_dates: [...(row.skip_dates || [])],
     enabled: !!row.enabled,
     group_ids: [...(row.group_ids || [])],
+    group_names: row.group_names || [],
     group_count: row.group_count || row.group_ids?.length || 0,
     template_id: row.template_id ?? null,
     msg_type: row.msg_type || 'text',
@@ -790,6 +795,17 @@ onBeforeUnmount(() => {
 }
 .error-text {
   color: var(--text-secondary);
+}
+.group-name-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.group-name-tag {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .content-dialog__meta {
   display: flex;
