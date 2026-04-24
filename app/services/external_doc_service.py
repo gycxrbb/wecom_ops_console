@@ -7,6 +7,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from ..models_external_docs import (
     ExternalDocResource, ExternalDocBinding, ExternalDocOpenLog,
+    ExternalDocWorkspace, ExternalDocTerm,
 )
 from ..route_helper import _dt
 
@@ -64,6 +65,7 @@ def _serialize_resource(r: ExternalDocResource) -> dict:
         'source_platform': r.source_platform, 'doc_type': r.doc_type,
         'status': r.status, 'verification_status': r.verification_status,
         'summary': r.summary,
+        'owner_user_id': r.owner_user_id,
         'last_opened_at': _dt(r.last_opened_at),
         'created_at': _dt(r.created_at), 'updated_at': _dt(r.updated_at),
     }
@@ -200,7 +202,8 @@ def list_resources(db: Session, keyword: str | None = None, status: str | None =
     return q.order_by(ExternalDocResource.updated_at.desc()).all()
 
 
-def list_recent_opened_resources(db: Session, user_id: int, limit: int = 8) -> list[ExternalDocResource]:
+def list_recent_opened_resources(db: Session, user_id: int, limit: int = 8) -> list[dict]:
+    """返回最近打开的资源列表，附带绑定上下文（工作台、阶段、角色）。"""
     logs = db.query(ExternalDocOpenLog).filter(
         ExternalDocOpenLog.opened_by == user_id,
     ).order_by(ExternalDocOpenLog.opened_at.desc()).all()
@@ -226,7 +229,52 @@ def list_recent_opened_resources(db: Session, user_id: int, limit: int = 8) -> l
         ExternalDocResource.status == 'active',
     ).all()
     resource_map = {r.id: r for r in resources}
-    return [resource_map[rid] for rid in recent_ids if rid in resource_map]
+
+    # batch fetch bindings for these resources
+    bindings = db.query(ExternalDocBinding).filter(
+        ExternalDocBinding.resource_id.in_(recent_ids),
+        ExternalDocBinding.status == 'active',
+    ).all()
+
+    # latest binding per resource
+    latest_binding: dict[int, ExternalDocBinding] = {}
+    for b in bindings:
+        if b.resource_id not in latest_binding:
+            latest_binding[b.resource_id] = b
+
+    # batch fetch workspace names and stage labels
+    ws_ids = {b.workspace_id for b in latest_binding.values() if b.workspace_id}
+    stage_ids = {b.primary_stage_term_id for b in latest_binding.values() if b.primary_stage_term_id}
+
+    ws_names: dict[int, str] = {}
+    if ws_ids:
+        for ws in db.query(ExternalDocWorkspace).filter(ExternalDocWorkspace.id.in_(ws_ids)):
+            ws_names[ws.id] = ws.name
+
+    stage_labels: dict[int, str] = {}
+    if stage_ids:
+        for t in db.query(ExternalDocTerm).filter(ExternalDocTerm.id.in_(stage_ids)):
+            stage_labels[t.id] = t.label
+
+    results = []
+    for rid in recent_ids:
+        r = resource_map.get(rid)
+        if not r:
+            continue
+        item = _serialize_resource(r)
+        b = latest_binding.get(rid)
+        if b:
+            item['workspace_name'] = ws_names.get(b.workspace_id, '')
+            item['workspace_id'] = b.workspace_id
+            item['stage_label'] = stage_labels.get(b.primary_stage_term_id, '') if b.primary_stage_term_id else ''
+            item['relation_role'] = b.relation_role
+        else:
+            item['workspace_name'] = ''
+            item['workspace_id'] = None
+            item['stage_label'] = ''
+            item['relation_role'] = ''
+        results.append(item)
+    return results
 
 
 # ── Binding CRUD ──

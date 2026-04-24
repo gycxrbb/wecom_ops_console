@@ -22,6 +22,9 @@ docker compose -f docker-compose.prod.yml up -d
 # 查看容器状态
 docker ps
 
+# 查看当前所有的容器：
+docker ps -a
+
 # 查看应用日志
 docker logs --tail 50 wecom-ops-console
 docker logs -f wecom-ops-console  # 实时跟踪

@@ -318,6 +318,14 @@ def ensure_plan_schema(engine: Engine) -> None:
             with engine.begin() as conn:
                 conn.execute(text("ALTER TABLE schedules ADD COLUMN batch_items_json TEXT"))
 
+    # message_logs: add resolved column
+    inspector = inspect(engine)
+    if "message_logs" in inspector.get_table_names():
+        existing_cols = {c["name"] for c in inspector.get_columns("message_logs")}
+        if "resolved" not in existing_cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE message_logs ADD COLUMN resolved BOOLEAN DEFAULT 0"))
+
 
 def ensure_external_docs_schema(engine: Engine) -> None:
     """确保 external_doc_* 系列索引存在。表由 Base.metadata.create_all 创建。"""

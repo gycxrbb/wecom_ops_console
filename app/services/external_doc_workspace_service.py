@@ -1,20 +1,47 @@
 from __future__ import annotations
 import logging
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from ..models_external_docs import (
     ExternalDocWorkspace, ExternalDocBinding, ExternalDocResource, ExternalDocTerm,
 )
+from ..models import User
 from ..route_helper import _dt
 
 _log = logging.getLogger(__name__)
 
 
-def _serialize_workspace(ws: ExternalDocWorkspace) -> dict:
+def _serialize_workspace(ws: ExternalDocWorkspace, db: Session | None = None, doc_counts: dict | None = None, stage_labels: dict | None = None, user_names: dict | None = None) -> dict:
+    owner_name = ''
+    if ws.owner_user_id:
+        if user_names and ws.owner_user_id in user_names:
+            owner_name = user_names[ws.owner_user_id]
+        elif db:
+            u = db.query(User).get(ws.owner_user_id)
+            owner_name = u.display_name or u.username if u else ''
+    stage_label = ''
+    if ws.current_stage_term_id:
+        if stage_labels and ws.current_stage_term_id in stage_labels:
+            stage_label = stage_labels[ws.current_stage_term_id]
+        elif db:
+            t = db.query(ExternalDocTerm).get(ws.current_stage_term_id)
+            stage_label = t.label if t else ''
+    count = 0
+    if doc_counts and ws.id in doc_counts:
+        count = doc_counts[ws.id]
+    elif db:
+        count = db.query(func.count(ExternalDocBinding.id)).filter(
+            ExternalDocBinding.workspace_id == ws.id,
+            ExternalDocBinding.status == 'active',
+        ).scalar() or 0
     return {
         'id': ws.id, 'name': ws.name, 'workspace_type': ws.workspace_type,
         'status': ws.status, 'owner_user_id': ws.owner_user_id,
+        'owner_name': owner_name, 'created_by': ws.created_by,
         'current_stage_term_id': ws.current_stage_term_id,
+        'current_stage_label': stage_label,
+        'doc_count': count,
         'description': ws.description,
         'biz_line': ws.biz_line, 'client_name': ws.client_name,
         'start_date': ws.start_date, 'end_date': ws.end_date,
@@ -37,7 +64,7 @@ def create_workspace(db: Session, data, user_id: int) -> ExternalDocWorkspace:
         workspace_type=data.workspace_type,
         biz_line=data.biz_line,
         client_name=data.client_name,
-        owner_user_id=data.owner_user_id,
+        owner_user_id=data.owner_user_id if data.owner_user_id else user_id,
         description=data.description,
         start_date=data.start_date,
         end_date=data.end_date,
@@ -78,9 +105,10 @@ def get_workspace_overview(db: Session, workspace_id: int) -> dict | None:
         ExternalDocBinding.status == 'active',
     ).all()
 
-    # collect resource ids and stage term ids
+    # collect resource ids and term ids
     resource_ids = {b.resource_id for b in bindings}
-    stage_term_ids = {b.primary_stage_term_id for b in bindings if b.primary_stage_term_id}
+    term_ids = {b.primary_stage_term_id for b in bindings if b.primary_stage_term_id}
+    term_ids |= {b.deliverable_term_id for b in bindings if b.deliverable_term_id}
 
     # bulk fetch resources and terms
     resources_map: dict[int, ExternalDocResource] = {}
@@ -89,8 +117,8 @@ def get_workspace_overview(db: Session, workspace_id: int) -> dict | None:
             resources_map[r.id] = r
 
     terms_map: dict[int, ExternalDocTerm] = {}
-    if stage_term_ids:
-        for t in db.query(ExternalDocTerm).filter(ExternalDocTerm.id.in_(stage_term_ids)):
+    if term_ids:
+        for t in db.query(ExternalDocTerm).filter(ExternalDocTerm.id.in_(term_ids)):
             terms_map[t.id] = t
 
     # group bindings by stage then by role
@@ -116,6 +144,9 @@ def get_workspace_overview(db: Session, workspace_id: int) -> dict | None:
             'binding_id': b.id, 'relation_role': b.relation_role,
             'is_primary': bool(b.is_primary), 'remark': b.remark,
             'deliverable_term_id': b.deliverable_term_id,
+            'deliverable_label': terms_map[b.deliverable_term_id].label if b.deliverable_term_id and b.deliverable_term_id in terms_map else '',
+            'workspace_name': ws.name,
+            'stage_label': terms_map[stage_key].label if stage_key and stage_key in terms_map else '',
         }
         role_key = f'{b.relation_role}_docs'
         if role_key in stage:
@@ -145,7 +176,7 @@ def get_workspace_overview(db: Session, workspace_id: int) -> dict | None:
         flags.append({'type': 'missing_official_doc', 'label': '当前阶段还没设置“当前在用”文档'})
 
     return {
-        'workspace': _serialize_workspace(ws),
+        'workspace': _serialize_workspace(ws, db=db),
         'stages': stages_list,
         'recent_updates': recent_updates,
         'governance_flags': flags,
@@ -156,5 +187,77 @@ def _serialize_resource_simple(r: ExternalDocResource) -> dict:
     return {
         'id': r.id, 'title': r.title, 'doc_type': r.doc_type,
         'status': r.status, 'verification_status': r.verification_status,
-        'open_url': r.open_url,
+        'open_url': r.open_url, 'summary': r.summary or '',
+        'owner_user_id': r.owner_user_id,
+        'updated_at': _dt(r.updated_at),
     }
+
+
+def batch_enrich_workspaces(db: Session, workspaces: list[ExternalDocWorkspace]) -> list[dict]:
+    """批量序列化工作台列表，避免 N+1 查询。"""
+    ws_ids = [ws.id for ws in workspaces]
+    owner_ids = list({ws.owner_user_id for ws in workspaces if ws.owner_user_id})
+    stage_ids = list({ws.current_stage_term_id for ws in workspaces if ws.current_stage_term_id})
+
+    user_names: dict[int, str] = {}
+    if owner_ids:
+        for u in db.query(User).filter(User.id.in_(owner_ids)):
+            user_names[u.id] = u.display_name or u.username
+
+    stage_labels: dict[int, str] = {}
+    if stage_ids:
+        for t in db.query(ExternalDocTerm).filter(ExternalDocTerm.id.in_(stage_ids)):
+            stage_labels[t.id] = t.label
+
+    doc_counts: dict[int, int] = {}
+    if ws_ids:
+        rows = db.query(
+            ExternalDocBinding.workspace_id,
+            func.count(ExternalDocBinding.id),
+        ).filter(
+            ExternalDocBinding.workspace_id.in_(ws_ids),
+            ExternalDocBinding.status == 'active',
+        ).group_by(ExternalDocBinding.workspace_id).all()
+        doc_counts = {r[0]: r[1] for r in rows}
+
+    return [
+        _serialize_workspace(ws, doc_counts=doc_counts, stage_labels=stage_labels, user_names=user_names)
+        for ws in workspaces
+    ]
+
+
+def get_home_current_stage_docs(db: Session, user_id: int, limit: int = 6) -> list[dict]:
+    """取用户负责的工作台中，当前阶段的 official 文档。"""
+    my_ws = db.query(ExternalDocWorkspace).filter(
+        ExternalDocWorkspace.owner_user_id == user_id,
+        ExternalDocWorkspace.status == 'running',
+        ExternalDocWorkspace.current_stage_term_id.isnot(None),
+    ).all()
+    if not my_ws:
+        return []
+
+    results = []
+    for ws in my_ws:
+        bindings = db.query(ExternalDocBinding).filter(
+            ExternalDocBinding.workspace_id == ws.id,
+            ExternalDocBinding.primary_stage_term_id == ws.current_stage_term_id,
+            ExternalDocBinding.relation_role == 'official',
+            ExternalDocBinding.status == 'active',
+        ).limit(3).all()
+
+        stage_term = db.query(ExternalDocTerm).get(ws.current_stage_term_id) if ws.current_stage_term_id else None
+        stage_label = stage_term.label if stage_term else ''
+
+        for b in bindings:
+            r = db.query(ExternalDocResource).get(b.resource_id)
+            if r:
+                results.append({
+                    'resource_id': r.id, 'title': r.title, 'doc_type': r.doc_type,
+                    'open_url': r.open_url,
+                    'workspace_id': ws.id, 'workspace_name': ws.name,
+                    'stage_label': stage_label,
+                    'relation_role': b.relation_role,
+                })
+                if len(results) >= limit:
+                    return results
+    return results

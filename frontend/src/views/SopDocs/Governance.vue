@@ -20,6 +20,11 @@
             </template>
           </el-table-column>
           <el-table-column prop="created_at" label="创建时间" width="180" />
+          <el-table-column label="操作" width="120">
+            <template #default="{ row }">
+              <el-button size="small" type="primary" @click="handleSort(row)">归类</el-button>
+            </template>
+          </el-table-column>
         </el-table>
       </el-tab-pane>
       <el-tab-pane label="待确认可用" name="needs_verification">
@@ -33,15 +38,27 @@
             </template>
           </el-table-column>
           <el-table-column prop="updated_at" label="更新时间" width="180" />
+          <el-table-column label="操作" width="160">
+            <template #default="{ row }">
+              <el-button size="small" type="success" @click="handleVerify(row)" :loading="verifyingId === row.resource_id">
+                标记已确认
+              </el-button>
+            </template>
+          </el-table-column>
         </el-table>
       </el-tab-pane>
-      <el-tab-pane label="“当前在用”重复" name="duplicate_primary">
+      <el-tab-pane label='当前在用 重复' name="duplicate_primary">
         <el-table :data="queue?.duplicate_primary_docs || []" empty-text="暂无重复设置">
           <el-table-column prop="workspace_name" label="项目/专题" />
           <el-table-column prop="duplicate_count" label="重复数" width="100" />
+          <el-table-column label="操作" width="120">
+            <template #default="{ row }">
+              <el-button size="small" @click="goWorkspace(row.workspace_id)">前往处理</el-button>
+            </template>
+          </el-table-column>
         </el-table>
       </el-tab-pane>
-      <el-tab-pane label="还没设置“当前在用”" name="missing_official">
+      <el-tab-pane label='还没设置"当前在用"' name="missing_official">
         <el-table :data="queue?.missing_official_docs || []" empty-text="暂无缺失">
           <el-table-column prop="workspace_name" label="项目/专题" />
           <el-table-column prop="workspace_type" label="类型" width="100">
@@ -49,9 +66,17 @@
               {{ workspaceTypeLabel(row.workspace_type) }}
             </template>
           </el-table-column>
+          <el-table-column label="操作" width="120">
+            <template #default="{ row }">
+              <el-button size="small" type="primary" @click="goWorkspace(row.workspace_id)">前往设置</el-button>
+            </template>
+          </el-table-column>
         </el-table>
       </el-tab-pane>
     </el-tabs>
+
+    <!-- Quick Add for sorting -->
+    <QuickAddDialog v-model="sortDialogVisible" @success="fetchQueue" />
   </div>
 </template>
 
@@ -62,13 +87,17 @@ export default { name: 'SopDocsGovernance' }
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
+import QuickAddDialog from './components/QuickAddDialog.vue'
 
 const queue = ref<any>(null)
 const loading = ref(false)
 const route = useRoute()
 const router = useRouter()
 const activeTab = ref(String(route.query.tab || 'needs_sorting'))
+const verifyingId = ref<number | null>(null)
+const sortDialogVisible = ref(false)
 
 const verificationLabel = (status: string) => ({
   broken: '链接失效',
@@ -86,11 +115,7 @@ const workspaceTypeLabel = (type: string) => ({
 } as Record<string, string>)[type] || type
 
 const docTypeLabel = (type: string) => ({
-  doc: '文档',
-  sheet: '表格',
-  bitable: '多维表',
-  wiki: '知识库',
-  folder: '文件夹',
+  doc: '文档', sheet: '表格', bitable: '多维表', wiki: '知识库', folder: '文件夹',
 } as Record<string, string>)[type] || type
 
 const fetchQueue = async () => {
@@ -104,15 +129,33 @@ const fetchQueue = async () => {
   }
 }
 
+const handleSort = (_row: any) => {
+  sortDialogVisible.value = true
+}
+
+const handleVerify = async (row: any) => {
+  verifyingId.value = row.resource_id
+  try {
+    await request.put(`/v1/external-docs/resources/${row.resource_id}`, {
+      verification_status: 'verified',
+    })
+    ElMessage.success('已标记为确认可用')
+    fetchQueue()
+  } catch (e) {
+    console.error(e)
+  } finally {
+    verifyingId.value = null
+  }
+}
+
+const goWorkspace = (id: number) => {
+  router.push(`/sop-docs/workspace/${id}`)
+}
+
 onMounted(fetchQueue)
 
 watch(activeTab, (tab) => {
-  router.replace({
-    query: {
-      ...route.query,
-      tab,
-    },
-  })
+  router.replace({ query: { ...route.query, tab } })
 })
 </script>
 

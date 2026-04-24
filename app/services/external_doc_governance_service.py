@@ -27,7 +27,8 @@ def _get_needs_sorting(db: Session) -> list[dict]:
     ).all()
     return [
         {'resource_id': r.id, 'title': r.title, 'canonical_url': r.canonical_url,
-         'doc_type': r.doc_type, 'created_at': _dt(r.created_at)}
+         'doc_type': r.doc_type, 'summary': r.summary or '',
+         'created_at': _dt(r.created_at)}
         for r in orphans
     ]
 
@@ -40,7 +41,9 @@ def _get_needs_verification(db: Session) -> list[dict]:
     ).all()
     return [
         {'resource_id': r.id, 'title': r.title, 'canonical_url': r.canonical_url,
-         'verification_status': r.verification_status, 'updated_at': _dt(r.updated_at)}
+         'verification_status': r.verification_status,
+         'doc_type': r.doc_type,
+         'updated_at': _dt(r.updated_at)}
         for r in resources
     ]
 

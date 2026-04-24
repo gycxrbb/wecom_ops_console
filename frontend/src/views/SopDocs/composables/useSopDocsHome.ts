@@ -1,6 +1,5 @@
 import { ref, onMounted } from 'vue'
 import request from '@/utils/request'
-import { useUserStore } from '@/stores/user'
 
 export interface WorkspaceItem {
   id: number
@@ -8,7 +7,11 @@ export interface WorkspaceItem {
   workspace_type: string
   status: string
   owner_user_id: number | null
+  owner_name: string
+  created_by: number | null
   current_stage_term_id: number | null
+  current_stage_label: string
+  doc_count: number
   description: string
   created_at: string | null
   updated_at: string | null
@@ -17,16 +20,29 @@ export interface WorkspaceItem {
 export interface ResourceItem {
   id: number
   title: string
-  canonical_url: string
-  open_url: string
-  source_platform: string
   doc_type: string
   status: string
   verification_status: string
+  open_url: string
   summary: string
-  last_opened_at: string | null
-  created_at: string | null
+  owner_user_id: number | null
   updated_at: string | null
+  last_opened_at: string | null
+  workspace_name: string
+  workspace_id: number | null
+  stage_label: string
+  relation_role: string
+}
+
+export interface CurrentStageDoc {
+  resource_id: number
+  title: string
+  doc_type: string
+  open_url: string
+  workspace_id: number
+  workspace_name: string
+  stage_label: string
+  relation_role: string
 }
 
 export interface GovernanceSummary {
@@ -37,40 +53,20 @@ export interface GovernanceSummary {
 }
 
 export function useSopDocsHome() {
-  const userStore = useUserStore()
   const myWorkspaces = ref<WorkspaceItem[]>([])
-  const sharedWorkspaces = ref<WorkspaceItem[]>([])
-  const systemWorkspaces = ref<WorkspaceItem[]>([])
-  const allWorkspaces = ref<WorkspaceItem[]>([])
   const recentDocs = ref<ResourceItem[]>([])
+  const currentStageDocs = ref<CurrentStageDoc[]>([])
   const governanceSummary = ref<GovernanceSummary | null>(null)
   const loading = ref(false)
 
   const fetchHome = async () => {
     loading.value = true
     try {
-      const [ws, recent, gov] = await Promise.all([
-        request.get('/v1/external-docs/workspaces'),
-        request.get('/v1/external-docs/resources/recent-opened?limit=8'),
-        request.get('/v1/external-docs/governance/queue'),
-      ])
-      allWorkspaces.value = (ws || []) as WorkspaceItem[]
-      const currentUserId = userStore.user?.id ?? null
-      const all = (ws || []) as WorkspaceItem[]
-      myWorkspaces.value = all.filter(item =>
-        item.owner_user_id === currentUserId &&
-        item.workspace_type !== 'template_hub' &&
-        item.workspace_type !== 'inbox',
-      )
-      systemWorkspaces.value = all.filter(item =>
-        item.workspace_type === 'template_hub' || item.workspace_type === 'inbox',
-      )
-      sharedWorkspaces.value = all.filter(item =>
-        !myWorkspaces.value.some(wsItem => wsItem.id === item.id) &&
-        !systemWorkspaces.value.some(wsItem => wsItem.id === item.id),
-      )
-      recentDocs.value = (recent || []) as ResourceItem[]
-      governanceSummary.value = (gov || null) as GovernanceSummary
+      const data = await request.get('/v1/external-docs/home/summary')
+      myWorkspaces.value = (data?.my_workspaces || []) as WorkspaceItem[]
+      recentDocs.value = (data?.recent_docs || []) as ResourceItem[]
+      currentStageDocs.value = (data?.current_stage_docs || []) as CurrentStageDoc[]
+      governanceSummary.value = (data?.governance || null) as GovernanceSummary
     } catch (e) {
       console.error(e)
     } finally {
@@ -90,7 +86,7 @@ export function useSopDocsHome() {
   onMounted(fetchHome)
 
   return {
-    myWorkspaces, sharedWorkspaces, systemWorkspaces, allWorkspaces, recentDocs, governanceSummary,
+    myWorkspaces, recentDocs, currentStageDocs, governanceSummary,
     loading, fetchHome, openResource,
   }
 }

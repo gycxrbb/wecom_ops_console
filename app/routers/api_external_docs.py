@@ -28,8 +28,8 @@ def _sb(b):
     return external_doc_service._serialize_binding(b)
 
 
-def _sw(ws):
-    return external_doc_workspace_service._serialize_workspace(ws)
+def _sw(ws, db=None):
+    return external_doc_workspace_service._serialize_workspace(ws, db=db)
 
 
 # ── Resolve Link ──
@@ -64,8 +64,27 @@ def list_resources(request: Request, db: Session = Depends(get_db), keyword: str
 @router.get('/resources/recent-opened')
 def list_recent_opened_resources(request: Request, db: Session = Depends(get_db), limit: int = 8):
     user = get_current_user(request, db)
-    items = external_doc_service.list_recent_opened_resources(db, user.id, limit=limit)
-    return [_s(r) for r in items]
+    return external_doc_service.list_recent_opened_resources(db, user.id, limit=limit)
+
+
+@router.get('/home/summary')
+def home_summary(request: Request, db: Session = Depends(get_db)):
+    """首页聚合数据：工作台列表、最近打开、当前阶段文档、治理摘要。"""
+    user = get_current_user(request, db)
+    workspaces = external_doc_workspace_service.list_workspaces(db)
+    ws_data = external_doc_workspace_service.batch_enrich_workspaces(db, workspaces)
+    uid = user.id
+    my_ws = [w for w in ws_data if w['workspace_type'] not in ('template_hub', 'inbox')
+             and (w.get('owner_user_id') == uid or w.get('created_by') == uid)]
+    recent = external_doc_service.list_recent_opened_resources(db, user.id, limit=8)
+    current_stage = external_doc_workspace_service.get_home_current_stage_docs(db, user.id, limit=6)
+    gov = external_doc_governance_service.get_governance_queue(db)
+    return {
+        'my_workspaces': my_ws,
+        'recent_docs': recent,
+        'current_stage_docs': current_stage,
+        'governance': gov,
+    }
 
 
 @router.post('/resources')
@@ -147,7 +166,7 @@ def list_workspaces(request: Request, db: Session = Depends(get_db), workspace_t
     # merge: user's workspaces first, then others
     user_ws_ids = {ws.id for ws in items}
     combined = items + [ws for ws in all_items if ws.id not in user_ws_ids]
-    return [_sw(ws) for ws in combined]
+    return external_doc_workspace_service.batch_enrich_workspaces(db, combined)
 
 
 @router.post('/workspaces')
@@ -155,7 +174,7 @@ def create_workspace(body: WorkspaceCreate, request: Request, db: Session = Depe
     user = get_current_user(request, db)
     require_permission(user, 'sop')
     ws = external_doc_workspace_service.create_workspace(db, body, user.id)
-    return _sw(ws)
+    return _sw(ws, db)
 
 
 @router.get('/workspaces/{workspace_id}')
@@ -164,7 +183,7 @@ def get_workspace(workspace_id: int, request: Request, db: Session = Depends(get
     ws = external_doc_workspace_service.get_workspace(db, workspace_id)
     if not ws:
         raise HTTPException(404, '工作台不存在')
-    return _sw(ws)
+    return _sw(ws, db)
 
 
 @router.put('/workspaces/{workspace_id}')
@@ -174,7 +193,7 @@ def update_workspace(workspace_id: int, body: WorkspaceUpdate, request: Request,
     ws = external_doc_workspace_service.update_workspace(db, workspace_id, body, user.id)
     if not ws:
         raise HTTPException(404, '工作台不存在')
-    return _sw(ws)
+    return _sw(ws, db)
 
 
 @router.get('/workspaces/{workspace_id}/overview')

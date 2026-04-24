@@ -17,6 +17,11 @@
           <el-option label="客户" value="customer" />
         </el-select>
       </el-form-item>
+      <el-form-item label="当前阶段">
+        <el-select v-model="form.current_stage_term_id" placeholder="选择当前所处阶段" clearable style="width:100%;">
+          <el-option v-for="t in stageTerms" :key="t.id" :label="t.label" :value="t.id" />
+        </el-select>
+      </el-form-item>
       <el-form-item label="业务线">
         <el-input v-model="form.biz_line" placeholder="可选" />
       </el-form-item>
@@ -41,7 +46,7 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, computed } from 'vue'
+import { reactive, ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
 
@@ -56,10 +61,12 @@ const emit = defineEmits<{
 
 const saving = ref(false)
 const isEdit = computed(() => !!props.workspace?.id)
+const stageTerms = ref<any[]>([])
 
 const form = reactive({
   name: '',
   workspace_type: 'project',
+  current_stage_term_id: null as number | null,
   biz_line: '',
   client_name: '',
   description: '',
@@ -67,10 +74,21 @@ const form = reactive({
   end_date: '',
 })
 
+const fetchTerms = async () => {
+  try {
+    const terms = await request.get('/v1/external-docs/terms', { params: { dimension: 'stage' } })
+    stageTerms.value = terms || []
+  } catch (e) {
+    console.error(e)
+  }
+}
+
 const handleOpen = () => {
+  fetchTerms()
   if (props.workspace?.id) {
     form.name = props.workspace.name || ''
     form.workspace_type = props.workspace.workspace_type || 'project'
+    form.current_stage_term_id = props.workspace.current_stage_term_id || null
     form.biz_line = props.workspace.biz_line || ''
     form.client_name = props.workspace.client_name || ''
     form.description = props.workspace.description || ''
@@ -79,6 +97,7 @@ const handleOpen = () => {
   } else {
     form.name = ''
     form.workspace_type = 'project'
+    form.current_stage_term_id = null
     form.biz_line = ''
     form.client_name = ''
     form.description = ''

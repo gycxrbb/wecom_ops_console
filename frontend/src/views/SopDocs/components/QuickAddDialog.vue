@@ -38,6 +38,13 @@
           </el-select>
         </el-form-item>
 
+        <!-- Step 4b: Deliverable Type -->
+        <el-form-item label="产物类型">
+          <el-select v-model="form.deliverable_term_id" placeholder="可选，如定位表、排期表、日报" clearable style="width:100%;">
+            <el-option v-for="t in qa.deliverableTerms.value" :key="t.id" :label="t.label" :value="t.id" />
+          </el-select>
+        </el-form-item>
+
         <!-- Step 5: Role -->
         <el-form-item label="这份文档现在是干什么用的">
           <el-radio-group v-model="form.relation_role">

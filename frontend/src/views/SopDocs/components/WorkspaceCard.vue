@@ -9,7 +9,14 @@
         {{ statusLabel }}
       </span>
     </div>
-    <div class="ws-card__meta">{{ workspaceDescription }}</div>
+    <div class="ws-card__meta" v-if="workspace.current_stage_label">
+      当前阶段：{{ workspace.current_stage_label }}
+    </div>
+    <div class="ws-card__meta">
+      <span v-if="workspace.owner_name">负责人：{{ workspace.owner_name }}</span>
+      <span v-if="workspace.doc_count !== undefined"> · {{ workspace.doc_count }} 篇文档</span>
+    </div>
+    <div class="ws-card__meta" style="opacity:.6;">{{ workspaceDescription }}</div>
   </button>
 </template>
 
@@ -41,6 +48,6 @@ const fallbackDescriptions: Record<string, string> = {
   inbox: '先放这里，后续再整理归类',
 }
 const workspaceDescription = computed(() =>
-  props.workspace.description || fallbackDescriptions[props.workspace.workspace_type] || '点击查看这个项目下的文档',
+  props.workspace.description || fallbackDescriptions[props.workspace.workspace_type] || '',
 )
 </script>
