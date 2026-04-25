@@ -107,8 +107,8 @@
 import { computed, ref, onMounted } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import request from '@/utils/request'
-import { useMobile } from '@/composables/useMobile'
+import request from '#/utils/request'
+import { useMobile } from '#/composables/useMobile'
 
 const { isMobile } = useMobile()
 

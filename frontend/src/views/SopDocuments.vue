@@ -84,8 +84,8 @@ export default { name: 'SopDocuments' }
 import { computed, onMounted, reactive, ref } from 'vue'
 import { Search } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { useUserStore } from '@/stores/user'
-import request from '@/utils/request'
+import { useUserStore } from '#/stores/user'
+import request from '#/utils/request'
 
 interface SopDoc {
   id: number

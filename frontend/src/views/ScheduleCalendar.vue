@@ -33,7 +33,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
-import request from '@/utils/request'
+import request from '#/utils/request'
 
 interface CalItem {
   id: number

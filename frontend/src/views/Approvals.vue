@@ -86,9 +86,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import request from '@/utils/request'
-import { useUserStore } from '@/stores/user'
-import { useMobile } from '@/composables/useMobile'
+import request from '#/utils/request'
+import { useUserStore } from '#/stores/user'
+import { useMobile } from '#/composables/useMobile'
 
 const { isMobile } = useMobile()
 const userStore = useUserStore()

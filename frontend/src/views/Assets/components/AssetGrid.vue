@@ -202,7 +202,7 @@ import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Download, Delete, Rank, FolderOpened, Link, Document, Edit } from '@element-plus/icons-vue'
 import { Folder as FolderIcon } from '@element-plus/icons-vue'
-import { buildAssetAuthUrl, copyAssetPublicUrl, formatAssetDateTime } from '@/utils/assets'
+import { buildAssetAuthUrl, copyAssetPublicUrl, formatAssetDateTime } from '#/utils/assets'
 import type { Asset } from '../composables/useAssets'
 import type { Folder } from '../composables/useFolders'
 

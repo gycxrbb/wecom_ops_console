@@ -102,6 +102,11 @@ app.include_router(crm_points_router)
 app.include_router(speech_templates_router)
 app.include_router(external_docs_router)
 
+if settings.crm_profile_enabled:
+    from .crm_profile import router as crm_profile_router, init_models
+    init_models()
+    app.include_router(crm_profile_router)
+
 # Vue SPA 前端（必须在所有 API 路由之后 mount）
 if FRONTEND_DIR.exists():
     from fastapi.responses import FileResponse

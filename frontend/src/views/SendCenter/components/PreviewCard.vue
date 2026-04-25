@@ -196,7 +196,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { Document, Loading, Microphone, Monitor, UserFilled, View } from '@element-plus/icons-vue'
-import { useUserStore } from '@/stores/user'
+import { useUserStore } from '#/stores/user'
 
 const props = defineProps({
   previewData: { type: Object, default: null },

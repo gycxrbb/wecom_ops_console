@@ -58,9 +58,9 @@ import { ref, reactive, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { View, Hide, RefreshRight } from '@element-plus/icons-vue'
-import ThemeToggle from '@/components/ThemeToggle.vue'
-import request from '@/utils/request'
-import { useUserStore } from '@/stores/user'
+import ThemeToggle from '#/components/ThemeToggle.vue'
+import request from '#/utils/request'
+import { useUserStore } from '#/stores/user'
 import JSEncrypt from 'jsencrypt'
 
 const isDark = ref(localStorage.getItem('theme') === 'dark' || !localStorage.getItem('theme'))

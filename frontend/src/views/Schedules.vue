@@ -252,11 +252,11 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
-import request from '@/utils/request'
-import CronBuilder from '@/components/CronBuilder.vue'
-import MessageEditor from '@/components/message-editor/index.vue'
+import request from '#/utils/request'
+import CronBuilder from '#/components/CronBuilder.vue'
+import MessageEditor from '#/components/message-editor/index.vue'
 import ScheduleCalendar from './ScheduleCalendar.vue'
-import { useMobile } from '@/composables/useMobile'
+import { useMobile } from '#/composables/useMobile'
 
 const { isMobile } = useMobile()
 

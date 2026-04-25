@@ -125,6 +125,21 @@ def open_resource(resource_id: int, body: OpenRequest, request: Request, db: Ses
 
 # ── Bindings ──
 
+@router.get('/bindings/flat')
+def list_bindings_flat(
+    request: Request, db: Session = Depends(get_db),
+    workspace_id: int | None = None, stage_term_id: int | None = None,
+    relation_role: str | None = None, keyword: str | None = None,
+    page: int = 1, page_size: int = 20,
+):
+    get_current_user(request, db)
+    return external_doc_service.list_bindings_flat(
+        db, workspace_id=workspace_id, stage_term_id=stage_term_id,
+        relation_role=relation_role, keyword=keyword,
+        page=page, page_size=page_size,
+    )
+
+
 @router.post('/bindings')
 def create_binding(body: BindingCreate, request: Request, db: Session = Depends(get_db)):
     user = get_current_user(request, db)
@@ -194,6 +209,15 @@ def update_workspace(workspace_id: int, body: WorkspaceUpdate, request: Request,
     if not ws:
         raise HTTPException(404, '工作台不存在')
     return _sw(ws, db)
+
+
+@router.delete('/workspaces/{workspace_id}')
+def delete_workspace(workspace_id: int, request: Request, db: Session = Depends(get_db)):
+    user = get_current_user(request, db)
+    require_permission(user, 'sop')
+    if not external_doc_workspace_service.delete_workspace(db, workspace_id):
+        raise HTTPException(404, '工作台不存在')
+    return {'ok': True}
 
 
 @router.get('/workspaces/{workspace_id}/overview')

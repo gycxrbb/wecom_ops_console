@@ -235,9 +235,9 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { Document, Loading } from '@element-plus/icons-vue'
-import request from '@/utils/request'
+import request from '#/utils/request'
 import { ElMessage } from 'element-plus'
-import { ASSET_UPLOAD_HINT, buildAssetAuthUrl, validateAssetUpload } from '@/utils/assets'
+import { ASSET_UPLOAD_HINT, buildAssetAuthUrl, validateAssetUpload } from '#/utils/assets'
 
 const props = defineProps<{
   visible: boolean

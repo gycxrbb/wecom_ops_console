@@ -440,9 +440,9 @@ import {
   Picture,
   Tickets,
 } from '@element-plus/icons-vue'
-import request from '@/utils/request'
-import { useUserStore } from '@/stores/user'
-import { extractMarkdownHeadings, renderMarkdown } from '@/utils/simpleMarkdown'
+import request from '#/utils/request'
+import { useUserStore } from '#/stores/user'
+import { extractMarkdownHeadings, renderMarkdown } from '#/utils/simpleMarkdown'
 
 type DocMeta = {
   slug: string

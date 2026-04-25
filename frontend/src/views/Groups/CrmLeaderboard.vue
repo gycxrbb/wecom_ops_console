@@ -166,9 +166,9 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import request from '@/utils/request'
-import { useMobile } from '@/composables/useMobile'
-import MedalIcon from '@/components/MedalIcon.vue'
+import request from '#/utils/request'
+import { useMobile } from '#/composables/useMobile'
+import MedalIcon from '#/components/MedalIcon.vue'
 
 const { isMobile } = useMobile()
 

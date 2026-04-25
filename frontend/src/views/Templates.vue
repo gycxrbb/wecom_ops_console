@@ -231,10 +231,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { Search } from '@element-plus/icons-vue'
-import request from '@/utils/request'
+import request from '#/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import MessageEditor from '@/components/message-editor/index.vue'
-import { CRM_DEMO_URL, createTemplateCardExample, templateCardExampleVariables } from '@/components/message-editor/templateCardPresets'
+import MessageEditor from '#/components/message-editor/index.vue'
+import { CRM_DEMO_URL, createTemplateCardExample, templateCardExampleVariables } from '#/components/message-editor/templateCardPresets'
 
 type TemplateItem = {
   id: number

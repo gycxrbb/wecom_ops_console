@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     ai_api_key: str = ''
     ai_base_url: str = 'https://aihubmix.com/v1'
     ai_model: str = 'gpt-4o-mini'
+    ai_provider: str = 'aihubmix'                  # 'aihubmix' | 'deepseek'
+    deepseek_api_key: str = ''
+    deepseek_base_url: str = 'https://api.deepseek.com'
+    deepseek_model: str = 'deepseek-v4-pro'
     send_timeout_seconds: int = 30
     file_upload_timeout_seconds: int = 120
     send_max_retries: int = 3
@@ -56,6 +60,8 @@ class Settings(BaseSettings):
     host: str = '0.0.0.0'
     port: int = 8000
     cors_allowed_origins: str = ''  # 逗号分隔，留空则只允许同源
+    crm_profile_enabled: bool = False
+    ai_coach_enabled: bool = False
 
 settings = Settings()
 DATA_DIR.mkdir(parents=True, exist_ok=True)

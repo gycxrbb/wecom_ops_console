@@ -1,6 +1,6 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import request from '@/utils/request'
+import request from '#/utils/request'
 import type { TemplateItem } from './useTemplates'
 
 export type PlanNode = {

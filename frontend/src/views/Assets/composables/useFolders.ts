@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import request from '@/utils/request'
+import request from '#/utils/request'
 import { ElMessage } from 'element-plus'
 
 export interface Folder {

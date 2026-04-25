@@ -31,7 +31,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import AssetPicker from './AssetPicker.vue'
-import { buildAssetAuthUrl } from '@/utils/assets'
+import { buildAssetAuthUrl } from '#/utils/assets'
 
 const props = withDefaults(defineProps<{ modelValue: Record<string, any>; variant?: 'image' | 'emotion' }>(), {
   variant: 'image'

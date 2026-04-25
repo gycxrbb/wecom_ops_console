@@ -33,7 +33,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import request from '@/utils/request'
+import request from '#/utils/request'
 import { ElMessage } from 'element-plus'
 
 const logs = ref([])

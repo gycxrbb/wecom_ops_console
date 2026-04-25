@@ -1,0 +1,610 @@
+"""CRM Customer 360 Profile HTTP endpoints."""
+from __future__ import annotations
+
+import json
+import logging
+
+from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
+
+from ..config import settings
+from ..database import get_db
+from ..route_helper import UnifiedResponseRoute
+from ..security import get_current_user
+from ..sse_debug_log import get_sse_logger
+from .services.cache import get as cache_get, put as cache_put, PROFILE_TTL, FILTER_OPTIONS_TTL
+from .schemas.api import (
+    CustomerSearchItem, CustomerListItem, CustomerListResponse,
+    CustomerListWithFiltersResponse,
+    FilterOption, FilterOptionsResponse,
+    ProfileResponse,
+    SafetySnapshotListResponse, SafetySnapshotDetailResponse,
+    AiProfileNoteRequest, AiProfileNoteResponse, AiConfigResponse, SceneOption,
+    AiChatRequest, AiChatResponse,
+    AiSessionListResponse, AiSessionDetailResponse,
+)
+from .models import CustomerAiProfileNote
+from .services.permission import assert_can_view, resolve_visible_customers
+from .services.profile_loader import load_profile
+from .services import audit as audit_service
+from .services.modules import safety_profile as safety_profile_module
+
+_log = logging.getLogger(__name__)
+_sse_log = get_sse_logger()
+
+router = APIRouter(
+    prefix="/api/v1/crm-customers",
+    tags=["crm-customers"],
+    route_class=UnifiedResponseRoute,
+)
+
+
+def _load_filter_options(conn) -> dict:
+    """Shared helper: load coaches / groups / channels dropdown options."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, COALESCE(real_name, nick_name, username) AS label "
+            "FROM admins ORDER BY id"
+        )
+        coaches = [{"value": r["id"], "label": r["label"] or f"Admin#{r['id']}"} for r in cur.fetchall()]
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT id, name FROM `groups` ORDER BY id DESC")
+        groups = [{"value": r["id"], "label": r["name"] or f"Group#{r['id']}"} for r in cur.fetchall()]
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT id, name FROM channels WHERE is_del = 0 OR is_del IS NULL ORDER BY id")
+        channels = [{"value": r["id"], "label": r["name"] or f"Channel#{r['id']}"} for r in cur.fetchall()]
+
+    return {"coaches": coaches, "groups": groups, "channels": channels}
+
+
+@router.get("/filters", response_model=FilterOptionsResponse)
+def get_filter_options(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Return available filter options: coaches, groups, channels."""
+    get_current_user(request, db)
+    from ..clients.crm_db import get_connection, return_connection
+
+    cached = cache_get("filter_options")
+    if cached:
+        return cached
+
+    conn = get_connection()
+    try:
+        result = _load_filter_options(conn)
+        cache_put("filter_options", result, FILTER_OPTIONS_TTL)
+        return result
+    finally:
+        return_connection(conn)
+
+
+@router.get("/list", response_model=CustomerListWithFiltersResponse)
+def list_customers(
+    request: Request,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    q: str = Query("", max_length=100),
+    coach_id: int | None = Query(None),
+    group_id: int | None = Query(None),
+    channel_id: int | None = Query(None),
+    include_filters: bool = Query(False),
+    db: Session = Depends(get_db),
+):
+    """Paginated customer list with optional filters.
+
+    Pass include_filters=1 on first load to get filter dropdown options
+    in the same response, avoiding an extra round trip.
+    """
+    user = get_current_user(request, db)
+    from ..clients.crm_db import get_connection, return_connection
+
+    list_cache_key = f"list:{user.id}:{page}:{page_size}:{q}:{coach_id}:{group_id}:{channel_id}:{include_filters}"
+    cached = cache_get(list_cache_key)
+    if cached:
+        return cached
+
+    conn = get_connection()
+    try:
+        visible = resolve_visible_customers(user)
+
+        wheres: list[str] = []
+        where_params: list = []
+        joins: list[str] = []
+        join_params: list = []
+
+        if coach_id is not None:
+            joins.append(
+                "JOIN customer_staff cs_f ON cs_f.customer_id = c.id "
+                "AND cs_f.admin_id = %s AND (cs_f.end_at IS NULL OR cs_f.end_at > NOW())"
+            )
+            join_params.append(coach_id)
+
+        if group_id is not None:
+            joins.append(
+                "JOIN customer_groups cg_f ON cg_f.customer_id = c.id AND cg_f.group_id = %s"
+            )
+            join_params.append(group_id)
+
+        if q.strip():
+            wheres.append("c.name LIKE %s")
+            where_params.append(f"%{q.strip()}%")
+
+        if visible:
+            placeholders = ",".join(["%s"] * len(visible))
+            wheres.append(f"c.id IN ({placeholders})")
+            where_params.extend(visible)
+
+        if channel_id is not None:
+            wheres.append("c.channel_id = %s")
+            where_params.append(channel_id)
+
+        join_clause = " ".join(joins)
+        where_clause = (" WHERE " + " AND ".join(wheres)) if wheres else ""
+        params = join_params + where_params
+
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT COUNT(DISTINCT c.id) AS cnt FROM customers c {join_clause}{where_clause}",
+                params,
+            )
+            total = cur.fetchone()["cnt"]
+
+        offset = (page - 1) * page_size
+        data_params = list(params)
+        data_sql = f"""
+            SELECT c.id, c.name, c.gender, c.birthday, c.points, c.total_points,
+                   c.status, c.city, c.created_at, c.channel_id,
+                   ch.name AS channel_name,
+                   (SELECT GROUP_CONCAT(
+                       COALESCE(a.real_name, a.nick_name, a.username) SEPARATOR '、'
+                    ) FROM customer_staff cs
+                      JOIN admins a ON a.id = cs.admin_id
+                     WHERE cs.customer_id = c.id
+                       AND (cs.end_at IS NULL OR cs.end_at > NOW())
+                   ) AS coach_names,
+                   (SELECT GROUP_CONCAT(g.name SEPARATOR '、')
+                      FROM customer_groups cg
+                      JOIN `groups` g ON g.id = cg.group_id
+                     WHERE cg.customer_id = c.id
+                   ) AS group_names
+            FROM customers c
+            LEFT JOIN channels ch ON ch.id = c.channel_id
+            {join_clause}
+            {where_clause}
+            GROUP BY c.id
+            ORDER BY (
+                (c.gender IS NOT NULL) +
+                (c.birthday IS NOT NULL) +
+                (c.channel_id IS NOT NULL) +
+                (COALESCE(c.points, 0) > 0) +
+                (c.city IS NOT NULL AND c.city != '') +
+                (EXISTS(SELECT 1 FROM customer_staff cs2
+                        WHERE cs2.customer_id = c.id
+                          AND (cs2.end_at IS NULL OR cs2.end_at > NOW()))) +
+                (EXISTS(SELECT 1 FROM customer_groups cg2
+                        WHERE cg2.customer_id = c.id))
+            ) DESC, c.id DESC
+            LIMIT %s OFFSET %s
+        """
+        data_params.extend([page_size, offset])
+
+        with conn.cursor() as cur:
+            cur.execute(data_sql, data_params)
+            rows = cur.fetchall()
+
+        items = []
+        for r in rows:
+            item = dict(r)
+            if item.get("birthday"):
+                item["birthday"] = str(item["birthday"])
+            if item.get("created_at"):
+                item["created_at"] = str(item["created_at"])
+            items.append(item)
+
+        result: dict = {"items": items, "total": total, "page": page, "page_size": page_size}
+
+        if include_filters:
+            cached_filters = cache_get("filter_options")
+            if cached_filters:
+                result["filters"] = cached_filters
+            else:
+                fo = _load_filter_options(conn)
+                cache_put("filter_options", fo, FILTER_OPTIONS_TTL)
+                result["filters"] = fo
+
+        cache_put(list_cache_key, result, 60)
+        return result
+    finally:
+        return_connection(conn)
+
+
+@router.get("/search", response_model=list[CustomerSearchItem])
+def search_customers(
+    request: Request,
+    q: str = Query("", max_length=100),
+    db: Session = Depends(get_db),
+):
+    """Fuzzy search customers by name. Admin sees all; coach sees only assigned."""
+    user = get_current_user(request, db)
+    from ..clients.crm_db import get_connection, return_connection
+
+    conn = get_connection()
+    try:
+        like = f"%{q}%"
+        visible = resolve_visible_customers(user)
+
+        with conn.cursor() as cur:
+            if visible:
+                placeholders = ",".join(["%s"] * len(visible))
+                cur.execute(
+                    f"""
+                    SELECT id, name, gender, birthday, points, total_points, status
+                    FROM customers
+                    WHERE name LIKE %s
+                      AND id IN ({placeholders})
+                    ORDER BY id DESC
+                    LIMIT 50
+                    """,
+                    (like, *visible),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT id, name, gender, birthday, points, total_points, status
+                    FROM customers
+                    WHERE name LIKE %s
+                    ORDER BY id DESC
+                    LIMIT 50
+                    """,
+                    (like,),
+                )
+            rows = cur.fetchall()
+
+        results = []
+        for r in rows:
+            item = dict(r)
+            if item.get("birthday"):
+                item["birthday"] = str(item["birthday"])
+            results.append(item)
+        return results
+    finally:
+        return_connection(conn)
+
+
+@router.get("/{customer_id}/profile", response_model=ProfileResponse)
+def get_customer_profile(
+    customer_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Load full profile (7 modules) for a customer."""
+    user = get_current_user(request, db)
+    assert_can_view(user, customer_id)
+
+    cache_key = f"profile:{customer_id}"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+
+    ctx = load_profile(customer_id)
+    cache_put(cache_key, ctx, PROFILE_TTL)
+    return ctx
+
+
+@router.get("/{customer_id}/safety-snapshots", response_model=SafetySnapshotListResponse)
+def get_safety_snapshots(
+    customer_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Return available safety-profile snapshots from customer_info history."""
+    user = get_current_user(request, db)
+    assert_can_view(user, customer_id)
+
+    from ..clients.crm_db import get_connection, return_connection
+
+    conn = get_connection()
+    try:
+        items = safety_profile_module.list_snapshots(conn, customer_id)
+        return {"customer_id": customer_id, "items": items}
+    finally:
+        return_connection(conn)
+
+
+@router.get("/{customer_id}/safety-snapshots/{snapshot_id}", response_model=SafetySnapshotDetailResponse)
+def get_safety_snapshot_detail(
+    customer_id: int,
+    snapshot_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Return one safety-profile snapshot for the selected archive date."""
+    user = get_current_user(request, db)
+    assert_can_view(user, customer_id)
+
+    from fastapi import HTTPException
+    from ..clients.crm_db import get_connection, return_connection
+
+    conn = get_connection()
+    try:
+        snapshots = safety_profile_module.list_snapshots(conn, customer_id)
+        snapshot = next((item for item in snapshots if item["snapshot_id"] == snapshot_id), None)
+        if not snapshot:
+            raise HTTPException(404, "未找到对应的安全档案历史记录")
+
+        card = safety_profile_module.load(conn, customer_id, snapshot_id=snapshot_id)
+        return {"customer_id": customer_id, "snapshot": snapshot, "card": card}
+    finally:
+        return_connection(conn)
+
+
+# --- AI Profile Note & Config ---
+
+def _note_to_response(note: CustomerAiProfileNote) -> dict:
+    return {
+        "crm_customer_id": note.crm_customer_id,
+        "status": note.status,
+        "communication_style_note": note.communication_style_note,
+        "current_focus_note": note.current_focus_note,
+        "execution_barrier_note": note.execution_barrier_note,
+        "lifestyle_background_note": note.lifestyle_background_note,
+        "coach_strategy_note": note.coach_strategy_note,
+        "preferred_scene_hint": note.preferred_scene_hint,
+        "updated_at": str(note.updated_at) if note.updated_at else None,
+    }
+
+
+@router.get("/{customer_id}/ai/config", response_model=AiConfigResponse)
+def get_ai_config(
+    customer_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Return AI config: available scenes, profile note, prompt version."""
+    user = get_current_user(request, db)
+    assert_can_view(user, customer_id)
+
+    from .prompts.registry import VALID_SCENES, get_version
+
+    scenes = [SceneOption(key=k, label=v) for k, v in VALID_SCENES.items()]
+    note = db.query(CustomerAiProfileNote).filter_by(crm_customer_id=customer_id).first()
+
+    return {
+        "scenes": scenes,
+        "profile_note": _note_to_response(note) if note else None,
+        "prompt_version": get_version(),
+    }
+
+
+@router.get("/{customer_id}/ai/profile-note", response_model=AiProfileNoteResponse)
+def get_profile_note(
+    customer_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Get customer AI profile note."""
+    user = get_current_user(request, db)
+    assert_can_view(user, customer_id)
+    note = db.query(CustomerAiProfileNote).filter_by(crm_customer_id=customer_id).first()
+    if not note:
+        return {"crm_customer_id": customer_id}
+    return _note_to_response(note)
+
+
+@router.put("/{customer_id}/ai/profile-note", response_model=AiProfileNoteResponse)
+def save_profile_note(
+    customer_id: int,
+    body: AiProfileNoteRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Create or update customer AI profile note."""
+    user = get_current_user(request, db)
+    assert_can_view(user, customer_id)
+
+    _MAX_NOTE_LEN = 1500
+    for field_name in ("communication_style_note", "current_focus_note",
+                       "execution_barrier_note", "lifestyle_background_note",
+                       "coach_strategy_note"):
+        val = getattr(body, field_name, None)
+        if val and len(val) > _MAX_NOTE_LEN:
+            from fastapi import HTTPException
+            raise HTTPException(400, f"{field_name} 超过 {_MAX_NOTE_LEN} 字上限")
+
+    note = db.query(CustomerAiProfileNote).filter_by(crm_customer_id=customer_id).first()
+    if not note:
+        note = CustomerAiProfileNote(crm_customer_id=customer_id, updated_by=user.id)
+        db.add(note)
+
+    note.communication_style_note = body.communication_style_note
+    note.current_focus_note = body.current_focus_note
+    note.execution_barrier_note = body.execution_barrier_note
+    note.lifestyle_background_note = body.lifestyle_background_note
+    note.coach_strategy_note = body.coach_strategy_note
+    note.preferred_scene_hint = body.preferred_scene_hint
+    note.updated_by = user.id
+    db.commit()
+    db.refresh(note)
+    from .services.cache import invalidate as cache_invalidate
+    cache_invalidate(f"profile:{customer_id}")
+    return _note_to_response(note)
+
+
+@router.get("/{customer_id}/ai/sessions", response_model=AiSessionListResponse)
+def list_ai_sessions(
+    customer_id: int,
+    request: Request,
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    """Return recent AI conversation sessions for the customer."""
+    user = get_current_user(request, db)
+    assert_can_view(user, customer_id)
+    return {
+        "customer_id": customer_id,
+        "items": audit_service.load_customer_sessions(customer_id, limit=limit),
+    }
+
+
+@router.get("/{customer_id}/ai/sessions/{session_id}", response_model=AiSessionDetailResponse)
+def get_ai_session_detail(
+    customer_id: int,
+    session_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Return one stored AI conversation with chronological messages."""
+    user = get_current_user(request, db)
+    assert_can_view(user, customer_id)
+    detail = audit_service.load_session_detail(customer_id, session_id)
+    if not detail:
+        from fastapi import HTTPException
+        raise HTTPException(404, "未找到对应的历史对话")
+    return {
+        "customer_id": customer_id,
+        "session": detail["session"],
+        "messages": detail["messages"],
+    }
+
+
+# --- AI Coach (only when ai_coach_enabled) ---
+
+_ai_coach_enabled = settings.ai_coach_enabled or (bool(settings.ai_api_key) and settings.crm_profile_enabled)
+
+if _ai_coach_enabled:
+    from .services.ai_coach import ask_ai_coach, stream_ai_coach_answer, stream_ai_coach_thinking
+    from .services.audit import mark_medical_review as _mark_medical_review
+
+    def _sse(event: str, payload: dict) -> str:
+        return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+    _STREAM_HEADERS = {
+        "Cache-Control": "no-cache, no-transform",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    }
+
+    @router.post("/{customer_id}/ai/chat", response_model=AiChatResponse)
+    async def ai_chat(
+        customer_id: int,
+        body: AiChatRequest,
+        request: Request,
+        db: Session = Depends(get_db),
+    ):
+        """Ask AI coach a question about a customer."""
+        user = get_current_user(request, db)
+        assert_can_view(user, customer_id)
+        result = await ask_ai_coach(
+            customer_id,
+            body.message,
+            session_id=body.session_id,
+            local_user_id=user.id,
+            crm_admin_id=getattr(user, 'crm_admin_id', None),
+            scene_key=body.scene_key,
+            entry_scene=body.entry_scene,
+            selected_expansions=body.selected_expansions,
+            output_style=body.output_style,
+        )
+        return result
+
+    @router.post("/{customer_id}/ai/chat-stream")
+    async def ai_chat_stream(
+        customer_id: int,
+        body: AiChatRequest,
+        request: Request,
+        db: Session = Depends(get_db),
+    ):
+        """Stream the final AI answer for a customer conversation."""
+        import time as _time
+        _t = _time.time()
+        _sse_log.info("[SSE-ROUTE] chat-stream endpoint entered for customer %s", customer_id)
+        user = get_current_user(request, db)
+        assert_can_view(user, customer_id)
+
+        async def event_stream():
+            _sse_log.info("[SSE-ROUTE] chat-stream yield ':connected' at %.3fs", _time.time() - _t)
+            yield ": connected\n\n"
+            async for event in stream_ai_coach_answer(
+                customer_id,
+                body.message,
+                session_id=body.session_id,
+                local_user_id=user.id,
+                crm_admin_id=getattr(user, 'crm_admin_id', None),
+                scene_key=body.scene_key,
+                entry_scene=body.entry_scene,
+                output_style=body.output_style,
+            ):
+                _sse_log.info("[SSE-ROUTE] chat-stream writing SSE event=%s at %.3fs", event.event, _time.time() - _t)
+                yield _sse(event.event, event.data)
+            _sse_log.info("[SSE-ROUTE] chat-stream generator finished at %.3fs", _time.time() - _t)
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers=_STREAM_HEADERS,
+        )
+
+    @router.post("/{customer_id}/ai/thinking-stream")
+    async def ai_thinking_stream(
+        customer_id: int,
+        body: AiChatRequest,
+        request: Request,
+        db: Session = Depends(get_db),
+    ):
+        """Stream the UI-visible thinking summary for the current turn."""
+        import time as _time
+        _t = _time.time()
+        _sse_log.info("[SSE-ROUTE] thinking-stream endpoint entered for customer %s", customer_id)
+        user = get_current_user(request, db)
+        assert_can_view(user, customer_id)
+
+        async def event_stream():
+            _sse_log.info("[SSE-ROUTE] thinking-stream yield ':connected' at %.3fs", _time.time() - _t)
+            yield ": connected\n\n"
+            async for event in stream_ai_coach_thinking(
+                customer_id,
+                body.message,
+                session_id=body.session_id,
+                scene_key=body.scene_key,
+                output_style=body.output_style,
+            ):
+                _sse_log.info("[SSE-ROUTE] thinking-stream writing SSE event=%s at %.3fs", event.event, _time.time() - _t)
+                yield _sse(event.event, event.data)
+            _sse_log.info("[SSE-ROUTE] thinking-stream generator finished at %.3fs", _time.time() - _t)
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers=_STREAM_HEADERS,
+        )
+
+    @router.patch("/{customer_id}/ai/messages/{message_id}/review")
+    def patch_medical_review(
+        customer_id: int,
+        message_id: str,
+        request: Request,
+        db: Session = Depends(get_db),
+    ):
+        """Mark an AI message as requiring medical review."""
+        user = get_current_user(request, db)
+        assert_can_view(user, customer_id)
+        found = _mark_medical_review(message_id)
+        if not found:
+            from fastapi import HTTPException
+            raise HTTPException(404, "消息不存在")
+        return {"ok": True}
+
+    # --- Debug: test SSE streaming directly ---
+    @router.get("/_debug/sse-test")
+    async def debug_sse_test():
+        """Minimal SSE endpoint to verify streaming works end-to-end."""
+        from .services.ai_coach import _debug_ai_stream_test
+        async def gen():
+            yield ": connected\n\n"
+            async for evt in _debug_ai_stream_test():
+                yield _sse(evt.event, evt.data)
+        return StreamingResponse(gen(), media_type="text/event-stream", headers=_STREAM_HEADERS)

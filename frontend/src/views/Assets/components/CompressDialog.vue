@@ -76,7 +76,7 @@ import {
   estimateCompressedSize,
   isCompressibleImage,
   COMPRESS_PRESETS,
-} from '@/utils/imageCompress'
+} from '#/utils/imageCompress'
 
 const props = defineProps<{
   modelValue: boolean

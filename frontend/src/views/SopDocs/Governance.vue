@@ -88,7 +88,7 @@ export default { name: 'SopDocsGovernance' }
 import { ref, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import request from '@/utils/request'
+import request from '#/utils/request'
 import QuickAddDialog from './components/QuickAddDialog.vue'
 
 const queue = ref<any>(null)

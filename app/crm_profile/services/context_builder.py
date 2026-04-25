@@ -1,0 +1,169 @@
+"""Context builder — plan resolution, whitelist validation, token estimation."""
+from __future__ import annotations
+
+import json
+import logging
+
+from ..schemas.context import ModulePayload, ContextBuildPlan
+
+_log = logging.getLogger(__name__)
+
+# Prohibited fields per §5.7
+_PROHIBITED_KEYS = {
+    "last_login_ip", "user_id", "huami_user_id", "avatar",
+    "password", "salt", "wxwork", "settings",
+    "openid", "unionid",
+    "raw_data",
+}
+
+# Max prompt tokens
+_DEFAULT_TOKEN_BUDGET = 30000
+
+MODULE_LABELS = {
+    "basic_profile": "基础档案",
+    "safety_profile": "安全档案",
+    "goals_preferences": "目标与偏好",
+    "health_summary_7d": "近7天健康摘要",
+    "body_comp_latest_30d": "近30天体成分",
+    "points_engagement_14d": "近14天积分与活跃",
+    "service_scope": "服务关系",
+}
+
+FIELD_LABELS = {
+    "basic_profile": {
+        "display_name": "客户姓名",
+        "gender": "性别",
+        "age": "年龄",
+        "height_cm": "身高(cm)",
+        "weight_kg": "体重(kg)",
+        "bmi": "BMI",
+        "crm_status": "客户状态",
+        "tags": "客户标签",
+        "has_cgm": "是否佩戴CGM",
+        "compliance_level": "配合度",
+        "severity": "风险等级",
+        "points": "当前积分",
+        "total_points": "累计积分",
+    },
+    "safety_profile": {
+        "health_condition_summary": "健康状况",
+        "medical_history": "病史",
+        "genetic_history": "家族史",
+        "allergies": "过敏信息",
+        "sport_injuries": "运动损伤",
+        "prescription_summary": "处方摘要",
+        "contraindications": "禁忌与病史",
+        "risk_level": "风险等级",
+    },
+    "goals_preferences": {
+        "primary_goals": "主要目标",
+        "target_weight_kg": "目标体重(kg)",
+        "target_heart_rate": "目标心率",
+        "target_glucose": "目标血糖",
+        "target_blood_pressure": "目标血压",
+        "diet": "饮食偏好",
+        "exercise": "运动偏好",
+        "sleep": "睡眠质量",
+    },
+    "health_summary_7d": {
+        "days": "记录天数",
+        "weight": "最新体重(kg)",
+        "weight_trend": "体重变化",
+        "blood_pressure": "血压摘要",
+        "glucose": "血糖摘要",
+        "sleep": "睡眠摘要",
+        "activity": "运动摘要",
+        "diet": "饮食摘要",
+        "symptoms": "症状反馈",
+    },
+    "body_comp_latest_30d": {
+        "days": "记录天数",
+        "latest": "最新体成分",
+        "trend": "30天变化",
+    },
+    "points_engagement_14d": {
+        "points_current": "当前积分",
+        "points_total": "累计积分",
+        "earned_14d": "近14天获得积分",
+        "spent_14d": "近14天消费积分",
+        "active_days_14d": "近14天活跃天数",
+        "summary": "活跃摘要",
+    },
+    "service_scope": {
+        "group_names": "所属群",
+        "group_count": "群数量",
+        "current_coach_names": "负责教练",
+        "staff_count": "服务成员数",
+    },
+}
+
+
+def get_module_label(module_key: str) -> str:
+    return MODULE_LABELS.get(module_key, module_key)
+
+
+def get_field_label(module_key: str, field_key: str) -> str:
+    return FIELD_LABELS.get(module_key, {}).get(field_key, field_key)
+
+
+def resolve_context_plan(
+    entry_scene: str = "customer_profile",
+    selected_expansions: list[str] | None = None,
+) -> ContextBuildPlan:
+    """Generate a ContextBuildPlan based on scene and user selections."""
+    plan = ContextBuildPlan()
+
+    # Limit expansions to max 2
+    if selected_expansions:
+        plan.expansion_modules = selected_expansions[:2]
+
+    return plan
+
+
+def validate_field_whitelist(cards: list[ModulePayload]) -> list[str]:
+    """Scan payloads for prohibited fields. Returns list of violations found."""
+    violations = []
+    for card in cards:
+        for key in card.payload:
+            if key in _PROHIBITED_KEYS:
+                violations.append(f"{card.key}.{key}")
+    return violations
+
+
+def estimate_tokens(cards: list[ModulePayload]) -> int:
+    """Rough token estimate: ~4 chars per token for Chinese text."""
+    total_chars = 0
+    for card in cards:
+        if card.status != "ok":
+            continue
+        for v in card.payload.values():
+            if v is not None and not isinstance(v, (list, dict)):
+                total_chars += len(str(v))
+    return total_chars // 4
+
+
+def build_context_text(cards: list[ModulePayload], token_budget: int = _DEFAULT_TOKEN_BUDGET) -> str:
+    """Serialize cards into context text for AI, respecting token budget."""
+    sections = []
+    total_est = 0
+
+    # Priority order: required first, then summary
+    for card in cards:
+        if card.status not in ("ok", "partial") or not card.payload:
+            continue
+        lines = []
+        for k, v in card.payload.items():
+            if v is None or isinstance(v, (list, dict)):
+                continue
+            lines.append(f"{get_field_label(card.key, k)}: {v}")
+        if not lines:
+            continue
+        header = get_module_label(card.key)
+        section = f"### {header}\n" + "\n".join(lines)
+        est = len(section) // 4
+        if total_est + est > token_budget:
+            break
+        sections.append(section)
+        total_est += est
+
+    return "\n\n".join(sections)

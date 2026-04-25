@@ -175,13 +175,13 @@ export default { name: 'SendCenter' }
 <script setup lang="ts">
 import { useSendLogic } from './composables/useSendLogic'
 import MessageForm from './components/MessageForm.vue'
-import MessageEditor from '@/components/message-editor/index.vue'
+import MessageEditor from '#/components/message-editor/index.vue'
 import PreviewCard from './components/PreviewCard.vue'
 import ScheduleCard from './components/ScheduleCard.vue'
 import { ElMessage } from 'element-plus'
 import { View, Position, Clock } from '@element-plus/icons-vue'
-import { msgTypeLabel } from '@/views/Templates/composables/useTemplates'
-import request from '@/utils/request'
+import { msgTypeLabel } from '#/views/Templates/composables/useTemplates'
+import request from '#/utils/request'
 import './styles/SendCenter.css'
 
 const {

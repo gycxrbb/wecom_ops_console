@@ -2,11 +2,28 @@
   <el-dialog
     :model-value="modelValue"
     @update:model-value="$emit('update:modelValue', $event)"
-    title="修改文档绑定"
-    width="460px"
+    title="编辑文档"
+    width="500px"
     @open="initForm"
   >
     <el-form label-position="top" style="margin-top:-10px;">
+      <!-- 文档信息 -->
+      <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:8px;">文档信息</div>
+      <el-form-item label="文档标题">
+        <el-input v-model="form.title" placeholder="文档标题" />
+      </el-form-item>
+      <el-form-item label="飞书链接">
+        <div style="display:flex;gap:8px;width:100%;">
+          <el-input v-model="form.open_url" placeholder="飞书链接" style="flex:1;" />
+          <el-button @click="copyLink" title="复制链接"><el-icon><CopyDocument /></el-icon></el-button>
+          <el-button type="primary" link @click="openLink" title="打开链接"><el-icon><Link /></el-icon></el-button>
+        </div>
+      </el-form-item>
+
+      <el-divider style="margin:12px 0;" />
+
+      <!-- 绑定信息 -->
+      <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:8px;">绑定设置</div>
       <el-form-item label="文档角色">
         <el-radio-group v-model="form.relation_role">
           <el-radio-button value="official">当前在用</el-radio-button>
@@ -43,7 +60,8 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import request from '@/utils/request'
+import { CopyDocument, Link } from '@element-plus/icons-vue'
+import request from '#/utils/request'
 
 const props = defineProps<{
   modelValue: boolean
@@ -58,6 +76,8 @@ const emit = defineEmits<{
 
 const saving = ref(false)
 const form = reactive({
+  title: '',
+  open_url: '',
   relation_role: 'support',
   primary_stage_term_id: null as number | null,
   deliverable_term_id: null as number | null,
@@ -66,6 +86,8 @@ const form = reactive({
 
 const initForm = () => {
   if (props.binding) {
+    form.title = props.binding.title || ''
+    form.open_url = props.binding.open_url || ''
     form.relation_role = props.binding.relation_role || 'support'
     form.primary_stage_term_id = props.binding.primary_stage_term_id || null
     form.deliverable_term_id = props.binding.deliverable_term_id || null
@@ -73,10 +95,30 @@ const initForm = () => {
   }
 }
 
+const copyLink = () => {
+  if (form.open_url) {
+    navigator.clipboard.writeText(form.open_url)
+    ElMessage.success('链接已复制')
+  }
+}
+
+const openLink = () => {
+  if (form.open_url) window.open(form.open_url, '_blank')
+}
+
 const doSave = async () => {
   if (!props.binding?.binding_id) return
   saving.value = true
   try {
+    // update resource (title + open_url)
+    const resourceId = props.binding.id || props.binding.resource_id
+    if (resourceId && (form.title || form.open_url)) {
+      await request.put(`/v1/external-docs/resources/${resourceId}`, {
+        title: form.title || undefined,
+        open_url: form.open_url || undefined,
+      })
+    }
+    // update binding
     await request.put(`/v1/external-docs/bindings/${props.binding.binding_id}`, {
       relation_role: form.relation_role,
       primary_stage_term_id: form.primary_stage_term_id,

@@ -36,6 +36,7 @@ class ResourceCreate(BaseModel):
 
 class ResourceUpdate(BaseModel):
     title: str | None = None
+    open_url: str | None = None
     summary: str | None = None
     status: str | None = None
     verification_status: str | None = None

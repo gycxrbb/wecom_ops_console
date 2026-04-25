@@ -227,10 +227,10 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { Loading } from '@element-plus/icons-vue'
-import { msgTypeLabel, msgTypeOptions } from '@/views/Templates/composables/useTemplates'
-import request from '@/utils/request'
+import { msgTypeLabel, msgTypeOptions } from '#/views/Templates/composables/useTemplates'
+import request from '#/utils/request'
 import type { PropType } from 'vue'
-import { useMobile } from '@/composables/useMobile'
+import { useMobile } from '#/composables/useMobile'
 import PointsRankingTab from './PointsRankingTab.vue'
 
 const { isMobile } = useMobile()

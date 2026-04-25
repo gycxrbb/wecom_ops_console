@@ -141,9 +141,9 @@
 <script setup lang="ts">
 import { computed, ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { useUserStore } from '@/stores/user'
-import { hasPermission } from '@/utils/permissions'
-import request from '@/utils/request'
+import { useUserStore } from '#/stores/user'
+import { hasPermission } from '#/utils/permissions'
+import request from '#/utils/request'
 import {
   RefreshRight, ChatDotRound, Document, Timer, Tickets, Stamp,
   Position, Promotion, Picture, Notebook

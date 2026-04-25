@@ -404,9 +404,9 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { EditPen, View, Position, ChatDotRound, Document, Memo, Close, Loading, CircleCheckFilled, CircleCloseFilled, CirclePlus } from '@element-plus/icons-vue'
-import MessageEditor from '@/components/message-editor/index.vue'
+import MessageEditor from '#/components/message-editor/index.vue'
 import ContentSelector from './ContentSelector.vue'
-import { msgTypeLabel } from '@/views/Templates/composables/useTemplates'
+import { msgTypeLabel } from '#/views/Templates/composables/useTemplates'
 import type { PropType } from 'vue'
 import type { BatchQueueItem } from '../composables/useSendLogic'
 

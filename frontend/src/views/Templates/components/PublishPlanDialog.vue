@@ -99,7 +99,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import request from '@/utils/request'
+import request from '#/utils/request'
 
 interface GroupItem { id: number; name: string }
 

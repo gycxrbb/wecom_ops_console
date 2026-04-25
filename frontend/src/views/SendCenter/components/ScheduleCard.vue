@@ -88,8 +88,8 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { Timer, Clock } from '@element-plus/icons-vue'
-import request from '@/utils/request'
-import CronBuilder from '@/components/CronBuilder.vue'
+import request from '#/utils/request'
+import CronBuilder from '#/components/CronBuilder.vue'
 
 const props = defineProps({
   scheduleForm: { type: Object, required: true },

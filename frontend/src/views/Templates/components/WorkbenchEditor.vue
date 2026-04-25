@@ -129,7 +129,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { ArrowLeft, ArrowRight, FullScreen, CopyDocument } from '@element-plus/icons-vue'
-import MessageEditor from '@/components/message-editor/index.vue'
+import MessageEditor from '#/components/message-editor/index.vue'
 import { msgTypeOptions, supportsVariables } from '../composables/useTemplates'
 
 interface CurrentNode {

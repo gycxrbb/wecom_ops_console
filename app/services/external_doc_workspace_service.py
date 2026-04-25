@@ -95,6 +95,20 @@ def get_workspace(db: Session, workspace_id: int) -> ExternalDocWorkspace | None
     return db.query(ExternalDocWorkspace).get(workspace_id)
 
 
+def delete_workspace(db: Session, workspace_id: int) -> bool:
+    ws = db.query(ExternalDocWorkspace).get(workspace_id)
+    if not ws:
+        return False
+    # deactivate all bindings under this workspace
+    db.query(ExternalDocBinding).filter(
+        ExternalDocBinding.workspace_id == workspace_id,
+        ExternalDocBinding.status == 'active',
+    ).update({'status': 'inactive'})
+    db.delete(ws)
+    db.commit()
+    return True
+
+
 def get_workspace_overview(db: Session, workspace_id: int) -> dict | None:
     ws = db.query(ExternalDocWorkspace).get(workspace_id)
     if not ws:
@@ -120,6 +134,15 @@ def get_workspace_overview(db: Session, workspace_id: int) -> dict | None:
     if term_ids:
         for t in db.query(ExternalDocTerm).filter(ExternalDocTerm.id.in_(term_ids)):
             terms_map[t.id] = t
+
+    # batch fetch owner names + updated_by names
+    from ..models import User
+    user_ids = {r.owner_user_id for r in resources_map.values() if r.owner_user_id}
+    user_ids |= {b.updated_by for b in bindings if b.updated_by}
+    user_names: dict[int, str] = {}
+    if user_ids:
+        for u in db.query(User).filter(User.id.in_(user_ids)):
+            user_names[u.id] = u.display_name or u.username
 
     # group bindings by stage then by role
     stages_dict: dict[int | None, dict] = {}
@@ -147,6 +170,9 @@ def get_workspace_overview(db: Session, workspace_id: int) -> dict | None:
             'deliverable_label': terms_map[b.deliverable_term_id].label if b.deliverable_term_id and b.deliverable_term_id in terms_map else '',
             'workspace_name': ws.name,
             'stage_label': terms_map[stage_key].label if stage_key and stage_key in terms_map else '',
+            'owner_name': user_names.get(resource.owner_user_id, '') if resource.owner_user_id else '',
+            'updated_by_name': user_names.get(b.updated_by, '') if b.updated_by else '',
+            'updated_at': _dt(b.updated_at),
         }
         role_key = f'{b.relation_role}_docs'
         if role_key in stage:
@@ -167,6 +193,8 @@ def get_workspace_overview(db: Session, workspace_id: int) -> dict | None:
                 'resource_title': r.title, 'binding_id': b.id,
                 'relation_role': b.relation_role,
                 'updated_at': _dt(b.updated_at),
+                'owner_name': user_names.get(r.owner_user_id, '') if r.owner_user_id else '',
+                'updated_by_name': user_names.get(b.updated_by, '') if b.updated_by else '',
             })
 
     # governance flags
@@ -228,36 +256,72 @@ def batch_enrich_workspaces(db: Session, workspaces: list[ExternalDocWorkspace])
 
 def get_home_current_stage_docs(db: Session, user_id: int, limit: int = 6) -> list[dict]:
     """取用户负责的工作台中，当前阶段的 official 文档。"""
+    from ..models import User
+
     my_ws = db.query(ExternalDocWorkspace).filter(
         ExternalDocWorkspace.owner_user_id == user_id,
-        ExternalDocWorkspace.status == 'running',
         ExternalDocWorkspace.current_stage_term_id.isnot(None),
     ).all()
     if not my_ws:
         return []
 
-    results = []
+    # batch collect all binding ids and resource ids
+    all_bindings = []
+    ws_map: dict[int, ExternalDocWorkspace] = {}
     for ws in my_ws:
+        ws_map[ws.id] = ws
         bindings = db.query(ExternalDocBinding).filter(
             ExternalDocBinding.workspace_id == ws.id,
             ExternalDocBinding.primary_stage_term_id == ws.current_stage_term_id,
             ExternalDocBinding.relation_role == 'official',
             ExternalDocBinding.status == 'active',
         ).limit(3).all()
+        all_bindings.extend(bindings)
 
-        stage_term = db.query(ExternalDocTerm).get(ws.current_stage_term_id) if ws.current_stage_term_id else None
-        stage_label = stage_term.label if stage_term else ''
+    if not all_bindings:
+        return []
 
-        for b in bindings:
-            r = db.query(ExternalDocResource).get(b.resource_id)
-            if r:
-                results.append({
-                    'resource_id': r.id, 'title': r.title, 'doc_type': r.doc_type,
-                    'open_url': r.open_url,
-                    'workspace_id': ws.id, 'workspace_name': ws.name,
-                    'stage_label': stage_label,
-                    'relation_role': b.relation_role,
-                })
-                if len(results) >= limit:
-                    return results
+    # batch fetch resources
+    resource_ids = {b.resource_id for b in all_bindings}
+    resources_map: dict[int, ExternalDocResource] = {}
+    for r in db.query(ExternalDocResource).filter(ExternalDocResource.id.in_(resource_ids)):
+        resources_map[r.id] = r
+
+    # batch fetch owner names + updated_by names
+    from ..models import User
+    user_ids = {r.owner_user_id for r in resources_map.values() if r.owner_user_id}
+    user_ids |= {b.updated_by for b in all_bindings if b.updated_by}
+    user_names: dict[int, str] = {}
+    if user_ids:
+        for u in db.query(User).filter(User.id.in_(user_ids)):
+            user_names[u.id] = u.display_name or u.username
+
+    # batch fetch stage labels
+    stage_ids = {ws.current_stage_term_id for ws in my_ws if ws.current_stage_term_id}
+    stage_labels: dict[int, str] = {}
+    if stage_ids:
+        for t in db.query(ExternalDocTerm).filter(ExternalDocTerm.id.in_(stage_ids)):
+            stage_labels[t.id] = t.label
+
+    results = []
+    for b in all_bindings:
+        r = resources_map.get(b.resource_id)
+        if not r:
+            continue
+        ws = ws_map.get(b.workspace_id)
+        stage_label = stage_labels.get(ws.current_stage_term_id, '') if ws and ws.current_stage_term_id else ''
+        results.append({
+            'resource_id': r.id, 'title': r.title, 'doc_type': r.doc_type,
+            'open_url': r.open_url, 'verification_status': r.verification_status,
+            'summary': r.summary or '',
+            'workspace_id': b.workspace_id, 'workspace_name': ws.name if ws else '',
+            'stage_label': stage_label,
+            'relation_role': b.relation_role,
+            'is_primary': bool(b.is_primary), 'remark': b.remark or '',
+            'owner_name': user_names.get(r.owner_user_id, '') if r.owner_user_id else '',
+            'updated_by_name': user_names.get(b.updated_by, '') if b.updated_by else '',
+            'updated_at': _dt(b.updated_at),
+        })
+        if len(results) >= limit:
+            break
     return results

@@ -1,5 +1,5 @@
 import { ref, onMounted } from 'vue'
-import request from '@/utils/request'
+import request from '#/utils/request'
 
 export interface WorkspaceItem {
   id: number
@@ -13,6 +13,10 @@ export interface WorkspaceItem {
   current_stage_label: string
   doc_count: number
   description: string
+  biz_line: string
+  client_name: string
+  start_date: string | null
+  end_date: string | null
   created_at: string | null
   updated_at: string | null
 }
@@ -39,10 +43,16 @@ export interface CurrentStageDoc {
   title: string
   doc_type: string
   open_url: string
+  verification_status: string
+  summary: string
   workspace_id: number
   workspace_name: string
   stage_label: string
   relation_role: string
+  is_primary: boolean
+  remark: string
+  owner_name: string
+  updated_at: string | null
 }
 
 export interface GovernanceSummary {

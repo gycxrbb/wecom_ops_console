@@ -456,13 +456,25 @@ frontend/src/
 
 ### 验证步骤
 
-1. **后端启动测试**：
-   - 执行 `uvicorn app.main:app --host 0.0.0.0 --port 8000`
+1. **后端启动测试**：（备注：在你的环境中可能需要单独使用其他的端口做测试，因为我本地已经占用了这个端口）
+ ```powershell
+cd wecom_ops_console
+.\.venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
    - 确认无报错、无 import 错误、应用正常启动
    - 确认 lifespan 中的数据库初始化和调度器启动正常
 
-2. **前端启动测试**（如涉及前端改动）：
-   - 执行 `cd frontend && npm run dev`
+
+
+2. **前端启动测试**（如涉及前端改动，备注：在你的环境中可能需要单独使用其他的端口做测试，因为我本地已经占用了这个端口）：
+   - 打开新的终端窗口：
+```powershell
+cd wecom_ops_console/frontend
+npm install
+npm run dev
+```
    - 确认 TypeScript 编译通过、无报错
    - 确认页面可正常访问
 

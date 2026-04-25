@@ -1,5 +1,65 @@
 # Progress
 
+## 2026-04-25
+- 已继续收口 CRM AI 抽屉体验与客户资料问答准确性：
+  - 缺失字段提醒已从“常驻 + 每条 AI 回复下方重复展示”改为“进入抽屉时一次性提示”。现在支持手动关闭，且一旦教练发出第一条问题或点快捷提问就会自动隐藏。
+  - 前端已移除 AI 回复气泡下方的 `missingDataNotes` 展示，不再把字段缺口绑在每条回答后面重复提醒。
+  - 已增强系统底线提示词与 prompt builder，明确：如果上下文已经给出客户真实姓名、年龄、性别、状态等资料，回答时必须直接使用真实值，不能输出“客户姓名”“[客户姓名]”这类字段名或占位标签。
+  - 已新增后端资料类问题的本地直答捷径：对“叫什么 / 几岁 / 性别 / 当前状态 / 负责教练 / 所属群”这类明确资料问法，优先直接从已加载档案返回答案，避免模型把字段标签当答案。
+  - 已顺手修复 AI 返回的 `message_id` 口径：现在返回的是 assistant message id，不再误用 user message id，避免“标记需医生确认”等后续动作漂移。
+- 本轮 focused validation：
+  - `python -m py_compile app\crm_profile\services\ai_coach.py app\crm_profile\services\prompt_builder.py` 通过。
+  - `cd frontend && .\node_modules\.bin\vue-tsc.cmd --noEmit` 通过。
+  - `cd frontend && npm.cmd run build` 通过。
+- 项目启动验证结果：
+  - 后端 `python -m uvicorn app.main:app --host 0.0.0.0 --port 8004` 已确认启动到 `Application startup complete`。
+  - 前端 `cd frontend && npm.cmd run dev -- --host 0.0.0.0 --port 5178` 已确认 `vite` ready 并监听成功。
+
+- 已修复 MySQL 下 CRM AI / External Docs 索引迁移的语法兼容问题：
+  - 报错根因来自 [app/schema_migrations.py](</d:/惯能/群机器人定时推送/wecom_ops_console/app/schema_migrations.py>) 里直接执行 `CREATE INDEX IF NOT EXISTS ...`，该语法在 MySQL 上不受支持。
+  - 已新增统一 helper：通过 `inspect(conn)` + `_has_named_index(...)` 先查后建，替代所有 `CREATE INDEX IF NOT EXISTS` 迁移写法。
+  - 本次已同时收口 `ensure_crm_ai_indexes()` 和 `ensure_external_docs_schema()` 两处，避免只修 CRM AI 一处、后续又在飞书文档索引上重复报错。
+- 本轮 focused validation：
+  - `python -m py_compile app\schema_migrations.py app\main.py` 通过。
+- 项目启动验证结果：
+  - 后端 `python -m uvicorn app.main:app --host 0.0.0.0 --port 8004` 已确认启动到 `Application startup complete`，说明 MySQL 索引语法错误已解除。
+
+- 已新增 CRM AI 提示词架构方案文档：
+  - 新文档为 [docs/CRM_AI_PROMPT_ARCHITECTURE_PLAN.md](</d:/惯能/群机器人定时推送/wecom_ops_console/docs/CRM_AI_PROMPT_ARCHITECTURE_PLAN.md>)。
+  - 已按 `AGENTS.md` 的总控视角，把“系统级提示词”“场景策略”“客户专属补充信息”“本次提问”四类真值边界明确拆开。
+  - 已正式建议 CRM AI prompt 改成 5 层正式结构：平台底线层、健康教练系统层、场景策略层、客户上下文层、客户专属补充层；运行时再叠加“本次提问层”。
+  - 已明确“客户专属补充信息”不是聊天输入框，也不是 CRM 正式主数据，而是面向 AI 的长期背景补充对象。
+  - 已补充健康教练的六大核心场景：餐评、数据监测、异常干预、问题答疑、周期复盘、长期维护，并给出推荐 prompt 架构与前端交互方案。
+  - 已补充推荐实现路径：`prompt registry + customer ai profile note + prompt builder + 前端独立配置区`。
+- 本轮 focused validation：
+  - 已人工复核 `AGENTS.md`、[docs/CRM_USER_PROFILE_AI_INTEGRATION_REPORT.md](</d:/惯能/群机器人定时推送/wecom_ops_console/docs/CRM_USER_PROFILE_AI_INTEGRATION_REPORT.md>)、[app/crm_profile/services/ai_coach.py](</d:/惯能/群机器人定时推送/wecom_ops_console/app/crm_profile/services/ai_coach.py>) 与新方案文档之间的边界一致性。
+- 项目启动验证结果：
+  - 本轮仅新增方案文档与进度沉淀，未修改运行时代码，因此未重复执行后端/前端启动验证。
+
+- 已排查并修复“CRM 用户档案页看起来未打通 AI 对话”的实际问题：
+  - 运行时配置已确认生效，`CRM_PROFILE_ENABLED`、`AI_COACH_ENABLED` 和 AI API 配置都能被 `app.config.Settings` 正常读取，因此问题不在 `.env` 未加载。
+  - 真正的断点在“能力判断口径”和“页面入口表达”两层：后端首页口径只在 `safety_profile.status == ok` 时才下发 `ai_chat`，而 AI 服务正式门禁允许 `ok/partial`；前端又把入口完全绑在 `available_actions.includes('ai_chat')` 上，导致用户看到的是“AI 按钮直接消失”，而不是“为什么当前不能用”。
+  - 后端 `CustomerProfileContextV1 / ProfileResponse` 已补充 `ai_chat_enabled` 和 `ai_chat_reason`，并把 AI 可用判断统一成“AI 已启用 + 安全档案为 `ok/partial`”。
+  - 前端 `CrmProfile` 页已新增显式的“AI 教练助手”卡片，不再只依赖悬浮按钮；可用时给出“开始 AI 对话”，不可用时直接展示原因说明。
+  - `AiCoachPanel` 已补充禁用态提示，避免未来从其他入口打开抽屉时仍可误触发发送。
+- 本轮 focused validation：
+  - `python -m py_compile app\crm_profile\schemas\context.py app\crm_profile\schemas\api.py app\crm_profile\services\profile_loader.py` 通过。
+  - `cd frontend && .\node_modules\.bin\vue-tsc.cmd --noEmit` 通过。
+  - `cd frontend && npm.cmd run build` 通过。
+- 项目启动验证结果：
+  - 后端 `python -m uvicorn app.main:app --host 0.0.0.0 --port 8004` 已确认启动到 `Application startup complete`。
+  - 前端 `npm.cmd run dev -- --host 0.0.0.0 --port 5178` 本轮已确认正常监听，`vite` ready 日志已输出。
+- 已继续收口 CRM AI 问答的上下文质量与教练可读性：
+  - 已确认客户姓名本来就存在于 `basic_profile.display_name`，但旧 prompt 没有明确“用户口中的‘你’默认指当前客户”，模型容易把问题理解成在问 AI 自己。
+  - 已增强 `app/crm_profile/services/ai_coach.py` 的 system prompt 和上下文头：明确当前客户姓名，并规定“她/他/你/这个客户”默认指当前客户，除非用户明确在问 AI 本身。
+  - 已增强 `app/crm_profile/services/context_builder.py`，上下文序列化不再把 `basic_profile / display_name / service_scope` 这种技术键原样塞给模型，而是翻译成“基础档案 / 客户姓名 / 服务关系”等中文业务口径。
+  - 已把 AI 抽屉顶部“已加载模块”改成中文，如“基础档案 / 安全档案 / 目标与偏好”，并补充“当前客户：xxx”展示。
+  - 已把数据缺口提示统一改成中文，如“近30天体成分 暂无数据”“缺失关键字段：过敏信息”。
+- 本轮新增 focused validation：
+  - `python -m py_compile app\crm_profile\services\context_builder.py app\crm_profile\services\ai_coach.py app\crm_profile\services\modules\safety_profile.py` 通过。
+  - `cd frontend && .\node_modules\.bin\vue-tsc.cmd --noEmit` 通过。
+  - `cd frontend && npm.cmd run build` 通过。
+
 ## 2026-04-24
 - 已评审并重写 `docs/CRM_USER_PROFILE_AI_INTEGRATION_REPORT.md`：
   - 原稿方向成立，但主体过度依赖字段枚举，缺少正式边界、接口契约、权限、隐私、医疗安全、审计和验收标准。
@@ -242,3 +302,40 @@
 - 项目启动验证结果：
   - 后端 `python -m uvicorn app.main:app --host 0.0.0.0 --port 8004` 已确认启动日志到 `Application startup complete`。
   - 前端 `cd frontend && npm.cmd run dev -- --host 0.0.0.0 --port 5178` 已确认 Vite dev server 正常启动并监听 `5178` 端口，随后已主动回收进程避免占用端口。
+- 已为 CRM 客户详情页补齐“安全档案历史日期切换”能力：
+  - 后端新增安全档案历史快照列表和指定快照详情接口，正式基于 `customer_info` 多版本记录提供“当前档案 / 历史档案”切换。
+  - 安全档案模块 payload 已补充 `snapshot` 元信息，前端可稳定识别当前档案与历史档案的时间标签。
+  - 前端在“安全档案”卡片右上角新增“档案日期”选择器，切换后只替换安全档案卡片内容，不影响同页其他当前态模块。
+  - 卡片正文已补充“当前有效档案 / 历史档案”时间提示，避免教练误把历史病史当成实时真值。
+  - 顺手修复了前端 TypeScript 真值漂移：`frontend/tsconfig.json` 已恢复 `#/* -> src/*` 别名映射，并新增 `frontend/src/env.d.ts`，让 `vue-tsc` 与 `vite` 的模块解析重新对齐。
+- 本轮 focused validation：
+  - `python -m py_compile app\\crm_profile\\services\\modules\\safety_profile.py app\\crm_profile\\router.py app\\crm_profile\\schemas\\api.py` 通过。
+  - `cd frontend && .\\node_modules\\.bin\\vue-tsc.cmd --noEmit` 通过。
+  - `cd frontend && npm.cmd run build` 通过。
+- 本轮项目启动验证结果：
+  - 后端通过后台启动后确认 `8004` 端口成功监听，说明 `uvicorn app.main:app` 启动正常；随后已主动回收进程。
+  - 前端 `npm run dev -- --host 0.0.0.0 --port 5178` 在当前机器上仍受 `esbuild spawn EPERM` 环境限制，dev server 未能稳定拉起；但生产构建已通过，说明本轮代码和类型门禁已恢复正常。
+- 已继续收口 CRM AI 双流式链路的真实卡点：
+  - 已修复 AI prompt 实际调用时漏掉第二段 system 上下文的问题，避免客户上下文在模型侧丢失。
+  - 已为 `chat-stream / thinking-stream` 补充 SSE 反缓冲头和首包注释 flush，降低代理层把流吃成整包的概率。
+  - 已把快捷直读题和非流式 fallback 改成真正的分片输出，不再一次性整段写回。
+  - 已把前端 loading 从 `Promise.all(思考流 + 回复流)` 改成仅跟随“正式回复流”，防止思考流收尾异常把整个抽屉卡死。
+- 本轮 focused validation：
+  - `python -m py_compile app\\crm_profile\\services\\ai_coach.py app\\crm_profile\\router.py` 通过。
+  - `cd frontend && .\\node_modules\\.bin\\vue-tsc.cmd --noEmit` 通过。
+  - `cd frontend && npm.cmd run build` 通过。
+- 本轮项目启动验证结果：
+  - 后端 `uvicorn app.main:app --host 0.0.0.0 --port 8004` 已再次确认到 `Application startup complete`。
+  - 前端 `cd frontend && npm.cmd run dev -- --host 0.0.0.0 --port 5178` 已再次确认正常启动并输出本地访问地址。
+- 已补齐 CRM AI 教练助手的“历史对话查看”最小闭环：
+  - 后端新增 `/api/v1/crm-customers/{customer_id}/ai/sessions` 和 `/api/v1/crm-customers/{customer_id}/ai/sessions/{session_id}`，正式支持按客户读取历史会话摘要和单次会话的完整消息。
+  - `crm_ai_sessions / crm_ai_messages` 不再只承担审计留痕，同时也成为前台历史回看数据源；会话摘要现包含最近一条消息预览、消息数、最后活跃时间。
+  - 前端 AI 抽屉新增“历史对话”侧栏，可查看当前客户最近会话、切换到某次历史会话，并直接基于该 `session_id` 继续追问。
+  - 历史会话列表已从主抽屉中抽成独立组件，避免继续把超大 `AiCoachPanel.vue` 堆得更重。
+- 本轮 focused validation：
+  - `python -m py_compile app\\crm_profile\\router.py app\\crm_profile\\services\\audit.py app\\crm_profile\\schemas\\api.py` 通过。
+  - `cd frontend && .\\node_modules\\.bin\\vue-tsc.cmd --noEmit` 通过。
+  - `cd frontend && npm.cmd run build` 通过。
+- 本轮项目启动验证结果：
+  - 后端 `python -m uvicorn app.main:app --host 0.0.0.0 --port 8004` 已在限时启动中确认到 `Application startup complete`。
+  - 前端 `cd frontend && npm.cmd run dev -- --host 0.0.0.0 --port 5178` 在当前机器仍受 `esbuild spawn EPERM` 环境限制，dev server 未能稳定拉起；但 `vite build` 已通过，说明本轮前端代码和类型门禁正常。

@@ -20,6 +20,7 @@ class User(Base, TimestampMixin):
     permissions_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[int] = mapped_column(Integer, default=1)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    crm_admin_id: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
 
 class Group(Base, TimestampMixin):
     __tablename__ = 'groups'

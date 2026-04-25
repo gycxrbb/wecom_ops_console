@@ -1,8 +1,8 @@
 import { ref, computed } from 'vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
-import request from '@/utils/request'
-import { validateAssetUpload, buildAssetDownloadHeaders } from '@/utils/assets'
+import request from '#/utils/request'
+import { validateAssetUpload, buildAssetDownloadHeaders } from '#/utils/assets'
 
 export interface Asset {
   id: number

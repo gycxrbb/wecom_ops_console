@@ -185,8 +185,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { RefreshRight, Search } from '@element-plus/icons-vue'
-import request from '@/utils/request'
-import { useMobile } from '@/composables/useMobile'
+import request from '#/utils/request'
+import { useMobile } from '#/composables/useMobile'
 import CrmLeaderboard from './CrmLeaderboard.vue'
 
 const { isMobile } = useMobile()

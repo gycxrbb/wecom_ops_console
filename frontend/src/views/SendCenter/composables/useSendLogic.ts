@@ -1,9 +1,9 @@
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
-import request from '@/utils/request'
-import { buildAssetAuthUrl } from '@/utils/assets'
+import request from '#/utils/request'
+import { buildAssetAuthUrl } from '#/utils/assets'
 import { ElMessage } from 'element-plus'
-import { msgTypeLabel, supportsVariables } from '@/views/Templates/composables/useTemplates'
-import { CRM_DEMO_URL, createTemplateCardExample, templateCardExampleVariables } from '@/components/message-editor/templateCardPresets'
+import { msgTypeLabel, supportsVariables } from '#/views/Templates/composables/useTemplates'
+import { CRM_DEMO_URL, createTemplateCardExample, templateCardExampleVariables } from '#/components/message-editor/templateCardPresets'
 
 // 每种消息类型的默认 content_json 结构
 const defaultContentByType: Record<string, any> = {

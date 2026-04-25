@@ -109,9 +109,9 @@
 
 <script setup lang="ts">
 import { ref, onMounted, reactive } from 'vue'
-import request from '@/utils/request'
+import request from '#/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { useMobile } from '@/composables/useMobile'
+import { useMobile } from '#/composables/useMobile'
 
 const { isMobile } = useMobile()
 

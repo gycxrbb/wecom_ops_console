@@ -41,11 +41,11 @@ def _candidate_hashes(password: str, salt: str) -> list[str]:
 
 
 def _fetch_crm_admin(username: str) -> dict[str, Any] | None:
-    from .crm_group_directory import _get_connection, _return_connection
+    from ..clients.crm_db import get_connection, return_connection
     connection = None
     try:
-        connection = _get_connection()
-    except Exception as exc:  # pragma: no cover - depends on external db
+        connection = get_connection()
+    except Exception as exc:
         logger.exception("crm admin db connect failed")
         raise CrmAdminAuthUnavailable("CRM 用户库暂时不可用") from exc
 
@@ -57,12 +57,12 @@ def _fetch_crm_admin(username: str) -> dict[str, Any] | None:
             )
             cursor.execute(sql, (username,))
             return cursor.fetchone()
-    except Exception as exc:  # pragma: no cover - depends on external db
+    except Exception as exc:
         logger.exception("crm admin query failed")
         raise CrmAdminAuthUnavailable("CRM 用户库查询失败") from exc
     finally:
         if connection:
-            _return_connection(connection)
+            return_connection(connection)
 
 
 def authenticate_crm_admin(username: str, password: str) -> dict[str, Any] | None:
@@ -88,10 +88,10 @@ def fetch_all_crm_admins() -> list[dict[str, Any]]:
     """从 CRM 数据库拉取所有 status=1 的管理员列表"""
     if not crm_admin_auth_enabled():
         return []
-    from .crm_group_directory import _get_connection, _return_connection
+    from ..clients.crm_db import get_connection, return_connection
     connection = None
     try:
-        connection = _get_connection()
+        connection = get_connection()
     except Exception as exc:
         logger.exception("crm admin db connect failed")
         raise CrmAdminAuthUnavailable("CRM 用户库暂时不可用") from exc
@@ -109,7 +109,7 @@ def fetch_all_crm_admins() -> list[dict[str, Any]]:
         raise CrmAdminAuthUnavailable("CRM 用户库查询失败") from exc
     finally:
         if connection:
-            _return_connection(connection)
+            return_connection(connection)
 
 
 def sync_crm_admin_to_local(db: Session, admin: dict[str, Any]) -> models.User:
@@ -134,6 +134,7 @@ def sync_crm_admin_to_local(db: Session, admin: dict[str, Any]) -> models.User:
             password_hash=pwd_context.hash(secrets.token_hex(16)),
             permissions_json="{}",
             status=1,
+            crm_admin_id=admin.get("id"),
         )
         db.add(user)
         db.commit()
@@ -141,6 +142,9 @@ def sync_crm_admin_to_local(db: Session, admin: dict[str, Any]) -> models.User:
         return user
 
     changed = False
+    if user.crm_admin_id != admin.get("id"):
+        user.crm_admin_id = admin.get("id")
+        changed = True
     if user.display_name != display_name:
         user.display_name = display_name
         changed = True

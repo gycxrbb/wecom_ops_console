@@ -239,6 +239,51 @@
 - **解决方案**: 后端在 `attach_asset_paths` 中拦截不可用素材；前端素材选择器过滤 `source_missing`，素材库页面对不可用素材禁用预览/下载。
 - **关联文件**: app/routers/api.py, frontend/src/components/message-editor/AssetPicker.vue, frontend/src/views/Assets/components/AssetGrid.vue
 
+## Bug #48: CRM 用户档案页把 AI 能力藏在 available_actions 里，导致已配置 AI 看起来像“没打通”
+
+- **日期**: 2026-04-25
+- **现象**: `.env` 已配置 CRM profile 与 AI 开关，AI 接口也已挂载，但“用户档案”页面仍看不到 AI 对话入口，用户误以为功能没有打通。
+- **根因**: 后端 `profile_loader` 只在 `safety_profile.status == ok` 时把 `ai_chat` 放进 `available_actions`，而 AI 服务正式门禁允许 `ok/partial`；前端又把 AI 入口完全绑定在 `available_actions.includes('ai_chat')` 上，导致一旦条件不满足，入口直接消失且没有原因说明。
+- **复现条件**: 打开 CRM 用户档案页，选择一个 AI 已全局开启但安全档案不满足首页旧判断的客户。
+- **解决方案**: 后端正式返回 `ai_chat_enabled` 和 `ai_chat_reason`，并把可用判断统一成“AI 已启用 + 安全档案为 `ok/partial`”；前端增加显式 AI 助手卡片，在不可用时直接展示原因，而不是隐藏入口。
+- **关联文件**: app/crm_profile/services/profile_loader.py, app/crm_profile/schemas/context.py, app/crm_profile/schemas/api.py, frontend/src/views/CrmProfile/index.vue, frontend/src/views/CrmProfile/composables/useCrmProfile.ts, frontend/src/views/CrmProfile/components/AiCoachPanel.vue, frontend/src/views/CrmProfile/styles/CrmProfile.css
+
+## Bug #49: CRM 客户姓名虽然进入上下文，但 AI 因代词歧义把“你”理解成自己
+
+- **日期**: 2026-04-25
+- **现象**: 在客户档案页选中具体客户后，教练问“你叫什么名字”，AI 回答成“我是 AI 助手，没有名字”，而不是回答当前客户姓名。
+- **根因**: `basic_profile.display_name` 实际已经进入 prompt，但 system prompt 没有明确“当前对话围绕唯一客户”“你/她/他/这个客户默认指当前客户”；同时上下文正文和抽屉顶部仍暴露 `basic_profile / display_name` 这类技术键，进一步降低模型和用户的语义对齐。
+- **复现条件**: 打开任意 CRM 客户档案，在 AI 抽屉中提问“你叫什么名字”“你今年几岁”“你现在是什么状态”这类代词指向当前客户的问题。
+- **解决方案**: 在 `ai_coach.py` 中补充双重指令，明确代词默认指向当前客户，并在 context header 中显式写出当前客户姓名；在 `context_builder.py` 和前端 AI 抽屉中统一把技术模块名/字段名翻译成中文业务口径。
+- **关联文件**: app/crm_profile/services/ai_coach.py, app/crm_profile/services/context_builder.py, app/crm_profile/services/modules/safety_profile.py, frontend/src/views/CrmProfile/index.vue, frontend/src/views/CrmProfile/components/AiCoachPanel.vue, frontend/src/views/CrmProfile/composables/useAiCoach.ts
+
+## Bug #52: MySQL 不支持 `CREATE INDEX IF NOT EXISTS`，导致后端启动在 schema migration 阶段报 1064
+
+- **日期**: 2026-04-25
+- **现象**: 后端启动时抛出 `sqlalchemy.exc.ProgrammingError`，MySQL 报 `1064`，指向 `CREATE INDEX IF NOT EXISTS ix_crm_ai_sessions_customer_id ...`。
+- **根因**: `app/schema_migrations.py` 在 `ensure_crm_ai_indexes()` 和 `ensure_external_docs_schema()` 中直接拼接 `CREATE INDEX IF NOT EXISTS` / `CREATE UNIQUE INDEX IF NOT EXISTS`。这套写法在 SQLite 可用，但 MySQL 不支持。
+- **复现条件**: 使用 MySQL 启动应用，并执行到包含 CRM AI 或 external docs 索引检查的 schema migration。
+- **解决方案**: 新增统一索引 helper，改成 `inspect(conn)` 先查 `_has_named_index(...)`，确认不存在后再执行普通 `CREATE INDEX` / `CREATE UNIQUE INDEX`，不再依赖 `IF NOT EXISTS`。
+- **关联文件**: app/schema_migrations.py, app/main.py
+
+## Bug #53: 客户档案 AI 抽屉把字段缺口常驻展示，并在每条回复下重复提醒，掩盖有效回答
+
+- **日期**: 2026-04-25
+- **现象**: AI 抽屉顶部长期显示“缺失关键字段 / 无数据”，同时每条 AI 回复下方也重复挂同样的缺口标签，教练阅读成本很高。
+- **根因**: 前端把 `dataGaps` 设计成常驻区块，同时又把后端返回的 `missing_data_notes` 塞进每条 assistant message 的附加标签中，导致同一缺口在一个会话里被多次重复展示。
+- **复现条件**: 打开任意存在数据缺口的客户 AI 抽屉，并发送至少一条问题。
+- **解决方案**: 将缺口提示收口为“进入抽屉时一次性展示”，支持关闭并在开始对话后自动隐藏；同时移除消息气泡下方的 `missingDataNotes` 展示。
+- **关联文件**: frontend/src/views/CrmProfile/components/AiCoachPanel.vue, frontend/src/views/CrmProfile/composables/useAiCoach.ts
+
+## Bug #54: 客户姓名已进入上下文，但模型仍可能把字段标签当答案输出
+
+- **日期**: 2026-04-25
+- **现象**: 教练询问“这个客户叫什么名字”时，AI 可能回答成“当前客户的名字是[客户姓名]”或类似字段标签，而不是实际姓名。
+- **根因**: 这类问题本质上是确定性资料问答，但系统此前完全交给模型生成；一旦 prompt 里同时存在“客户姓名”字段标签和真实姓名，模型可能复述标签而不取值。
+- **复现条件**: 在客户档案 AI 抽屉中询问姓名、年龄、性别、当前状态、负责教练或所属群等基础资料问题。
+- **解决方案**: 一方面在系统底线 prompt 和 context header 中明确禁止输出字段名/占位词；另一方面为明确资料问法增加本地直答捷径，直接从已加载档案返回答案。
+- **关联文件**: app/crm_profile/services/ai_coach.py, app/crm_profile/services/prompt_builder.py, app/crm_profile/prompts/base/platform_guardrails.md
+
 ## Bug #27: 图片消息预览在对象存储接入后被静态方法/类方法漂移击穿
 
 - **日期**: 2026-04-08
@@ -460,3 +505,48 @@
 - **复现条件**: 登录任意账号进入飞书文档首页，观察“我负责的工作台”“最近打开”和治理队列的实际数据来源。
 - **解决方案**: 首页改成按“我负责的项目/专题”“常用入口”“其他可查看的项目”拆分工作台；最近打开改为基于当前用户打开日志；飞书文档相关路由和侧边栏统一受 `sop` 权限控制；页面文案同步改成人话，避免继续暴露内部术语。
 - **关联文件**: frontend/src/router/index.ts, frontend/src/layout/SidebarContent.vue, frontend/src/views/SopDocs/index.vue, frontend/src/views/SopDocs/composables/useSopDocsHome.ts, frontend/src/views/SopDocs/components/*.vue, frontend/src/views/SopDocs/Governance.vue, frontend/src/views/SopDocs/WorkspaceDetail.vue, app/routers/api_external_docs.py, app/services/external_doc_service.py
+
+## Bug #50: CRM 客户列表批量查群名 SQL 报语法错误，因 `groups` 是 MySQL 保留字未加反引号
+
+- **日期**: 2026-04-25
+- **现象**: 访问客户档案列表接口 `GET /api/v1/crm-customers/list` 时，后端抛出 `pymysql.err.ProgrammingError (1064)` SQL 语法错误，指向 `groups g ON g.id = cg.group_id` 附近。
+- **根因**: `groups` 是 MySQL 保留关键字，在 SQL 中直接用作表名而未加反引号，导致 MySQL 解析器将其识别为关键字而非表名。同一问题出现在 `/filters` 端点和 `/list` 端点的群名批量查询中。
+- **复现条件**: 访问 CRM 客户列表或筛选选项接口，触发任何涉及 `groups` 表的查询。
+- **解决方案**: 在所有涉及 `groups` 表名的 SQL 语句中使用反引号 `` `groups` `` 转义。
+- **关联文件**: app/crm_profile/router.py
+
+## Bug #51: 筛选选项查询 `admins` 表使用了不存在的 `is_del` 字段
+
+- **日期**: 2026-04-25
+- **现象**: 客户档案页初始化请求 `/api/v1/crm-customers/list?include_filters=1` 时，后端抛出 `OperationalError (1054) Unknown column 'is_del' in 'where clause'`。
+- **根因**: `_load_filter_options` 查询 `admins` 表时误加了 `WHERE is_del = 0 OR is_del IS NULL`，但 CRM 数据库的 `admins` 表只有 `status` 字段，没有 `is_del` 字段。`is_del` 字段仅存在于 `channels`、`customers`、`course`、`lesson` 等表。
+- **复现条件**: 访问客户档案页触发筛选选项加载。
+- **解决方案**: 去掉 `admins` 查询中的 `is_del` 条件。
+- **关联文件**: app/crm_profile/router.py
+
+## Bug #52: 前端 `#/*` 别名未同步到 TypeScript，导致 `vue-tsc` 和构建门禁被全量假错误淹没
+
+- **日期**: 2026-04-25
+- **现象**: 执行 `cd frontend && .\\node_modules\\.bin\\vue-tsc.cmd --noEmit` 或 `cd frontend && npm.cmd run build` 时，前端会抛出大量 `TS2307: Cannot find module '#/...'`，几乎覆盖整个项目，导致无法判断本次 CRM 客户档案改动是否真实通过类型检查。
+- **根因**: Vite 运行时别名配置使用的是 `# -> ./src`，但 `frontend/tsconfig.json` 里漂成了 `@/*`，TypeScript 侧路径映射和 Vite 真值脱节；同时缺少标准的 `env.d.ts` 来声明 `vite/client` 与 `*.vue` 模块。
+- **复现条件**: 在当前仓库执行 `vue-tsc --noEmit` 或 `npm run build`。
+- **解决方案**: 在 `frontend/tsconfig.json` 中恢复 `#/* -> src/*` 的路径映射，补充 `types: [\"vite/client\"]`，并新增 `frontend/src/env.d.ts` 统一声明 Vite 与 `.vue` 模块类型。
+- **关联文件**: frontend/tsconfig.json, frontend/src/env.d.ts
+
+## Bug #53: CRM AI prompt 组装时漏掉第二段 system 上下文，导致模型拿不到完整客户档案说明
+
+- **日期**: 2026-04-25
+- **现象**: CRM AI 教练助手虽然看起来已经加载了客户档案，但模型侧偶尔会像没拿到完整上下文一样，出现对姓名、状态、模块边界理解不稳的情况；在继续接入流式链路时，这个问题会被进一步放大。
+- **根因**: `assemble_prompt()` 返回的是“两段 system + 一段 user”的消息结构，但 `app/crm_profile/services/ai_coach.py` 旧实现只把第一段 system prompt 和最后一段 user message 真正送进模型，第二段承载客户上下文和说明的 system message 被丢掉了。
+- **复现条件**: CRM AI 对话开启后，依赖客户上下文解释的问题（尤其是资料类、场景边界类问题）更容易出现理解偏差。
+- **解决方案**: 重写 AI 消息组装函数，确保 prompt 中所有 system 层都进入模型调用，再叠加历史消息和当前用户问题。
+- **关联文件**: app/crm_profile/services/ai_coach.py, app/crm_profile/services/prompt_builder.py
+
+## Bug #54: CRM AI SSE 流在代理链路下容易被整包缓冲，前端只看得到固定占位语
+
+- **日期**: 2026-04-25
+- **现象**: AI 教练助手界面虽然出现了“思考过程”小框，但实际只显示固定占位句“正在整理当前客户的关键信息与回复思路...”，正式回复也像一次性返回，看起来像“根本没流起来”。
+- **根因**: 流式接口第一版只返回 `StreamingResponse(text/event-stream)`，但没有显式关闭代理缓冲，也没有在快捷直读题和非流式 fallback 场景下做人眼可感知的分片推送。结果在某些链路里，SSE 分片会被吃成整包，前端自然只能看到占位语。
+- **复现条件**: 通过 CRM AI 助手发起流式问答，尤其是“姓名/年龄/状态”这类会走快捷答复的直读题，更容易看到占位语不动、正式回复不呈现渐进输出。
+- **解决方案**: 给 SSE 接口补充 `Cache-Control: no-cache, no-transform`、`Connection: keep-alive`、`X-Accel-Buffering: no`，首包先发注释行触发 flush；同时把快捷答复和 fallback 答复改成真正的分片输出，而不是一整段一次写完。
+- **关联文件**: app/crm_profile/router.py, app/crm_profile/services/ai_coach.py, frontend/src/views/CrmProfile/composables/useAiCoach.ts

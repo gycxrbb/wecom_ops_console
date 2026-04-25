@@ -179,7 +179,7 @@ def update_resource(db: Session, resource_id: int, data, user_id: int) -> Extern
     resource = db.query(ExternalDocResource).get(resource_id)
     if not resource:
         return None
-    for field in ('title', 'summary', 'status', 'verification_status', 'owner_user_id', 'maintainer_user_id'):
+    for field in ('title', 'open_url', 'summary', 'status', 'verification_status', 'owner_user_id', 'maintainer_user_id'):
         val = getattr(data, field, None)
         if val is not None:
             setattr(resource, field, val)
@@ -353,6 +353,94 @@ def list_bindings(db: Session, workspace_id: int | None = None, resource_id: int
     if resource_id is not None:
         q = q.filter(ExternalDocBinding.resource_id == resource_id)
     return q.order_by(ExternalDocBinding.sort_order, ExternalDocBinding.id).all()
+
+
+def list_bindings_flat(
+    db: Session,
+    workspace_id: int | None = None,
+    stage_term_id: int | None = None,
+    relation_role: str | None = None,
+    keyword: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+) -> dict:
+    """扁平 binding 列表，带 resource/workspace/term 上下文，支持筛选和分页。"""
+    q = db.query(ExternalDocBinding).filter(ExternalDocBinding.status == 'active')
+
+    if workspace_id is not None:
+        q = q.filter(ExternalDocBinding.workspace_id == workspace_id)
+    if stage_term_id is not None:
+        q = q.filter(ExternalDocBinding.primary_stage_term_id == stage_term_id)
+    if relation_role:
+        q = q.filter(ExternalDocBinding.relation_role == relation_role)
+    if keyword:
+        res_q = db.query(ExternalDocResource.id).filter(
+            ExternalDocResource.title.ilike(f'%{keyword}%'),
+        ).subquery()
+        q = q.filter(ExternalDocBinding.resource_id.in_(res_q))
+
+    total = q.count()
+    offset = (page - 1) * page_size
+    bindings = q.order_by(ExternalDocBinding.updated_at.desc()).offset(offset).limit(page_size).all()
+
+    if not bindings:
+        return {'total': 0, 'items': []}
+
+    # batch fetch related data
+    resource_ids = {b.resource_id for b in bindings}
+    ws_ids = {b.workspace_id for b in bindings if b.workspace_id}
+    stage_ids = {b.primary_stage_term_id for b in bindings if b.primary_stage_term_id}
+    del_ids = {b.deliverable_term_id for b in bindings if b.deliverable_term_id}
+
+    resources_map: dict[int, ExternalDocResource] = {}
+    for r in db.query(ExternalDocResource).filter(ExternalDocResource.id.in_(resource_ids)):
+        resources_map[r.id] = r
+
+    # batch fetch owner names + updated_by names
+    from ..models import User
+    user_ids = {r.owner_user_id for r in resources_map.values() if r.owner_user_id}
+    user_ids |= {b.updated_by for b in bindings if b.updated_by}
+    user_names: dict[int, str] = {}
+    if user_ids:
+        for u in db.query(User).filter(User.id.in_(user_ids)):
+            user_names[u.id] = u.display_name or u.username
+
+    ws_names: dict[int, str] = {}
+    if ws_ids:
+        for ws in db.query(ExternalDocWorkspace).filter(ExternalDocWorkspace.id.in_(ws_ids)):
+            ws_names[ws.id] = ws.name
+
+    all_term_ids = stage_ids | del_ids
+    terms_map: dict[int, str] = {}
+    if all_term_ids:
+        for t in db.query(ExternalDocTerm).filter(ExternalDocTerm.id.in_(all_term_ids)):
+            terms_map[t.id] = t.label
+
+    items = []
+    for b in bindings:
+        r = resources_map.get(b.resource_id)
+        items.append({
+            'binding_id': b.id,
+            'resource_id': b.resource_id,
+            'title': r.title if r else '',
+            'doc_type': r.doc_type if r else '',
+            'open_url': r.open_url if r else '',
+            'verification_status': r.verification_status if r else '',
+            'relation_role': b.relation_role,
+            'is_primary': bool(b.is_primary),
+            'remark': b.remark or '',
+            'workspace_id': b.workspace_id,
+            'workspace_name': ws_names.get(b.workspace_id, ''),
+            'stage_term_id': b.primary_stage_term_id,
+            'stage_label': terms_map.get(b.primary_stage_term_id, '') if b.primary_stage_term_id else '',
+            'deliverable_term_id': b.deliverable_term_id,
+            'deliverable_label': terms_map.get(b.deliverable_term_id, '') if b.deliverable_term_id else '',
+            'updated_at': _dt(b.updated_at),
+            'owner_name': user_names.get(r.owner_user_id, '') if r and r.owner_user_id else '',
+            'updated_by_name': user_names.get(b.updated_by, '') if b.updated_by else '',
+        })
+
+    return {'total': total, 'items': items}
 
 
 # ── Quick Add (transactional) ──

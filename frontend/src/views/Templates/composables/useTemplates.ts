@@ -1,8 +1,8 @@
 import { ref, computed, reactive, onMounted } from 'vue'
-import request from '@/utils/request'
+import request from '#/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { nextTick } from 'vue'
-import { CRM_DEMO_URL, createTemplateCardExample, templateCardExampleVariables } from '@/components/message-editor/templateCardPresets'
+import { CRM_DEMO_URL, createTemplateCardExample, templateCardExampleVariables } from '#/components/message-editor/templateCardPresets'
 
 export type TemplateItem = {
   id: number

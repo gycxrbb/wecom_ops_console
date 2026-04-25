@@ -42,6 +42,37 @@ def _has_named_index(inspector, table_name: str, index_name: str) -> bool:
     return any(constraint.get("name") == index_name for constraint in unique_constraints)
 
 
+def _format_index_columns(columns: str | tuple[str, ...] | list[str]) -> str:
+    if isinstance(columns, str):
+        return columns
+    return ", ".join(columns)
+
+
+def _ensure_named_index(
+    conn,
+    table_name: str,
+    index_name: str,
+    columns: str | tuple[str, ...] | list[str],
+    *,
+    unique: bool = False,
+) -> None:
+    """Create index if missing using inspector checks.
+
+    MySQL 不支持 `CREATE INDEX IF NOT EXISTS`，因此统一改为先查后建。
+    """
+    inspector = inspect(conn)
+    if _has_named_index(inspector, table_name, index_name):
+        return
+
+    unique_sql = "UNIQUE " if unique else ""
+    conn.execute(
+        text(
+            f"CREATE {unique_sql}INDEX {index_name} "
+            f"ON {table_name} ({_format_index_columns(columns)})"
+        )
+    )
+
+
 def _compute_schedule_status(row: dict) -> str:
     schedule_type = row.get("schedule_type") or "once"
     enabled = bool(row.get("enabled"))
@@ -326,6 +357,37 @@ def ensure_plan_schema(engine: Engine) -> None:
             with engine.begin() as conn:
                 conn.execute(text("ALTER TABLE message_logs ADD COLUMN resolved BOOLEAN DEFAULT 0"))
 
+    # users: add crm_admin_id column
+    inspector = inspect(engine)
+    if "users" in inspector.get_table_names():
+        existing_cols = {c["name"] for c in inspector.get_columns("users")}
+        if "crm_admin_id" not in existing_cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE users ADD COLUMN crm_admin_id INTEGER NULL"))
+
+    # CRM AI audit tables: ensure indexes exist (tables created by ORM create_all)
+    ensure_crm_ai_indexes(engine)
+
+
+def ensure_crm_ai_indexes(engine: Engine) -> None:
+    """Ensure indexes exist on CRM AI audit tables (tables created by ORM create_all)."""
+    inspector = inspect(engine)
+    existing_tables = inspector.get_table_names()
+
+    table_indexes = [
+        ("crm_ai_sessions", "ix_crm_ai_sessions_session_id", ("session_id",), False),
+        ("crm_ai_sessions", "ix_crm_ai_sessions_customer_id", ("crm_customer_id",), False),
+        ("crm_ai_messages", "ix_crm_ai_messages_session_id", ("session_id",), False),
+        ("crm_ai_messages", "ix_crm_ai_messages_message_id", ("message_id",), False),
+        ("crm_ai_context_snapshots", "ix_crm_ai_snapshots_session_id", ("session_id",), False),
+        ("crm_ai_guardrail_events", "ix_crm_ai_guardrails_session_id", ("session_id",), False),
+    ]
+
+    with engine.begin() as conn:
+        for table_name, idx_name, columns, unique in table_indexes:
+            if table_name in existing_tables:
+                _ensure_named_index(conn, table_name, idx_name, columns, unique=unique)
+
 
 def ensure_external_docs_schema(engine: Engine) -> None:
     """确保 external_doc_* 系列索引存在。表由 Base.metadata.create_all 创建。"""
@@ -334,23 +396,23 @@ def ensure_external_docs_schema(engine: Engine) -> None:
 
     idx_checks = [
         ('uq_external_doc_resource_source', 'external_doc_resources',
-         'CREATE UNIQUE INDEX IF NOT EXISTS uq_external_doc_resource_source ON external_doc_resources(source_platform, source_doc_token, doc_type)'),
+         ('source_platform', 'source_doc_token', 'doc_type'), True),
         ('idx_external_doc_resources_status', 'external_doc_resources',
-         'CREATE INDEX IF NOT EXISTS idx_external_doc_resources_status ON external_doc_resources(status)'),
+         ('status',), False),
         ('idx_external_doc_resources_owner', 'external_doc_resources',
-         'CREATE INDEX IF NOT EXISTS idx_external_doc_resources_owner ON external_doc_resources(owner_user_id)'),
+         ('owner_user_id',), False),
         ('uq_external_doc_terms', 'external_doc_terms',
-         'CREATE UNIQUE INDEX IF NOT EXISTS uq_external_doc_terms ON external_doc_terms(dimension, code, scope_type, scope_id)'),
+         ('dimension', 'code', 'scope_type', 'scope_id'), True),
         ('idx_external_doc_bindings_ws_role', 'external_doc_bindings',
-         'CREATE INDEX IF NOT EXISTS idx_external_doc_bindings_ws_role ON external_doc_bindings(workspace_id, relation_role)'),
+         ('workspace_id', 'relation_role'), False),
         ('idx_external_doc_bindings_ws_stage', 'external_doc_bindings',
-         'CREATE INDEX IF NOT EXISTS idx_external_doc_bindings_ws_stage ON external_doc_bindings(workspace_id, primary_stage_term_id)'),
+         ('workspace_id', 'primary_stage_term_id'), False),
         ('idx_external_doc_bindings_resource', 'external_doc_bindings',
-         'CREATE INDEX IF NOT EXISTS idx_external_doc_bindings_resource ON external_doc_bindings(resource_id)'),
+         ('resource_id',), False),
         ('uq_external_doc_term_binding', 'external_doc_term_bindings',
-         'CREATE UNIQUE INDEX IF NOT EXISTS uq_external_doc_term_binding ON external_doc_term_bindings(resource_id, term_id, binding_type)'),
+         ('resource_id', 'term_id', 'binding_type'), True),
     ]
     with engine.begin() as conn:
-        for idx_name, table, sql in idx_checks:
-            if table in existing_tables and not _has_named_index(inspector, table, idx_name):
-                conn.execute(text(sql))
+        for idx_name, table, columns, unique in idx_checks:
+            if table in existing_tables:
+                _ensure_named_index(conn, table, idx_name, columns, unique=unique)

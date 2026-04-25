@@ -185,7 +185,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
-import request from '@/utils/request'
+import request from '#/utils/request'
 import FollowupActionsPanel from './FollowupActionsPanel.vue'
 
 type RankingSlowGroup = {

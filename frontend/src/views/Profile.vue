@@ -169,8 +169,8 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, type UploadFile } from 'element-plus'
-import request from '@/utils/request'
-import { useUserStore } from '@/stores/user'
+import request from '#/utils/request'
+import { useUserStore } from '#/stores/user'
 
 const userStore = useUserStore()
 const loading = ref(false)

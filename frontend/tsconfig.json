@@ -4,6 +4,10 @@
     "useDefineForClassFields": true,
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "baseUrl": ".",
+    "paths": {
+      "#/*": ["src/*"]
+    },
     "strict": true,
     "allowSyntheticDefaultImports": true,
     "jsx": "preserve",
@@ -14,10 +18,7 @@
     "skipLibCheck": true,
     "noEmit": true,
     "ignoreDeprecations": "5.0",
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["src/*"]
-    }
+    "types": ["vite/client"]
   },
   "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.tsx", "src/**/*.vue"],
   "references": [{ "path": "./tsconfig.node.json" }]

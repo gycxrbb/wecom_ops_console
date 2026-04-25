@@ -108,8 +108,8 @@ import axios from 'axios'
 import { computed, onMounted, ref } from 'vue'
 import { Upload } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import request from '@/utils/request'
-import { ASSET_UPLOAD_HINT, buildAssetAuthUrl, buildAssetDownloadHeaders, validateAssetUpload } from '@/utils/assets'
+import request from '#/utils/request'
+import { ASSET_UPLOAD_HINT, buildAssetAuthUrl, buildAssetDownloadHeaders, validateAssetUpload } from '#/utils/assets'
 
 const assets = ref<any[]>([])
 const loading = ref(false)

@@ -60,7 +60,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { Loading } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import request from '@/utils/request'
+import request from '#/utils/request'
 
 interface Member {
   id: number

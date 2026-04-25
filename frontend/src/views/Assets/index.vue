@@ -245,7 +245,7 @@ import FolderSidebar from './components/FolderSidebar.vue'
 import AssetGrid from './components/AssetGrid.vue'
 import FolderDialog from './components/FolderDialog.vue'
 import CompressDialog from './components/CompressDialog.vue'
-import { isCompressibleImage } from '@/utils/imageCompress'
+import { isCompressibleImage } from '#/utils/imageCompress'
 import type { Folder } from './composables/useFolders'
 
 const {

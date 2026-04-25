@@ -47,6 +47,10 @@
       </el-menu-item>
 
       <div class="menu-group" style="margin-top: 20px;">运营配置</div>
+      <el-menu-item index="/crm-profile" v-if="moduleVisible('crm_profile')">
+        <el-icon><UserFilled /></el-icon>
+        <span>客户档案</span>
+      </el-menu-item>
       <el-menu-item index="/speech-templates" v-if="userStore.user?.role === 'admin'">
         <el-icon><ChatLineSquare /></el-icon>
         <span>话术管理</span>
@@ -102,8 +106,8 @@
 </template>
 
 <script setup lang="ts">
-import { DataBoard, Promotion, ChatDotRound, Document, Picture, Timer, Tickets, Stamp, User, Lock, CaretBottom, Notebook, ChatLineSquare, Reading } from '@element-plus/icons-vue'
-import { moduleVisible as checkVisible, type PermissionKey } from '@/utils/permissions'
+import { DataBoard, Promotion, ChatDotRound, Document, Picture, Timer, Tickets, Stamp, User, Lock, CaretBottom, Notebook, ChatLineSquare, Reading, UserFilled } from '@element-plus/icons-vue'
+import { moduleVisible as checkVisible, type PermissionKey } from '#/utils/permissions'
 
 const props = defineProps<{
   isDark: boolean

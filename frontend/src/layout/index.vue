@@ -60,9 +60,9 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useUserStore } from '@/stores/user'
+import { useUserStore } from '#/stores/user'
 import { Expand, RefreshRight } from '@element-plus/icons-vue'
-import ThemeToggle from '@/components/ThemeToggle.vue'
+import ThemeToggle from '#/components/ThemeToggle.vue'
 import SidebarContent from './SidebarContent.vue'
 
 const isDark = ref(localStorage.getItem('theme') === 'dark' || !localStorage.getItem('theme'))
@@ -139,6 +139,7 @@ const getRouteName = () => {
     '/speech-templates': '话术管理',
     '/assets': '素材库',
     '/schedules': '定时任务',
+    '/crm-profile': '客户档案',
     '/logs': '发送记录',
     '/approvals': '审批中心',
     '/users': '用户管理',

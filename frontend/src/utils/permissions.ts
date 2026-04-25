@@ -6,6 +6,7 @@ export const PERMISSION_SCHEMA = [
   { key: 'plan', label: '运营编排', group: '数据管理' },
   { key: 'asset', label: '素材管理', group: '数据管理' },
   { key: 'sop', label: '飞书文档', group: '数据管理' },
+  { key: 'crm_profile', label: '客户档案', group: '客户运营' },
   { key: 'log', label: '发送记录', group: '系统设置' },
   { key: 'approval', label: '审批操作', group: '系统设置' },
 ] as const

@@ -48,7 +48,7 @@
 <script setup lang="ts">
 import { reactive, ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import request from '@/utils/request'
+import request from '#/utils/request'
 
 const props = defineProps<{
   modelValue: boolean
