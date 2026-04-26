@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 from collections import defaultdict
 
@@ -12,7 +13,9 @@ _log = logging.getLogger(__name__)
 
 
 def write_session(session_id: str, local_user_id: int, crm_customer_id: int,
-                  crm_admin_id: int | None = None, entry_scene: str = "customer_profile"):
+                  crm_admin_id: int | None = None, entry_scene: str = "customer_profile",
+                  scene_key: str = "", output_style: str = "",
+                  prompt_version: str = "", prompt_hash: str = ""):
     db = SessionLocal()
     try:
         db.add(CrmAiSession(
@@ -21,6 +24,10 @@ def write_session(session_id: str, local_user_id: int, crm_customer_id: int,
             crm_admin_id=crm_admin_id,
             crm_customer_id=crm_customer_id,
             entry_scene=entry_scene,
+            scene_key=scene_key or None,
+            output_style=output_style or None,
+            prompt_version=prompt_version or None,
+            prompt_hash=prompt_hash or None,
         ))
         db.commit()
     except Exception:
@@ -33,7 +40,8 @@ def write_session(session_id: str, local_user_id: int, crm_customer_id: int,
 def write_message(session_id: str, message_id: str, role: str,
                   content: str, model: str = "",
                   prompt_tokens: int = 0, completion_tokens: int = 0,
-                  latency_ms: int = 0, requires_medical_review: bool = False):
+                  latency_ms: int = 0, requires_medical_review: bool = False,
+                  safety_result: dict | None = None):
     db = SessionLocal()
     try:
         db.add(CrmAiMessage(
@@ -46,6 +54,7 @@ def write_message(session_id: str, message_id: str, role: str,
             completion_tokens=completion_tokens,
             latency_ms=latency_ms,
             requires_medical_review=requires_medical_review,
+            safety_result=json.dumps(safety_result, ensure_ascii=False) if safety_result else None,
         ))
         db.commit()
     except Exception:
@@ -56,7 +65,12 @@ def write_message(session_id: str, message_id: str, role: str,
 
 
 def write_context_snapshot(session_id: str, context_json: str,
-                           used_modules: list[str]):
+                           used_modules: list[str],
+                           prompt_version: str = "",
+                           prompt_hash: str = "",
+                           scene_key: str = "",
+                           output_style: str = "",
+                           selected_expansions: list[str] | None = None):
     context_hash = hashlib.sha256(context_json.encode()).hexdigest()
     db = SessionLocal()
     try:
@@ -65,6 +79,11 @@ def write_context_snapshot(session_id: str, context_json: str,
             context_hash=context_hash,
             compact_json=context_json,
             used_modules=",".join(used_modules),
+            prompt_version=prompt_version or None,
+            prompt_hash=prompt_hash or None,
+            scene_key=scene_key or None,
+            output_style=output_style or None,
+            selected_expansions=",".join(selected_expansions) if selected_expansions else None,
         ))
         db.commit()
     except Exception:
@@ -161,6 +180,7 @@ def load_customer_sessions(customer_id: int, limit: int = 20) -> list[dict]:
             items.append({
                 "session_id": session.session_id,
                 "entry_scene": session.entry_scene,
+                "scene_key": session.scene_key,
                 "started_at": str(session.created_at) if session.created_at else None,
                 "last_message_at": str(latest.created_at) if latest and latest.created_at else (str(session.created_at) if session.created_at else None),
                 "message_count": counts.get(session.session_id, 0),
@@ -203,6 +223,7 @@ def load_session_detail(customer_id: int, session_id: str) -> dict | None:
             "created_at": str(row.created_at) if row.created_at else None,
             "requires_medical_review": bool(row.requires_medical_review),
             "token_usage": _serialize_token_usage(row),
+            "safety_result": json.loads(row.safety_result) if row.safety_result else None,
         } for row in rows]
 
         latest = rows[-1] if rows else None
@@ -210,6 +231,9 @@ def load_session_detail(customer_id: int, session_id: str) -> dict | None:
             "session": {
                 "session_id": session.session_id,
                 "entry_scene": session.entry_scene,
+                "scene_key": session.scene_key,
+                "output_style": session.output_style,
+                "prompt_version": session.prompt_version,
                 "started_at": str(session.created_at) if session.created_at else None,
                 "last_message_at": str(latest.created_at) if latest and latest.created_at else (str(session.created_at) if session.created_at else None),
                 "message_count": len(rows),

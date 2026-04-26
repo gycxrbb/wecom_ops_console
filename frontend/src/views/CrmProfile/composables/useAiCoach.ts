@@ -7,9 +7,11 @@ export type AiChatMessage = {
   content: string
   messageId?: string
   safetyNotes?: string[]
+  safetyResult?: { level: string; reason_codes: string[]; notes: string[] }
   requiresMedicalReview?: boolean
   tokenUsage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
   thinkingContent?: string
+  loadingStage?: 'prepare' | 'model_call'
   thinkingVisible?: boolean
   thinkingDone?: boolean
   streaming?: boolean
@@ -32,6 +34,7 @@ export type ProfileNote = {
 export type AiSessionSummary = {
   session_id: string
   entry_scene?: string | null
+  scene_key?: string | null
   started_at?: string | null
   last_message_at?: string | null
   message_count: number
@@ -52,10 +55,12 @@ type StreamPayload = {
   message_id?: string
   delta?: string
   message?: string
+  stage?: string
   token_usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
   requires_medical_review?: boolean
   safety_notes?: string[]
   missing_data_notes?: string[]
+  safety_result?: { level: string; reason_codes: string[]; notes: string[] }
 }
 
 function buildAuthHeaders() {
@@ -170,6 +175,8 @@ export function useAiCoach() {
   const sessionId = ref<string | null>(null)
 
   const scenes = ref<SceneOption[]>([])
+  const expansionOptions = ref<Record<string, string>>({})
+  const selectedExpansions = ref<string[]>([])
   const currentScene = ref('qa_support')
   const outputStyle = ref('coach_brief')
   const profileNote = ref<ProfileNote | null>(null)
@@ -179,6 +186,7 @@ export function useAiCoach() {
   const configLoaded = ref(false)
   const answerAbortController = ref<AbortController | null>(null)
   const thinkingAbortController = ref<AbortController | null>(null)
+  const restoredSessionMeta = ref<{ sceneKey: string; outputStyle: string; promptVersion: string } | null>(null)
 
   const tokenDisplay = computed(() => {
     if (!lastTokenUsage.value) return ''
@@ -189,6 +197,7 @@ export function useAiCoach() {
     try {
       const res: any = await request.get(`/v1/crm-customers/${customerId}/ai/config`)
       scenes.value = res.scenes || []
+      expansionOptions.value = res.expansion_options || {}
       profileNote.value = res.profile_note || { crm_customer_id: customerId }
       if (res.profile_note?.preferred_scene_hint) {
         currentScene.value = res.profile_note.preferred_scene_hint
@@ -261,6 +270,15 @@ export function useAiCoach() {
         streaming: false,
       }))
 
+      // Restore session strategy from audit trail
+      if (res.scene_key) currentScene.value = res.scene_key
+      if (res.output_style) outputStyle.value = res.output_style
+      restoredSessionMeta.value = {
+        sceneKey: res.scene_key || currentScene.value,
+        outputStyle: res.output_style || outputStyle.value,
+        promptVersion: res.prompt_version || '',
+      }
+
       const lastAssistant = [...chatHistory.value].reverse().find(msg => msg.role === 'assistant' && msg.tokenUsage)
       lastTokenUsage.value = lastAssistant?.tokenUsage || null
       return true
@@ -310,7 +328,7 @@ export function useAiCoach() {
       scene_key: currentScene.value,
       output_style: outputStyle.value,
       entry_scene: options?.entryScene || 'customer_profile',
-      selected_expansions: options?.selectedExpansions || undefined,
+      selected_expansions: selectedExpansions.value.length ? selectedExpansions.value : undefined,
     }
 
     let answerCompleted = false
@@ -326,6 +344,11 @@ export function useAiCoach() {
           return
         }
 
+        if (event === 'loading') {
+          assistantMessage.loadingStage = payload.stage as 'prepare' | 'model_call'
+          return
+        }
+
         if (event === 'delta' && payload.delta) {
           assistantMessage.content += payload.delta
           return
@@ -334,17 +357,17 @@ export function useAiCoach() {
         if (event === 'done') {
           answerCompleted = true
           assistantMessage.streaming = false
+          assistantMessage.loadingStage = undefined
           assistantMessage.tokenUsage = payload.token_usage
           assistantMessage.safetyNotes = payload.safety_notes || []
+          assistantMessage.safetyResult = payload.safety_result || undefined
           assistantMessage.requiresMedicalReview = payload.requires_medical_review
           assistantMessage.thinkingVisible = false
           assistantMessage.thinkingDone = true
           if (payload.token_usage) {
             lastTokenUsage.value = payload.token_usage
           }
-          if (thinkingAbortController.value) {
-            thinkingAbortController.value.abort()
-          }
+          setTimeout(() => thinkingAbortController.value?.abort(), 200)
           return
         }
 
@@ -368,13 +391,20 @@ export function useAiCoach() {
           return
         }
 
+        if (event === 'loading') {
+          assistantMessage.loadingStage = payload.stage as 'prepare' | 'model_call'
+          return
+        }
+
         if (event === 'delta' && payload.delta && !answerCompleted) {
+          assistantMessage.loadingStage = undefined
           assistantMessage.thinkingContent = (assistantMessage.thinkingContent || '') + payload.delta
           return
         }
 
         if (event === 'done') {
           assistantMessage.thinkingDone = true
+          assistantMessage.loadingStage = undefined
         }
       },
     ).catch((err: any) => {
@@ -430,6 +460,7 @@ export function useAiCoach() {
     error.value = ''
     lastTokenUsage.value = null
     loading.value = false
+    restoredSessionMeta.value = null
   }
 
   return {
@@ -437,6 +468,7 @@ export function useAiCoach() {
     markMedicalReview,
     scenes, currentScene, outputStyle, profileNote, profileNoteSaving, configLoaded,
     sessionHistory, sessionHistoryLoading, loadSessionHistory, openHistorySession,
-    loadAiConfig, saveProfileNote,
+    loadAiConfig, saveProfileNote, restoredSessionMeta,
+    expansionOptions, selectedExpansions,
   }
 }

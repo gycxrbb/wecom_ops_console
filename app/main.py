@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import asyncio
 import logging
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -42,8 +43,41 @@ async def lifespan(app: FastAPI):
         db.close()
     schedule_service.start()
     schedule_service.sync_from_db()
+
+    # AI client warmup: pre-establish TLS/TCP connections
+    asyncio.create_task(_ai_warmup())
+    asyncio.create_task(_ai_keepalive_loop())
+
     yield
     schedule_service.shutdown()
+
+
+async def _ai_warmup():
+    """Warm up AI client connections on startup."""
+    try:
+        from .clients.ai_chat_client import _get_client
+        client = await _get_client()
+        url = settings.ai_base_url or 'https://aihubmix.com/v1'
+        await client.head(url, timeout=3.0)
+        _log.info('AI client warmup done')
+    except Exception:
+        pass
+
+
+async def _ai_keepalive_loop():
+    """Periodic HEAD request to keep AI connections alive."""
+    while True:
+        await asyncio.sleep(60)
+        try:
+            from .clients.ai_chat_client import _get_client
+            client = await _get_client()
+            if settings.ai_provider == 'deepseek' and settings.deepseek_api_key:
+                url = settings.deepseek_base_url
+            else:
+                url = settings.ai_base_url
+            await client.head(url, timeout=5.0)
+        except Exception:
+            pass
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
 

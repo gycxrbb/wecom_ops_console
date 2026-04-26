@@ -1,5 +1,42 @@
 # Progress
 
+## 2026-04-26 (Health Summary Round 1)
+
+- 已完成健康摘要 7/14/30 天升级 Round 1（P0 全量）：
+  - 后端模块拆分：`health_summary.py` 拆为 6 文件（主入口 87 行）：
+    - `_health_summary_const.py` — 常量、阈值、窗口校验
+    - `_loaders.py` — customer_health + customer_glucose SQL 数据获取
+    - `_glucose.py` — 血糖曲线聚合（avg/peak/low/high_days/highlights）
+    - `_meals.py` — 餐食 JSON 宽松解析 + 饮水统计
+    - `_summarize.py` — 基础摘要（向后兼容）+ 趋势标记 + 数据质量
+  - 模块签名升级：`load(conn, customer_id, *, window_days=7)`，仅 7/14/30 合法
+  - `profile_loader.py` 透传 `health_window_days` 参数
+  - 路由 `GET /profile?window=7|14|30`，缓存 key 含窗口 `profile:{id}:hw{w}`
+  - 缓存失效改用 `invalidate_prefix` 覆盖所有窗口变体
+  - `context_builder.FIELD_LABELS` 补齐 9 个新字段中文标签
+  - 前端 `useCrmProfile` 新增 `currentWindowDays`、`switchHealthWindow`
+  - 前端健康卡片：标题改为"健康摘要"，右上角 7/14/30 切换器
+  - 前端新增渲染：trend_flags、饮水/饮食统计、血糖波动、近期餐食、数据质量
+- 验证：后端 import 无误，前端 TypeScript 检查通过，Vite build 成功
+- 向后兼容：MODULE_KEY 不变，AI 默认 7d，原有字段语义不变
+
+## 2026-04-26 (调研)
+- 已完成 CRM 用户档案“健康摘要”升级方向的专项调研与开发报告：
+  - 已对齐当前代码真值 [app/crm_profile/services/modules/health_summary.py](</d:/惯能/群机器人定时推送/wecom_ops_console/app/crm_profile/services/modules/health_summary.py>)，确认现实现仅支持固定近 7 天、单表 `customer_health`、轻量趋势聚合。
+  - 已对齐 CRM 数据真值 [docs/CRM/mfgcrmdb_database_explanation.md](</d:/惯能/群机器人定时推送/wecom_ops_console/docs/CRM/mfgcrmdb_database_explanation.md>) 与 [docs/CRM/mfgcrmdb_schema_knowledge.json](</d:/惯能/群机器人定时推送/wecom_ops_console/docs/CRM/mfgcrmdb_schema_knowledge.json>)，确认：
+    - `customer_health` 应作为每日业务概览真值
+    - `customer_glucose` 应作为血糖曲线与波动分析真值
+    - `customer_health.glucose_data` 不应继续作为正式血糖来源
+  - 已形成正式开发报告 [docs/CRM_HEALTH_SUMMARY_7D_14D_30D_ENHANCEMENT_REPORT.md](</d:/惯能/群机器人定时推送/wecom_ops_console/docs/CRM_HEALTH_SUMMARY_7D_14D_30D_ENHANCEMENT_REPORT.md>)，明确了：
+    - 健康摘要应从固定“近7天”升级为支持 `7 / 14 / 30` 天窗口
+    - 餐食 JSON、饮水、体重和 `customer_glucose.points` 的推荐使用方式
+    - UI 展示层次、AI 上下文接法、兼容迁移路径与分期建议
+  - 已明确 `diet_assessment`、餐食图片 URL、全量血糖 `points` 原始数组不应作为 AI 默认正式上下文真值，而应作为 support 或按需展开数据。
+- 本轮 focused validation：
+  - 已人工对照 `health_summary.py`、`profile_loader.py`、CRM 数据解释文档与 schema 知识文件，确认报告中的字段角色、表关系与当前实现差距一致。
+- 项目启动验证结果：
+  - 本轮仅新增开发报告与任务沉淀，未修改运行时代码，因此未重复执行后端/前端启动验证。
+
 ## 2026-04-25
 - 已继续收口 CRM AI 抽屉体验与客户资料问答准确性：
   - 缺失字段提醒已从“常驻 + 每条 AI 回复下方重复展示”改为“进入抽屉时一次性提示”。现在支持手动关闭，且一旦教练发出第一条问题或点快捷提问就会自动隐藏。
@@ -339,3 +376,20 @@
 - 本轮项目启动验证结果：
   - 后端 `python -m uvicorn app.main:app --host 0.0.0.0 --port 8004` 已在限时启动中确认到 `Application startup complete`。
   - 前端 `cd frontend && npm.cmd run dev -- --host 0.0.0.0 --port 5178` 在当前机器仍受 `esbuild spawn EPERM` 环境限制，dev server 未能稳定拉起；但 `vite build` 已通过，说明本轮前端代码和类型门禁正常。
+- 已新增 CRM AI 教练助手二期优化计划文档：
+  - 新文档 [docs/CRM_AI_COACH_PHASE2_OPTIMIZATION_PLAN.md](</d:/惯能/群机器人定时推送/wecom_ops_console/docs/CRM_AI_COACH_PHASE2_OPTIMIZATION_PLAN.md>) 已把当前阶段判断、二期目标、5 条核心工作线、P0/P1 顺序和验收口径正式收口。
+  - 文档明确把二期重点锁定为：`安全门禁 2.0 / 审计真值 2.0 / 上下文治理 2.0 / 历史续聊一致性 2.0 / 前端结构优化 2.0`。
+  - 这份计划是对 [docs/CRM_USER_PROFILE_AI_INTEGRATION_REPORT.md](</d:/惯能/群机器人定时推送/wecom_ops_console/docs/CRM_USER_PROFILE_AI_INTEGRATION_REPORT.md>) 的后续推进文档，不替代集成评审报告本身。
+- 已新增 AI 教练助手前端渲染优化技术规格：
+  - 新文档 [docs/AI_COACH_FRONTEND_RENDERING_OPTIMIZATION_SPEC.md](</d:/惯能/群机器人定时推送/wecom_ops_console/docs/AI_COACH_FRONTEND_RENDERING_OPTIMIZATION_SPEC.md>) 已基于当前 Vue 3 + Vite + Element Plus 真值，将通用 Markdown/代码/公式/图表渲染方案本地化为 AI 教练助手的候选实施规格。
+  - 文档明确当前渲染层仍是 `v-html + 手写 renderMarkdown` 的轻量实现，不能写成 official 高质量 Markdown 渲染能力；P0 建议先建立 `MarkdownRenderer / useMarkdownIt / CodeBlock / chunkBuffer`，并拆分超大 `AiCoachPanel.vue`。
+  - 文档把 Mermaid、KaTeX、Citation、custom fence、虚拟滚动等能力放入 P1/P2，避免一次性引入重依赖造成抽屉首屏和构建风险。
+  - 本轮为文档任务，未改动业务代码；focused validation 已确认文档落盘、关键章节存在、全文 715 行。
+  - 项目启动/构建验证：后端 `python -m uvicorn app.main:app --host 0.0.0.0 --port 8004` 已确认 `Application startup complete`；前端 `npm.cmd run dev -- --host 0.0.0.0 --port 5178` 在当前环境仍触发既有 `esbuild spawn EPERM`，但 `npm.cmd run build` 已通过。
+- 已修复 CRM 健康摘要窗口切换的可解释性问题：
+  - 已确认后端 `window=7/14/30` 参数和缓存 key 已生效；截图类客户在近 30 天内实际只有 2 天健康记录，所以 7/14/30 的统计样本相同，指标自然不变。
+  - 前端健康摘要 meta 文案已从“共 N 天记录”改为“近 X 天内共 N 天记录”，并在记录天数小于窗口天数时显示“覆盖不足”和说明文案。
+  - `switchHealthWindow` 成功后显式同步 `currentWindowDays`，避免窗口状态只依赖 radio v-model。
+  - 已沉淀 Bug #55 到 `bug.md`。
+  - 本轮 focused validation：`cd frontend; .\node_modules\.bin\vue-tsc.cmd --noEmit` 通过；`cd frontend; npm.cmd run build` 通过。
+  - 本轮项目启动验证结果：后端 `python -m uvicorn app.main:app --host 0.0.0.0 --port 8004` 已确认 `Application startup complete`；前端 `npm.cmd run dev -- --host 0.0.0.0 --port 5178` 在当前环境仍触发既有 `esbuild spawn EPERM`，dev server 未能监听，但生产构建已通过。

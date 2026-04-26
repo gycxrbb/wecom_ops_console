@@ -24,7 +24,7 @@ _LOADERS = [
 ]
 
 
-def load_profile(customer_id: int) -> CustomerProfileContextV1:
+def load_profile(customer_id: int, *, health_window_days: int = 7) -> CustomerProfileContextV1:
     """Load all P0 modules and build the profile context."""
     conn = get_connection()
     try:
@@ -32,7 +32,10 @@ def load_profile(customer_id: int) -> CustomerProfileContextV1:
         source_status: list[SourceStatusEntry] = []
         for mod in _LOADERS:
             try:
-                card = mod.load(conn, customer_id)
+                if mod is health_summary:
+                    card = mod.load(conn, customer_id, window_days=health_window_days)
+                else:
+                    card = mod.load(conn, customer_id)
                 cards.append(card)
                 if card.warnings:
                     for w in card.warnings:

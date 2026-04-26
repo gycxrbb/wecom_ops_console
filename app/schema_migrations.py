@@ -368,6 +368,9 @@ def ensure_plan_schema(engine: Engine) -> None:
     # CRM AI audit tables: ensure indexes exist (tables created by ORM create_all)
     ensure_crm_ai_indexes(engine)
 
+    # CRM AI Phase 2: add audit trail columns
+    _ensure_crm_ai_phase2_columns(engine)
+
 
 def ensure_crm_ai_indexes(engine: Engine) -> None:
     """Ensure indexes exist on CRM AI audit tables (tables created by ORM create_all)."""
@@ -387,6 +390,41 @@ def ensure_crm_ai_indexes(engine: Engine) -> None:
         for table_name, idx_name, columns, unique in table_indexes:
             if table_name in existing_tables:
                 _ensure_named_index(conn, table_name, idx_name, columns, unique=unique)
+
+
+_CRM_AI_PHASE2_COLUMNS = {
+    "crm_ai_sessions": {
+        "scene_key": "VARCHAR(32)",
+        "output_style": "VARCHAR(32)",
+        "prompt_version": "VARCHAR(16)",
+        "prompt_hash": "VARCHAR(128)",
+    },
+    "crm_ai_messages": {
+        "safety_result": "TEXT",
+    },
+    "crm_ai_context_snapshots": {
+        "prompt_version": "VARCHAR(16)",
+        "prompt_hash": "VARCHAR(128)",
+        "scene_key": "VARCHAR(32)",
+        "output_style": "VARCHAR(32)",
+        "selected_expansions": "TEXT",
+    },
+}
+
+
+def _ensure_crm_ai_phase2_columns(engine: Engine) -> None:
+    """Add Phase 2 audit columns to CRM AI tables if missing."""
+    inspector = inspect(engine)
+    for table_name, column_specs in _CRM_AI_PHASE2_COLUMNS.items():
+        if table_name not in inspector.get_table_names():
+            continue
+        existing = {c["name"] for c in inspector.get_columns(table_name)}
+        missing = {col: spec for col, spec in column_specs.items() if col not in existing}
+        if not missing:
+            continue
+        with engine.begin() as conn:
+            for col_name, col_spec in missing.items():
+                conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_spec}"))
 
 
 def ensure_external_docs_schema(engine: Engine) -> None:

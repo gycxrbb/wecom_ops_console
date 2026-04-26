@@ -550,3 +550,12 @@
 - **复现条件**: 通过 CRM AI 助手发起流式问答，尤其是“姓名/年龄/状态”这类会走快捷答复的直读题，更容易看到占位语不动、正式回复不呈现渐进输出。
 - **解决方案**: 给 SSE 接口补充 `Cache-Control: no-cache, no-transform`、`Connection: keep-alive`、`X-Accel-Buffering: no`，首包先发注释行触发 flush；同时把快捷答复和 fallback 答复改成真正的分片输出，而不是一整段一次写完。
 - **关联文件**: app/crm_profile/router.py, app/crm_profile/services/ai_coach.py, frontend/src/views/CrmProfile/composables/useAiCoach.ts
+
+## Bug #55: 健康摘要 7/14/30 天切换缺少窗口覆盖率提示，用户误以为内容未刷新
+
+- **日期**: 2026-04-26
+- **现象**: CRM 客户档案健康摘要切换“近7天 / 近14天 / 近30天”时，页面主要指标看起来完全不变，用户无法判断是切换未生效还是窗口内没有更多数据。
+- **根因**: 后端已按 `window` 查询并返回 `payload.window_days` / `data_quality.expected_days`，但前端只展示“共 N 天记录”，没有展示该 N 天属于哪个统计窗口，也没有在实际记录天数小于窗口天数时提示覆盖不足。对于近 30 天内本来只有 2 天记录的客户，7/14/30 三个窗口的有效样本相同，统计值自然相同，但 UI 没有解释这个事实。
+- **复现条件**: 打开一个近 30 天内只有少量健康记录的客户档案，例如只有 2026-04-25、2026-04-26 两天记录的客户；切换 7/14/30 天窗口。
+- **解决方案**: 健康摘要 meta 文案改为“近 X 天内共 N 天记录”，当 `N < X` 时展示“覆盖不足”标签和说明；同时 `switchHealthWindow` 请求成功后显式同步 `currentWindowDays`，避免状态只依赖 radio v-model。
+- **关联文件**: frontend/src/views/CrmProfile/index.vue, frontend/src/views/CrmProfile/composables/useCrmProfile.ts, frontend/src/views/CrmProfile/styles/CrmProfile.css

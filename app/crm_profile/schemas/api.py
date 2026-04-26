@@ -122,6 +122,7 @@ class AiConfigResponse(BaseModel):
     scenes: list[SceneOption] = []
     profile_note: AiProfileNoteResponse | None = None
     prompt_version: str = ""
+    expansion_options: dict[str, str] = {}
 
 
 # ---------- AI Chat ----------
@@ -144,6 +145,7 @@ class AiChatResponse(BaseModel):
     used_modules: list[str] = []
     token_usage: dict[str, int] = {}
     requires_medical_review: bool = False
+    safety_result: dict | None = None
     prompt_version: str = ""
     scene_key: str = ""
 
@@ -151,6 +153,7 @@ class AiChatResponse(BaseModel):
 class AiSessionSummaryItem(BaseModel):
     session_id: str
     entry_scene: str | None = None
+    scene_key: str | None = None
     started_at: str | None = None
     last_message_at: str | None = None
     message_count: int = 0
@@ -175,3 +178,6 @@ class AiSessionDetailResponse(BaseModel):
     customer_id: int
     session: AiSessionSummaryItem
     messages: list[AiSessionMessageItem] = []
+    scene_key: str | None = None
+    output_style: str | None = None
+    prompt_version: str | None = None

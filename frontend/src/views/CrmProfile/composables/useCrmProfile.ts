@@ -78,6 +78,8 @@ export function useCrmProfile() {
   const profile = ref<CustomerProfile | null>(null)
   const safetySnapshots = ref<SafetySnapshotItem[]>([])
   const safetySnapshotLoading = ref(false)
+  const currentWindowDays = ref(7)
+  const healthLoading = ref(false)
 
   // --- List state ---
   const listLoading = ref(false)
@@ -163,12 +165,16 @@ export function useCrmProfile() {
   }
 
   // --- Profile detail ---
-  const loadProfile = async (customerId: number) => {
+  const loadProfile = async (customerId: number, windowDays?: number) => {
     loading.value = true
     profile.value = null
     try {
-      const res: any = await request.get(`/v1/crm-customers/${customerId}/profile`)
+      const w = windowDays ?? currentWindowDays.value
+      const res: any = await request.get(`/v1/crm-customers/${customerId}/profile`, {
+        params: { window: w },
+      })
       profile.value = res
+      currentWindowDays.value = w
     } catch {
       profile.value = null
     } finally {
@@ -188,6 +194,21 @@ export function useCrmProfile() {
     }
   }
 
+  const switchHealthWindow = async (customerId: number, windowDays: number) => {
+    healthLoading.value = true
+    try {
+      const res: any = await request.get(`/v1/crm-customers/${customerId}/profile`, {
+        params: { window: windowDays },
+      })
+      profile.value = res
+      currentWindowDays.value = windowDays
+    } catch {
+      // keep existing profile on error
+    } finally {
+      healthLoading.value = false
+    }
+  }
+
   const loadSafetySnapshotDetail = async (customerId: number, snapshotId: number) => {
     const res: any = await request.get(`/v1/crm-customers/${customerId}/safety-snapshots/${snapshotId}`)
     return res?.card || null
@@ -196,6 +217,7 @@ export function useCrmProfile() {
   const selectCustomer = (item: CustomerSearchItem | CustomerListItem) => {
     selectedCustomer.value = item as CustomerSearchItem
     searchResults.value = []
+    currentWindowDays.value = 7
     loadProfile(item.id)
     loadSafetySnapshots(item.id)
     router.replace({ query: { ...route.query, cid: String(item.id) } })
@@ -216,6 +238,7 @@ export function useCrmProfile() {
       const customerId = Number(cid)
       if (!isNaN(customerId) && customerId > 0) {
         selectedCustomer.value = { id: customerId, name: '', gender: null, birthday: null, points: 0, total_points: 0, status: 0 }
+        currentWindowDays.value = 7
         await Promise.all([loadProfile(customerId), loadSafetySnapshots(customerId)])
       }
     }
@@ -243,6 +266,7 @@ export function useCrmProfile() {
     searchCustomers, loadProfile, selectCustomer, getCard,
     genderText, calcAge, backToList, restoreFromUrl,
     safetySnapshots, safetySnapshotLoading, loadSafetySnapshots, loadSafetySnapshotDetail,
+    currentWindowDays, healthLoading, switchHealthWindow,
     // list
     listLoading, listItems, listTotal, listPage, listPageSize,
     filters, filterOptions, filterOptionsLoaded,

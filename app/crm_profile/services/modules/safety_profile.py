@@ -27,26 +27,38 @@ def _safe_str(val) -> str | None:
     return text if text else None
 
 
+def _flatten_value(v) -> str | None:
+    """Recursively flatten a JSON value into readable text."""
+    if v is None:
+        return None
+    if isinstance(v, str):
+        text = v.strip()
+        return text if text else None
+    if isinstance(v, (int, float, bool)):
+        return str(v)
+    if isinstance(v, dict):
+        parts = []
+        for k, val in v.items():
+            child = _flatten_value(val)
+            if child:
+                label = str(k).replace("_", " ").title()
+                parts.append(f"{label}: {child}")
+        return "；".join(parts) if parts else None
+    if isinstance(v, list):
+        parts = [_flatten_value(item) for item in v]
+        parts = [p for p in parts if p]
+        return "；".join(parts) if parts else None
+    return str(v)
+
+
 def _extract_text(val) -> str | None:
     """Extract readable text from a value that might be JSON."""
     raw = _safe_str(val)
     if raw is None:
         return None
-    # Try parse as JSON
     try:
         obj = json.loads(raw)
-        if isinstance(obj, dict):
-            # Collect non-empty string values from the dict
-            parts = []
-            for k, v in obj.items():
-                if v is not None and str(v).strip():
-                    label = str(k).replace("_", " ").title()
-                    parts.append(f"{label}: {v}")
-            return "；".join(parts) if parts else None
-        if isinstance(obj, list):
-            parts = [str(item) for item in obj if item is not None and str(item).strip()]
-            return "；".join(parts) if parts else None
-        return str(obj)
+        return _flatten_value(obj)
     except (json.JSONDecodeError, TypeError):
         return raw
 

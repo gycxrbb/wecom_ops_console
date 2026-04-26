@@ -57,3 +57,19 @@
   - `admin` 通过系统内编辑页修改 Markdown 文件
   - 图片不入库到本地 docs，而是上传到七牛 `qiwei/docs/...`
 - 这样既满足“docs 路径下看到 MD 文档”的诉求，也能兼顾管理员在线维护效率。
+
+## CRM 健康摘要升级研究
+- 当前 `app/crm_profile/services/modules/health_summary.py` 只做了固定 7 天、单表 `customer_health`、轻量聚合摘要，未接 `breakfast_data/lunch_data/dinner_data/snack_data`，也未接 `customer_glucose.points`。
+- `docs/CRM/mfgcrmdb_database_explanation.md` 已明确：
+  - 看“业务端每日综合记录”优先 `customer_health`
+  - 看“某项生理指标的日汇总/点位”优先 `customer_glucose` 等专项表
+  - `customer_health.glucose_data` 存在弃用痕迹，不应再当正式血糖真值
+- `customer_health` 更适合作为“每日健康概览”真值，承载体重、饮水、营养摄入、三餐与睡眠/步数。
+- `customer_glucose` 更适合作为“血糖波动与峰值分析”真值，承载全天曲线与餐后冲高判断。
+- `breakfast_data` 等餐食 JSON 里，适合进入正式摘要/AI 上下文的是：
+  - `name/des/time`
+  - `kcal/cho/fat/protein`
+  - 三餐是否完整、哪餐缺失、哪餐更像异常来源
+- `diet_assessment` 不应默认作为 AI 正式上下文真值，更适合作为 support；它本身是长文本点评，容易污染当前 AI 生成。
+- 健康摘要建议从固定 `health_summary_7d` 升级成参数化 `health_summary(window_days=7|14|30)`，但兼容层可暂保留 `health_summary_7d`。
+- 档案页推荐把“近7天健康摘要”改名为统一“健康摘要”，右上角提供 `近7天 / 近14天 / 近30天` 切换。

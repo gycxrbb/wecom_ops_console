@@ -450,9 +450,30 @@
 
 /* ---- Health Card Meta ---- */
 .crm-health-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
   font-size: 12px;
   color: var(--text-muted);
   margin-bottom: 10px;
+}
+
+.crm-health-quality-note {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.18);
+  color: #b45309;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+:global(html.dark) .crm-health-quality-note {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.22);
+  color: #fbbf24;
 }
 
 .crm-health-trend {
@@ -460,6 +481,40 @@
   font-size: 11px;
   color: var(--text-muted);
   margin-top: 2px;
+}
+
+.crm-health-subtitle {
+  font-size: 12px;
+  color: #909399;
+  margin-bottom: 4px;
+}
+
+.crm-health-highlight {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  color: #606266;
+  padding: 2px 0;
+  flex-wrap: wrap;
+}
+
+.crm-meal-tag {
+  background: #f4f4f5;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 11px;
+}
+
+.crm-health-stale {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #909399;
+  background: #fafafa;
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
 }
 
 /* ---- Health Stats Mini Grid ---- */

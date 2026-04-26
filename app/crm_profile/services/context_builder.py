@@ -75,6 +75,15 @@ FIELD_LABELS = {
         "activity": "运动摘要",
         "diet": "饮食摘要",
         "symptoms": "症状反馈",
+        "window_days": "统计窗口(天)",
+        "glucose_avg": "血糖均值(mmol/L)",
+        "glucose_peak": "血糖峰值(mmol/L)",
+        "glucose_days": "血糖记录天数",
+        "glucose_high_days": "血糖偏高天数",
+        "meal_record_days": "饮食记录天数",
+        "meal_complete_days": "三餐完整天数",
+        "water_avg_ml": "日均饮水(ml)",
+        "water_on_target_days": "饮水达标天数",
     },
     "body_comp_latest_30d": {
         "days": "记录天数",
@@ -113,9 +122,8 @@ def resolve_context_plan(
     """Generate a ContextBuildPlan based on scene and user selections."""
     plan = ContextBuildPlan()
 
-    # Limit expansions to max 2
     if selected_expansions:
-        plan.expansion_modules = selected_expansions[:2]
+        plan.expansion_modules = selected_expansions
 
     return plan
 
@@ -142,23 +150,48 @@ def estimate_tokens(cards: list[ModulePayload]) -> int:
     return total_chars // 4
 
 
-def build_context_text(cards: list[ModulePayload], token_budget: int = _DEFAULT_TOKEN_BUDGET) -> str:
-    """Serialize cards into context text for AI, respecting token budget."""
+def build_context_text(
+    cards: list[ModulePayload],
+    token_budget: int = _DEFAULT_TOKEN_BUDGET,
+    selected_expansions: list[str] | None = None,
+) -> str:
+    """Serialize cards into context text for AI, respecting token budget.
+
+    When selected_expansions is provided, matching modules get expanded
+    detail instead of just summary.
+    """
+    expansions = set(selected_expansions or [])
     sections = []
     total_est = 0
 
-    # Priority order: required first, then summary
     for card in cards:
         if card.status not in ("ok", "partial") or not card.payload:
             continue
         lines = []
+        is_expanded = card.key in expansions or any(
+            e in expansions and e.startswith(card.key.split("_")[0])
+            for e in expansions
+        )
         for k, v in card.payload.items():
-            if v is None or isinstance(v, (list, dict)):
+            if v is None:
+                continue
+            if isinstance(v, (list, dict)):
+                # Include expanded details for selected modules
+                if is_expanded and isinstance(v, list):
+                    for idx, item in enumerate(v[:5]):
+                        if isinstance(item, dict):
+                            detail_lines = [f"{sk}: {sv}" for sk, sv in item.items()
+                                            if sv is not None and not isinstance(sv, (list, dict))]
+                            if detail_lines:
+                                lines.append(f"  [{idx + 1}] " + " | ".join(detail_lines))
+                        else:
+                            lines.append(f"  [{idx + 1}] {item}")
                 continue
             lines.append(f"{get_field_label(card.key, k)}: {v}")
         if not lines:
             continue
-        header = get_module_label(card.key)
+        header_prefix = " [展开详情]" if is_expanded else ""
+        header = get_module_label(card.key) + header_prefix
         section = f"### {header}\n" + "\n".join(lines)
         est = len(section) // 4
         if total_est + est > token_budget:

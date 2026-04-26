@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     ai_base_url: str = 'https://aihubmix.com/v1'
     ai_model: str = 'gpt-4o-mini'
     ai_provider: str = 'aihubmix'                  # 'aihubmix' | 'deepseek'
+    ai_http2_enabled: bool = True
     deepseek_api_key: str = ''
     deepseek_base_url: str = 'https://api.deepseek.com'
     deepseek_model: str = 'deepseek-v4-pro'

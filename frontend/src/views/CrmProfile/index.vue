@@ -298,10 +298,30 @@
               </template>
             </ProfileCard>
 
-            <!-- Health 7d Card -->
-            <ProfileCard title="近7天健康摘要" kicker="Health" :card="getCard('health_summary_7d')">
+            <!-- Health Summary Card -->
+            <ProfileCard title="健康摘要" :card="getCard('health_summary_7d')">
+              <template #header-extra>
+                <el-radio-group
+                  v-model="currentWindowDays"
+                  size="small"
+                  :disabled="healthLoading"
+                  @change="(val: number) => selectedCustomer && switchHealthWindow(selectedCustomer.id, val)"
+                >
+                  <el-radio-button :value="7">近7天</el-radio-button>
+                  <el-radio-button :value="14">近14天</el-radio-button>
+                  <el-radio-button :value="30">近30天</el-radio-button>
+                </el-radio-group>
+              </template>
               <template #default="{ payload }">
-                <div v-if="payload.days" class="crm-health-meta">共 {{ payload.days }} 天记录</div>
+                <!-- Stale data hint (no recent records but historical data exists) -->
+                <div v-if="payload.stale_hint" class="crm-health-stale">
+                  <el-icon><Warning /></el-icon>
+                  <span>{{ payload.stale_hint }}</span>
+                </div>
+                <div class="crm-health-meta">
+                  <span>{{ healthCoverageText(payload) }}</span>
+                  <el-tag v-if="isHealthCoverageLow(payload)" size="small" type="warning" round>覆盖不足</el-tag>
+                </div>
                 <div class="crm-health-grid">
                   <div class="crm-health-item" v-if="payload.weight">
                     <span>体重</span>
@@ -327,11 +347,60 @@
                 <div v-if="payload.symptoms" style="margin-top: 10px;">
                   <el-tag type="warning" size="small" round>{{ payload.symptoms }}</el-tag>
                 </div>
+
+                <!-- Trend flags -->
+                <div v-if="payload.trend_flags?.length" style="margin-top: 10px;">
+                  <el-tag v-for="flag in payload.trend_flags" :key="flag" size="small" type="info" round
+                          style="margin: 2px 4px 2px 0;">{{ flag }}</el-tag>
+                </div>
+
+                <!-- Water & meal summary -->
+                <div v-if="payload.water_avg_ml || payload.meal_record_days" class="crm-health-grid" style="margin-top: 10px;">
+                  <div class="crm-health-item" v-if="payload.water_avg_ml">
+                    <span>日均饮水</span><strong>{{ Math.round(payload.water_avg_ml) }} ml</strong>
+                  </div>
+                  <div class="crm-health-item" v-if="payload.meal_record_days">
+                    <span>饮食记录</span><strong>{{ payload.meal_record_days }} 天（完整 {{ payload.meal_complete_days || 0 }} 天）</strong>
+                  </div>
+                </div>
+
+                <!-- Glucose highlights -->
+                <div v-if="payload.glucose_highlights?.length" style="margin-top: 10px;">
+                  <div class="crm-health-subtitle">血糖波动</div>
+                  <div v-for="gh in payload.glucose_highlights" :key="gh.date" class="crm-health-highlight">
+                    <span>{{ gh.date }}</span>
+                    <span>峰值 {{ gh.peak }} mmol/L（{{ gh.peak_time || '--' }}）</span>
+                    <span>波动 {{ gh.amplitude }} mmol/L</span>
+                  </div>
+                </div>
+
+                <!-- Meal highlights (last 3 days) -->
+                <div v-if="payload.meal_highlights?.length" style="margin-top: 10px;">
+                  <div class="crm-health-subtitle">近期餐食</div>
+                  <div v-for="mh in payload.meal_highlights" :key="mh.date" class="crm-health-highlight">
+                    <span>{{ mh.date }}</span>
+                    <span v-for="m in mh.meals" :key="m.type" class="crm-meal-tag">
+                      {{ m.type === 'breakfast' ? '早' : m.type === 'lunch' ? '午' : m.type === 'dinner' ? '晚' : '加餐' }}
+                      {{ m.name || '已记录' }}
+                      <template v-if="m.kcal">（{{ Math.round(m.kcal) }} kcal）</template>
+                    </span>
+                  </div>
+                </div>
+
+                <!-- Data quality warning -->
+                <div v-if="isHealthCoverageLow(payload)" class="crm-health-quality-note">
+                  当前窗口内只有 {{ healthRecordDays(payload) }} 天健康记录；如果没有更早记录，切换到近14天/近30天时统计值会保持一致。
+                </div>
+                <div v-if="payload.data_quality?.missing_weight_days > 3" style="margin-top: 10px;">
+                  <el-tag type="warning" size="small" round>
+                    体重缺失 {{ payload.data_quality.missing_weight_days }} 天
+                  </el-tag>
+                </div>
               </template>
             </ProfileCard>
 
             <!-- Body Composition Card -->
-            <ProfileCard title="体成分" kicker="Body" :card="getCard('body_comp_latest_30d')">
+            <ProfileCard title="体成分" :card="getCard('body_comp_latest_30d')">
               <template #default="{ payload }">
                 <div v-if="payload.latest" class="crm-data-grid" style="margin-bottom: 10px;">
                   <div class="crm-data-item">
@@ -382,7 +451,7 @@
             </section>
 
             <!-- Goals & Preferences -->
-            <ProfileCard title="目标与偏好" kicker="Goals" :card="getCard('goals_preferences')">
+            <ProfileCard title="目标与偏好" :card="getCard('goals_preferences')">
               <template #default="{ payload }">
                 <div class="crm-data-grid" style="grid-template-columns: 1fr;">
                   <div class="crm-data-item" v-if="payload.primary_goals">
@@ -410,7 +479,7 @@
             </ProfileCard>
 
             <!-- Points & Engagement -->
-            <ProfileCard title="积分活跃" kicker="Points" :card="getCard('points_engagement_14d')">
+            <ProfileCard title="积分活跃" :card="getCard('points_engagement_14d')">
               <template #default="{ payload }">
                 <div class="crm-health-grid">
                   <div class="crm-health-item" v-if="payload.points_current !== undefined">
@@ -430,7 +499,7 @@
             </ProfileCard>
 
             <!-- Service Scope -->
-            <ProfileCard title="服务关系" kicker="Service" :card="getCard('service_scope')">
+            <ProfileCard title="服务关系" :card="getCard('service_scope')">
               <template #default="{ payload }">
                 <div class="crm-data-grid" style="grid-template-columns: 1fr;">
                   <div class="crm-data-item" v-if="payload.group_names">
@@ -471,7 +540,7 @@ export default { name: 'CrmProfile' }
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
-import { Search, ArrowLeft } from '@element-plus/icons-vue'
+import { Search, ArrowLeft, Warning } from '@element-plus/icons-vue'
 import { useCrmProfile } from './composables/useCrmProfile'
 import ProfileCard from './components/ProfileCard.vue'
 import AiCoachPanel from './components/AiCoachPanel.vue'
@@ -481,6 +550,7 @@ const {
   selectCustomer, getCard, backToList, restoreFromUrl,
   genderText, calcAge,
   safetySnapshots, safetySnapshotLoading, loadSafetySnapshotDetail,
+  currentWindowDays, healthLoading, switchHealthWindow,
   // list
   listLoading, listItems, listTotal, listPage, listPageSize,
   filters, filterOptions,
@@ -532,6 +602,24 @@ const onBackToList = () => {
 const basicPayload = computed(() => getCard('basic_profile')?.payload || {})
 const servicePayload = computed(() => getCard('service_scope')?.payload || {})
 const safetyCard = computed(() => safetyCardOverride.value || getCard('safety_profile'))
+
+const healthWindowDays = (payload: any) =>
+  Number(payload?.window_days || payload?.data_quality?.expected_days || currentWindowDays.value || 7)
+
+const healthRecordDays = (payload: any) =>
+  Number(payload?.days ?? payload?.data_quality?.total_record_days ?? 0)
+
+const healthCoverageText = (payload: any) => {
+  const windowDays = healthWindowDays(payload)
+  const recordDays = healthRecordDays(payload)
+  return `近 ${windowDays} 天内共 ${recordDays} 天记录`
+}
+
+const isHealthCoverageLow = (payload: any) => {
+  const windowDays = healthWindowDays(payload)
+  const recordDays = healthRecordDays(payload)
+  return windowDays > 0 && recordDays > 0 && recordDays < windowDays
+}
 
 const heroName = computed(() => {
   const name = basicPayload.value.display_name || ''

@@ -29,6 +29,7 @@ from .services.permission import assert_can_view, resolve_visible_customers
 from .services.profile_loader import load_profile
 from .services import audit as audit_service
 from .services.modules import safety_profile as safety_profile_module
+from .services.context_builder import build_context_text as _build_context_text
 
 _log = logging.getLogger(__name__)
 _sse_log = get_sse_logger()
@@ -280,17 +281,19 @@ def get_customer_profile(
     customer_id: int,
     request: Request,
     db: Session = Depends(get_db),
+    window: int = Query(7, ge=7, le=30),
 ):
     """Load full profile (7 modules) for a customer."""
     user = get_current_user(request, db)
     assert_can_view(user, customer_id)
 
-    cache_key = f"profile:{customer_id}"
+    w = window if window in (7, 14, 30) else 7
+    cache_key = f"profile:{customer_id}:hw{w}"
     cached = cache_get(cache_key)
     if cached:
         return cached
 
-    ctx = load_profile(customer_id)
+    ctx = load_profile(customer_id, health_window_days=w)
     cache_put(cache_key, ctx, PROFILE_TTL)
     return ctx
 
@@ -369,6 +372,7 @@ def get_ai_config(
     assert_can_view(user, customer_id)
 
     from .prompts.registry import VALID_SCENES, get_version
+    from .schemas.context import EXPANSION_MODULE_OPTIONS
 
     scenes = [SceneOption(key=k, label=v) for k, v in VALID_SCENES.items()]
     note = db.query(CustomerAiProfileNote).filter_by(crm_customer_id=customer_id).first()
@@ -377,6 +381,7 @@ def get_ai_config(
         "scenes": scenes,
         "profile_note": _note_to_response(note) if note else None,
         "prompt_version": get_version(),
+        "expansion_options": EXPANSION_MODULE_OPTIONS,
     }
 
 
@@ -429,9 +434,34 @@ def save_profile_note(
     note.updated_by = user.id
     db.commit()
     db.refresh(note)
-    from .services.cache import invalidate as cache_invalidate
-    cache_invalidate(f"profile:{customer_id}")
+    from .services.cache import invalidate_prefix as cache_invalidate_prefix
+    cache_invalidate_prefix(f"profile:{customer_id}")
     return _note_to_response(note)
+
+
+@router.get("/{customer_id}/ai/context-preview")
+def get_ai_context_preview(
+    customer_id: int,
+    request: Request,
+    scene_key: str = Query("qa_support"),
+    selected_expansions: str = Query(""),
+    db: Session = Depends(get_db),
+):
+    """Return the assembled context text that AI would see for this customer."""
+    user = get_current_user(request, db)
+    assert_can_view(user, customer_id)
+
+    ctx = load_profile(customer_id)
+    expansions = [e.strip() for e in selected_expansions.split(",") if e.strip()] if selected_expansions else None
+    context_text = _build_context_text(ctx.cards, selected_expansions=expansions)
+    used_modules = [c.key for c in ctx.cards if c.status in ("ok", "partial")]
+    return {
+        "context_text": context_text,
+        "used_modules": used_modules,
+        "selected_expansions": expansions or [],
+        "estimated_chars": len(context_text),
+        "estimated_tokens": len(context_text) // 4,
+    }
 
 
 @router.get("/{customer_id}/ai/sessions", response_model=AiSessionListResponse)
@@ -468,6 +498,9 @@ def get_ai_session_detail(
         "customer_id": customer_id,
         "session": detail["session"],
         "messages": detail["messages"],
+        "scene_key": detail["session"].get("scene_key"),
+        "output_style": detail["session"].get("output_style"),
+        "prompt_version": detail["session"].get("prompt_version"),
     }
 
 
@@ -537,6 +570,7 @@ if _ai_coach_enabled:
                 scene_key=body.scene_key,
                 entry_scene=body.entry_scene,
                 output_style=body.output_style,
+                selected_expansions=body.selected_expansions,
             ):
                 _sse_log.info("[SSE-ROUTE] chat-stream writing SSE event=%s at %.3fs", event.event, _time.time() - _t)
                 yield _sse(event.event, event.data)

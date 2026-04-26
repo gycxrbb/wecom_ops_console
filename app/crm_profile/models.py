@@ -19,6 +19,10 @@ class CrmAiSession(Base):
     crm_admin_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     crm_customer_id: Mapped[int] = mapped_column(Integer, nullable=False)
     entry_scene: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    scene_key: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    output_style: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    prompt_version: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    prompt_hash: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now())
 
 
@@ -35,6 +39,7 @@ class CrmAiMessage(Base):
     completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
     latency_ms: Mapped[int] = mapped_column(Integer, default=0)
     requires_medical_review: Mapped[bool] = mapped_column(Boolean, default=False)
+    safety_result: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now())
 
 
@@ -46,6 +51,11 @@ class CrmAiContextSnapshot(Base):
     context_hash: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     compact_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     used_modules: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    prompt_version: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    prompt_hash: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    scene_key: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    output_style: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    selected_expansions: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now())
 
 

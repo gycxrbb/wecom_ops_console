@@ -21,12 +21,18 @@ _client: httpx.AsyncClient | None = None
 
 
 async def _get_client() -> httpx.AsyncClient:
-    """Lazy singleton httpx client with connection pooling."""
+    """Lazy singleton httpx client with connection pooling and HTTP/2."""
     global _client
     if _client is None or _client.is_closed:
         _client = httpx.AsyncClient(
-            timeout=httpx.Timeout(connect=10, read=90, write=10, pool=10),
-            limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+            http2=settings.ai_http2_enabled,
+            timeout=httpx.Timeout(connect=5, read=90, write=10, pool=5),
+            limits=httpx.Limits(
+                max_connections=50,
+                max_keepalive_connections=20,
+                keepalive_expiry=300.0,
+            ),
+            transport=httpx.AsyncHTTPTransport(retries=1),
         )
     return _client
 

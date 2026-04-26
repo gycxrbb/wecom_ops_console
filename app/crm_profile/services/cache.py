@@ -2,6 +2,12 @@
 
 Not intended for multi-process deployment; for that scenario switch to Redis.
 Thread-safe via a simple lock.
+
+Supports stale-while-revalidate: ``get_stale()`` returns expired entries so
+callers can use stale data while refreshing in the background.
+
+Note: ``get()`` does NOT delete expired entries — it returns None but leaves
+them in the store so ``get_stale()`` can still find them within the grace period.
 """
 from __future__ import annotations
 
@@ -13,18 +19,41 @@ _lock = threading.Lock()
 _store: dict[str, tuple[float, Any]] = {}
 
 # Default TTLs (seconds)
-PROFILE_TTL = 120        # customer profile: 2 min
+PROFILE_TTL = 600        # customer profile: 10 min (profile data changes infrequently)
 FILTER_OPTIONS_TTL = 300  # filter dropdowns: 5 min
+
+# Stale grace period: expired entries are kept this long after TTL for stale-while-revalidate.
+STALE_GRACE = 300  # 5 minutes
 
 
 def get(key: str) -> Any | None:
-    """Return cached value if it exists and hasn't expired, else None."""
+    """Return cached value if it exists and hasn't expired, else None.
+
+    Does NOT remove expired entries so ``get_stale()`` can still find them.
+    """
     with _lock:
         entry = _store.get(key)
         if entry is None:
             return None
         expires_at, value = entry
         if time.monotonic() > expires_at:
+            return None
+        return value
+
+
+def get_stale(key: str) -> Any | None:
+    """Return value even if expired (within grace period), for stale-while-revalidate.
+
+    Returns None only if the key never existed or has exceeded TTL + grace period.
+    Cleans up entries that are past the grace period.
+    """
+    with _lock:
+        entry = _store.get(key)
+        if entry is None:
+            return None
+        expires_at, value = entry
+        now = time.monotonic()
+        if now > expires_at + STALE_GRACE:
             del _store[key]
             return None
         return value

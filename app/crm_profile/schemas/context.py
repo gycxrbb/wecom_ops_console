@@ -35,6 +35,16 @@ class ContextBuildPlan(BaseModel):
     expansion_modules: list[str] = []
 
 
+EXPANSION_MODULE_OPTIONS: dict[str, str] = {
+    "health_summary_detail": "血糖明细",
+    "diet_detail": "饮食明细",
+    "sleep_detail": "睡眠明细",
+    "exercise_detail": "运动明细",
+    "points_detail": "积分明细",
+    "task_detail": "任务明细",
+}
+
+
 class CustomerProfileContextV1(BaseModel):
     """Top-level profile envelope returned to the frontend."""
     schema_version: str = "customer_profile_context.v1"
