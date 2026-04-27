@@ -20,3 +20,16 @@ services:
       timeout: 10s
       retries: 3
       start_period: 15s
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: wecom-qdrant
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./data/qdrant_storage:/qdrant/storage
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.0"

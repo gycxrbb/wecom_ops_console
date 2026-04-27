@@ -1,4 +1,6 @@
 /* Markdown prose typography — scoped under .md-prose */
+@import 'katex/dist/katex.min.css';
+
 .md-prose {
   line-height: 1.75;
   word-break: break-word;
@@ -188,4 +190,83 @@
 
 :global(html.dark) .md-prose strong {
   color: #f3f4f6;
+}
+
+/* ==================== Math Block ==================== */
+.md-math-block {
+  margin: 0.9em 0;
+  padding: 16px 20px;
+  background: #f9fafb;
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+  overflow-x: auto;
+  text-align: center;
+}
+.md-math-fallback {
+  margin: 0;
+  padding: 14px 16px;
+  background: #1e293b;
+  color: #e2e8f0;
+  font-family: 'Menlo', 'Consolas', 'Monaco', monospace;
+  font-size: 13px;
+  white-space: pre;
+  border-radius: 10px;
+}
+
+/* ==================== Mermaid Block ==================== */
+.md-mermaid-block {
+  margin: 0.9em 0;
+  padding: 20px;
+  background: #fff;
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+  overflow-x: auto;
+  text-align: center;
+}
+.md-mermaid-block svg {
+  max-width: 100%;
+  height: auto;
+}
+.md-mermaid-error {
+  margin: 0.9em 0;
+  padding: 12px 16px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  font-size: 12px;
+  color: #991b1b;
+}
+
+/* ==================== Table Scroll ==================== */
+.md-table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 0.9em 0;
+}
+.md-prose .md-table-scroll table {
+  margin: 0;
+}
+
+/* ==================== Image Enhancements ==================== */
+.md-prose img.md-img--external {
+  opacity: 0.85;
+  border: 1px dashed #d1d5db;
+}
+
+/* ==================== Dark mode — P1 additions ==================== */
+:global(html.dark) .md-math-block {
+  background: #1f2937;
+  border-color: #374151;
+}
+:global(html.dark) .md-mermaid-block {
+  background: #1f2937;
+  border-color: #374151;
+}
+:global(html.dark) .md-mermaid-error {
+  background: rgba(127, 29, 29, 0.2);
+  border-color: #7f1d1d;
+  color: #fca5a5;
+}
+:global(html.dark) .md-prose img.md-img--external {
+  border-color: #4b5563;
 }

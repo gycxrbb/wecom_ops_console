@@ -27,6 +27,11 @@ MODULE_LABELS = {
     "body_comp_latest_30d": "近30天体成分",
     "points_engagement_14d": "近14天积分与活跃",
     "service_scope": "服务关系",
+    "habit_adherence_14d": "近14天习惯执行",
+    "plan_progress_14d": "近14天计划推进",
+    "reminder_adherence_14d": "提醒依从",
+    "learning_engagement_30d": "近30天学习",
+    "ai_decision_labels": "AI决策标签",
 }
 
 FIELD_LABELS = {
@@ -103,6 +108,41 @@ FIELD_LABELS = {
         "group_count": "群数量",
         "current_coach_names": "负责教练",
         "staff_count": "服务成员数",
+    },
+    "habit_adherence_14d": {
+        "active_habits_count": "活跃习惯数",
+        "avg_checkin_completion_rate_14d": "14天打卡完成率",
+        "failed_checkin_days_14d": "14天未打卡天数",
+        "current_streak_max": "最大连续打卡",
+        "top_obstacles": "主要障碍",
+        "if_then_plan_summary": "IF-THEN计划摘要",
+    },
+    "plan_progress_14d": {
+        "current_plan_title": "当前计划",
+        "current_plan_status": "计划状态",
+        "plan_day_progress": "计划进度",
+        "todo_completion_rate_14d": "14天待办完成率",
+        "overdue_todo_count": "逾期待办数",
+        "pause_resume_events": "暂停恢复记录",
+    },
+    "reminder_adherence_14d": {
+        "active_reminder_count": "活跃提醒数",
+        "reminders_by_business_type": "按类型分布",
+        "trigger_count_total": "总触发次数",
+        "last_triggered_at": "最近触发时间",
+        "estimated_follow_through_rate": "估算执行率",
+    },
+    "learning_engagement_30d": {
+        "course_total_assigned": "分配课程数",
+        "course_in_progress": "学习中",
+        "course_completed": "已完成",
+        "completion_rate": "完成率",
+        "study_minutes_30d": "30天学习分钟",
+        "last_learning_at": "最近学习时间",
+    },
+    "ai_decision_labels": {
+        "label_count": "标签数",
+        "label_summary": "标签摘要",
     },
 }
 

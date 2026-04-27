@@ -103,3 +103,7 @@ frontend/.next/
 .venv/
 
 node_modules/
+
+# 忽略 Qdrant 向量库数据目录
+data/qdrant/
+*.lock

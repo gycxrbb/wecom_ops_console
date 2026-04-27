@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="crm-profile-page">
 
     <!-- ==================== VIEW: Customer List ==================== -->
@@ -173,40 +173,43 @@
 
           <div class="crm-hero__rail">
             <div class="crm-hero-stat" v-if="basicPayload.height_cm">
-              <span class="stat-label">身高</span>
+              <span class="stat-label"><el-icon class="stat-icon"><User /></el-icon>身高</span>
               <span class="stat-value"><strong>{{ basicPayload.height_cm }}</strong> cm</span>
             </div>
             <div class="stat-divider" v-if="basicPayload.height_cm && basicPayload.weight_kg"></div>
             <div class="crm-hero-stat" v-if="basicPayload.weight_kg">
-              <span class="stat-label">体重</span>
+              <span class="stat-label"><el-icon class="stat-icon"><ScaleToOriginal /></el-icon>体重</span>
               <span class="stat-value"><strong>{{ basicPayload.weight_kg }}</strong> kg</span>
             </div>
             <div class="stat-divider" v-if="basicPayload.weight_kg && basicPayload.bmi"></div>
             <div class="crm-hero-stat" v-if="basicPayload.bmi">
-              <span class="stat-label">BMI</span>
+              <span class="stat-label"><el-icon class="stat-icon"><DataAnalysis /></el-icon>BMI</span>
               <span class="stat-value"><strong>{{ basicPayload.bmi }}</strong></span>
             </div>
             <div class="stat-divider" v-if="basicPayload.bmi && basicPayload.points !== undefined"></div>
             <div class="crm-hero-stat" v-if="basicPayload.points !== undefined">
-              <span class="stat-label">积分</span>
+              <span class="stat-label"><el-icon class="stat-icon"><Star /></el-icon>积分</span>
               <span class="stat-value"><strong>{{ basicPayload.points }}</strong></span>
             </div>
             <div class="stat-divider" v-if="basicPayload.points !== undefined && servicePayload.group_count"></div>
             <div class="crm-hero-stat" v-if="servicePayload.group_count">
-              <span class="stat-label">群组</span>
+              <span class="stat-label"><el-icon class="stat-icon"><UserFilled /></el-icon>群组</span>
               <span class="stat-value"><strong>{{ servicePayload.group_count }}</strong> 组</span>
             </div>
           </div>
         </section>
 
-        <!-- Workbench: Main + Sidebar -->
+        <!-- Workbench: Unified grid layout -->
         <div class="crm-workbench">
-          <!-- Main Column -->
-          <div class="crm-column">
-            <!-- Safety Card -->
-            <ProfileCard title="安全档案" :card="safetyCard" variant="danger">
+          <!-- Safety Card (left, spans 2 rows) -->
+          <ProfileCard title="安全档案" :card="safetyCard" variant="danger" class="crm-card--left">
+              <template #title-icon>
+                <span class="crm-card-icon" style="color: #ef4444; background: rgba(239, 68, 68, 0.10);">
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 5h14l-1.5 6H4.5L3 5zM5 11v5M15 11v5M3 11h14" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </span>
+              </template>
               <template #default="{ payload }">
-                <!-- Safety Snapshot Picker — absolute top-right -->
+                <!-- Safety Snapshot Picker -->
                 <div v-if="selectedCustomer && safetySnapshots.length" class="crm-safety-history-picker">
                   <span class="crm-safety-history-picker__label">档案日期</span>
                   <el-select
@@ -236,70 +239,81 @@
                   {{ payload.snapshot.reference_time }}
                 </div>
 
-                <!-- Health Conditions -->
-                <div v-if="payload.health_condition_summary" class="crm-safety-section">
-                  <div class="crm-safety-label">健康状况</div>
-                  <div class="crm-safety-text">{{ payload.health_condition_summary }}</div>
-                </div>
-
-                <!-- Allergies — highlighted tags -->
-                <div v-if="payload.allergies" class="crm-safety-section">
-                  <div class="crm-safety-label">过敏信息</div>
-                  <el-tag
-                    v-for="(item, idx) in parseList(payload.allergies)"
-                    :key="idx"
-                    type="danger"
-                    size="small"
-                    round
-                    class="crm-allergy-tag"
-                  >{{ item }}</el-tag>
-                </div>
-
-                <!-- Sport Injuries -->
-                <div v-if="payload.sport_injuries" class="crm-safety-section">
-                  <div class="crm-safety-label">运动损伤</div>
-                  <el-tag
-                    v-for="(item, idx) in parseList(payload.sport_injuries)"
-                    :key="idx"
-                    type="warning"
-                    size="small"
-                    round
-                    class="crm-allergy-tag"
-                  >{{ item }}</el-tag>
-                </div>
-
-                <!-- Contraindications -->
-                <div v-if="payload.contraindications" class="crm-safety-section">
-                  <div class="crm-safety-label">禁忌与病史</div>
-                  <div class="crm-safety-text">{{ payload.contraindications }}</div>
-                </div>
-
-                <!-- Prescription — collapsible -->
-                <div v-if="payload.prescription_summary" class="crm-safety-section crm-safety-rx">
-                  <div class="crm-safety-label" @click="toggleRx" style="cursor: pointer; user-select: none;">
-                    处方摘要
-                    <span class="crm-rx-toggle">{{ showRx ? '收起 ▲' : '展开 ▼' }}</span>
+                                  <!-- Health Conditions -->
+                  <div v-if="payload.health_condition_summary" class="crm-safety-section">
+                    <div class="crm-safety-label">健康状况</div>
+                    <div class="crm-safety-text">{{ payload.health_condition_summary }}</div>
                   </div>
-                  <el-collapse-transition>
-                    <div v-show="showRx" class="crm-rx-body">
-                      <div
-                        v-for="(block, idx) in payload.prescription_summary.split('\n')"
-                        :key="idx"
-                        class="crm-rx-block"
-                      >{{ block }}</div>
-                    </div>
-                  </el-collapse-transition>
-                </div>
 
-                <!-- Missing Fields Warning -->
-                <div v-if="payload.missing_critical_fields?.length" class="crm-safety-warning">
-                  缺失关键字段：{{ payload.missing_critical_fields.join('、') }}
-                </div>
+                  <!-- Allergies — highlighted tags -->
+                  <div v-if="payload.allergies" class="crm-safety-section">
+                    <div class="crm-safety-label">过敏信息</div>
+                    <el-tag
+                      v-for="(item, idx) in parseList(payload.allergies)"
+                      :key="idx"
+                      type="danger"
+                      size="small"
+                      round
+                      class="crm-allergy-tag"
+                    >{{ item }}</el-tag>
+                  </div>
+
+                  <!-- Sport Injuries -->
+                  <div v-if="payload.sport_injuries" class="crm-safety-section">
+                    <div class="crm-safety-label">运动损伤</div>
+                    <el-tag
+                      v-for="(item, idx) in parseList(payload.sport_injuries)"
+                      :key="idx"
+                      type="warning"
+                      size="small"
+                      round
+                      class="crm-allergy-tag"
+                    >{{ item }}</el-tag>
+                  </div>
+
+                  <!-- Contraindications -->
+                  <div v-if="payload.contraindications" class="crm-safety-section">
+                    <div class="crm-safety-label">禁忌与病史</div>
+                    <div class="crm-safety-text">{{ payload.contraindications }}</div>
+                  </div>
+
+                  <!-- Prescription — collapsible -->
+                  <div v-if="payload.prescription_summary" class="crm-safety-section crm-safety-rx">
+                    <div class="crm-safety-label" @click="toggleRx" style="cursor: pointer; user-select: none;">
+                      处方摘要
+                      <span class="crm-rx-toggle">{{ showRx ? '收起 ▲' : '展开 ▼' }}</span>
+                    </div>
+                    <el-collapse-transition>
+                      <div v-show="showRx" class="crm-rx-body">
+                        <div
+                          v-for="(block, idx) in payload.prescription_summary.split('\n')"
+                          :key="idx"
+                          class="crm-rx-block"
+                        >{{ block }}</div>
+                      </div>
+                    </el-collapse-transition>
+                  </div>
+
+                  <!-- Missing Fields Warning -->
+                  <div v-if="payload.missing_critical_fields?.length" class="crm-safety-warning">
+                    缺失关键字段：{{ payload.missing_critical_fields.join('、') }}
+                  </div>
+              </template>
+              <template #footer>
+                <span class="crm-footer-link" @click="openModuleDetail('safety_profile')">
+                  查看详情
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 5l5 5-5 5"/></svg>
+                </span>
               </template>
             </ProfileCard>
 
-            <!-- Health Summary Card -->
-            <ProfileCard title="健康摘要" :card="getCard('health_summary_7d')">
+            <!-- Health Summary Card (left, spans 2 rows) -->
+            <ProfileCard title="健康摘要" :card="getCard('health_summary_7d')" class="crm-card--left">
+              <template #title-icon>
+                <span class="crm-card-icon" style="color: #10b981; background: rgba(16, 185, 129, 0.10);">
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 13l4-4 3 3 5-6" stroke-linecap="round" stroke-linejoin="round"/><rect x="3" y="3" width="14" height="14" rx="2"/></svg>
+                </span>
+              </template>
               <template #header-extra>
                 <el-radio-group
                   v-model="currentWindowDays"
@@ -397,120 +411,340 @@
                   </el-tag>
                 </div>
               </template>
-            </ProfileCard>
-
-            <!-- Body Composition Card -->
-            <ProfileCard title="体成分" :card="getCard('body_comp_latest_30d')">
-              <template #default="{ payload }">
-                <div v-if="payload.latest" class="crm-data-grid" style="margin-bottom: 10px;">
-                  <div class="crm-data-item">
-                    <span class="crm-data-label">最新数据</span>
-                    <span class="crm-data-value">{{ payload.latest }}</span>
-                  </div>
-                </div>
-                <div v-if="payload.trend" class="crm-data-grid">
-                  <div class="crm-data-item">
-                    <span class="crm-data-label">30天趋势</span>
-                    <span class="crm-data-value">{{ payload.trend }}</span>
-                  </div>
-                </div>
-              </template>
-            </ProfileCard>
-          </div>
-
-          <!-- Sidebar Column -->
-          <div class="crm-column crm-column--side">
-            <section class="crm-card crm-ai-card">
-              <div class="crm-card__header">
-                <div class="crm-card__header-left">
-                  <span class="crm-card-kicker">AI</span>
-                  <h3 class="crm-card__title">AI 教练助手</h3>
-                </div>
-                <el-tag v-if="aiCoachEnabled" type="success" size="small" round>可用</el-tag>
-                <el-tag v-else type="info" size="small" round>暂不可用</el-tag>
-              </div>
-
-              <p class="crm-ai-card__summary">
-                {{ aiCoachEnabled ? '可以基于当前客户档案提问，生成教练可复核的建议草稿。' : (aiCoachReason || '当前客户暂时无法使用 AI 对话。') }}
-              </p>
-
-              <div class="crm-ai-card__actions">
-                <el-button
-                  type="primary"
-                  :disabled="!aiCoachEnabled"
-                  @click="showAiDrawer = true"
-                >
-                  {{ aiCoachEnabled ? '开始 AI 对话' : '当前不可发起' }}
-                </el-button>
-              </div>
-
-              <div class="crm-ai-card__tips">
-                <span>支持提问：</span>
-                <span>总结服务重点、列出跟进问题、生成交接备注</span>
-              </div>
-            </section>
-
-            <!-- Goals & Preferences -->
-            <ProfileCard title="目标与偏好" :card="getCard('goals_preferences')">
-              <template #default="{ payload }">
-                <div class="crm-data-grid" style="grid-template-columns: 1fr;">
-                  <div class="crm-data-item" v-if="payload.primary_goals">
-                    <span class="crm-data-label">主要目标</span>
-                    <span class="crm-data-value">{{ payload.primary_goals }}</span>
-                  </div>
-                  <div class="crm-data-item" v-if="payload.target_weight_kg">
-                    <span class="crm-data-label">目标体重</span>
-                    <span class="crm-data-value">{{ payload.target_weight_kg }} kg</span>
-                  </div>
-                  <div class="crm-data-item" v-if="payload.diet">
-                    <span class="crm-data-label">饮食偏好</span>
-                    <span class="crm-data-value">{{ payload.diet }}</span>
-                  </div>
-                  <div class="crm-data-item" v-if="payload.exercise">
-                    <span class="crm-data-label">运动偏好</span>
-                    <span class="crm-data-value">{{ payload.exercise }}</span>
-                  </div>
-                  <div class="crm-data-item" v-if="payload.sleep">
-                    <span class="crm-data-label">睡眠质量</span>
-                    <span class="crm-data-value">{{ payload.sleep }}</span>
-                  </div>
-                </div>
+              <template #footer>
+                <span class="crm-footer-link" @click="openModuleDetail('health_summary_7d')">
+                  查看详情
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 5l5 5-5 5"/></svg>
+                </span>
               </template>
             </ProfileCard>
 
             <!-- Points & Engagement -->
             <ProfileCard title="积分活跃" :card="getCard('points_engagement_14d')">
+              <template #title-icon>
+                <span class="crm-card-icon" style="color: #f59e0b; background: rgba(245, 158, 11, 0.10);">
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 2l2.35 5.36L18 8.27l-4.12 3.77L15 18l-5-2.73L5 18l1.12-5.96L2 8.27l5.65-.91L10 2z"/></svg>
+                </span>
+              </template>
               <template #default="{ payload }">
-                <div class="crm-health-grid">
-                  <div class="crm-health-item" v-if="payload.points_current !== undefined">
-                    <span>当前积分</span><strong>{{ payload.points_current }}</strong>
+                <div class="crm-module-grid">
+                  <div class="crm-module-stat" v-if="payload.points_current !== undefined">
+                    <span class="crm-module-stat__label">当前积分</span>
+                    <span class="crm-module-stat__value">{{ payload.points_current }}</span>
                   </div>
-                  <div class="crm-health-item" v-if="payload.points_total !== undefined">
-                    <span>累计积分</span><strong>{{ payload.points_total }}</strong>
+                  <div class="crm-module-stat" v-if="payload.points_total !== undefined">
+                    <span class="crm-module-stat__label">累计积分</span>
+                    <span class="crm-module-stat__value">{{ payload.points_total }}</span>
                   </div>
-                  <div class="crm-health-item" v-if="payload.active_days_14d !== undefined">
-                    <span>14天活跃</span><strong>{{ payload.active_days_14d }} 天</strong>
+                  <div class="crm-module-stat" v-if="payload.active_days_14d !== undefined">
+                    <span class="crm-module-stat__label">14天活跃</span>
+                    <span class="crm-module-stat__value">{{ payload.active_days_14d }} 天</span>
+                  </div>
+                  <div class="crm-module-stat" v-if="payload.earned_14d !== undefined">
+                    <span class="crm-module-stat__label">近期获得</span>
+                    <span class="crm-module-stat__value">{{ payload.earned_14d }} 积分</span>
                   </div>
                 </div>
-                <div v-if="payload.summary" style="margin-top: 10px; font-size: 13px; color: var(--text-secondary);">
-                  {{ payload.summary }}
+                <div v-if="payload.summary" class="crm-module-summary">{{ payload.summary }}</div>
+              </template>
+              <template #footer>
+                <span class="crm-footer-link" @click="openModuleDetail('points_engagement_14d')">
+                  查看详情
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 5l5 5-5 5"/></svg>
+                </span>
+              </template>
+            </ProfileCard>
+
+            <!-- Goals & Preferences -->
+            <ProfileCard title="目标与偏好" :card="getCard('goals_preferences')">
+              <template #title-icon>
+                <span class="crm-card-icon" style="color: #8b5cf6; background: rgba(139, 92, 246, 0.10);">
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="10" r="8"/><circle cx="10" cy="10" r="5"/><circle cx="10" cy="10" r="2" fill="currentColor" stroke="none"/></svg>
+                </span>
+              </template>
+              <template #default="{ payload }">
+                <div class="crm-module-grid">
+                  <div class="crm-module-stat" v-if="payload.primary_goals">
+                    <span class="crm-module-stat__label">主要目标</span>
+                    <span class="crm-module-stat__value">{{ payload.primary_goals }}</span>
+                  </div>
+                  <div class="crm-module-stat" v-if="payload.target_weight_kg">
+                    <span class="crm-module-stat__label">目标体重</span>
+                    <span class="crm-module-stat__value">{{ payload.target_weight_kg }} kg</span>
+                  </div>
+                  <div class="crm-module-stat" v-if="payload.diet">
+                    <span class="crm-module-stat__label">饮食偏好</span>
+                    <span class="crm-module-stat__value">{{ payload.diet }}</span>
+                  </div>
+                  <div class="crm-module-stat" v-if="payload.exercise">
+                    <span class="crm-module-stat__label">运动偏好</span>
+                    <span class="crm-module-stat__value">{{ payload.exercise }}</span>
+                  </div>
+                  <div class="crm-module-stat" v-if="payload.sleep">
+                    <span class="crm-module-stat__label">睡眠质量</span>
+                    <span class="crm-module-stat__value">{{ payload.sleep }}</span>
+                  </div>
                 </div>
+              </template>
+              <template #footer>
+                <span class="crm-footer-link" @click="openModuleDetail('goals_preferences')">
+                  查看详情
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 5l5 5-5 5"/></svg>
+                </span>
               </template>
             </ProfileCard>
 
             <!-- Service Scope -->
             <ProfileCard title="服务关系" :card="getCard('service_scope')">
+              <template #title-icon>
+                <span class="crm-card-icon" style="color: #3b82f6; background: rgba(59, 130, 246, 0.10);">
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7" cy="7" r="3"/><path d="M1 19v-2a4 4 0 014-4h4a4 4 0 014 4v2"/><circle cx="15" cy="7" r="2.5"/><path d="M15 13h1a3 3 0 013 3v1"/></svg>
+                </span>
+              </template>
               <template #default="{ payload }">
-                <div class="crm-data-grid" style="grid-template-columns: 1fr;">
-                  <div class="crm-data-item" v-if="payload.group_names">
-                    <span class="crm-data-label">所属群</span>
-                    <span class="crm-data-value">{{ payload.group_names }}</span>
+                <div class="crm-module-grid">
+                  <div class="crm-module-stat" v-if="payload.group_names">
+                    <span class="crm-module-stat__label">所属群</span>
+                    <span class="crm-module-stat__value">{{ payload.group_names }}</span>
                   </div>
-                  <div class="crm-data-item" v-if="payload.current_coach_names">
-                    <span class="crm-data-label">负责教练</span>
-                    <span class="crm-data-value">{{ payload.current_coach_names }}</span>
+                  <div class="crm-module-stat" v-if="payload.current_coach_names">
+                    <span class="crm-module-stat__label">负责教练</span>
+                    <span class="crm-module-stat__value">{{ payload.current_coach_names }}</span>
+                  </div>
+                  <div class="crm-module-stat" v-if="payload.group_count">
+                    <span class="crm-module-stat__label">群组数</span>
+                    <span class="crm-module-stat__value">{{ payload.group_count }} 组</span>
+                  </div>
+                  <div class="crm-module-stat" v-if="payload.staff_count">
+                    <span class="crm-module-stat__label">教练数</span>
+                    <span class="crm-module-stat__value">{{ payload.staff_count }} 人</span>
                   </div>
                 </div>
+              </template>
+              <template #footer>
+                <span class="crm-footer-link" @click="openModuleDetail('service_scope')">
+                  查看详情
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 5l5 5-5 5"/></svg>
+                </span>
+              </template>
+            </ProfileCard>
+
+            <!-- Body Composition Card -->
+            <ProfileCard title="体成分" :card="getCard('body_comp_latest_30d')">
+              <template #title-icon>
+                <span class="crm-card-icon" style="color: #10b981; background: rgba(16, 185, 129, 0.10);">
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 3C10 3 5 8.5 5 12a5 5 0 0010 0c0-3.5-5-9-5-9z"/><path d="M10 8v5M8 11h4" stroke-linecap="round"/></svg>
+                </span>
+              </template>
+              <template #default="{ payload }">
+                <BodyCompCard :payload="payload" />
+              </template>
+              <template #empty>
+                <div class="crm-bodycomp-silhouette">
+                  <svg viewBox="0 0 60 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="30" cy="10" r="8" fill="currentColor" />
+                    <path d="M30 18 C20 18, 15 28, 15 38 L15 58 C15 60, 17 62, 19 62 L22 62 L22 82 C22 86, 25 88, 27 88 L27 88 C29 88, 30 86, 30 84 L30 62 L30 84 C30 86, 31 88, 33 88 L33 88 C35 88, 38 86, 38 82 L38 62 L41 62 C43 62, 45 60, 45 58 L45 38 C45 28, 40 18, 30 18Z" fill="currentColor" />
+                  </svg>
+                  <span style="font-size: 13px;">暂无体成分数据</span>
+                </div>
+              </template>
+              <template #footer>
+                <span class="crm-footer-link" @click="openModuleDetail('body_comp_latest_30d')">
+                  查看详情
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 5l5 5-5 5"/></svg>
+                </span>
+              </template>
+            </ProfileCard>
+        </div>
+
+        <!-- Insights Section: 5 new behavioral modules -->
+        <div class="crm-insights">
+          <div class="crm-insights__grid">
+            <!-- Habit Adherence -->
+            <ProfileCard title="习惯执行" :card="getCard('habit_adherence_14d')">
+              <template #title-icon>
+                <span class="crm-card-icon" style="color: #10b981; background: rgba(16, 185, 129, 0.10);">
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="10" r="8"/><path d="M6.5 10l2.5 2.5 5-5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </span>
+              </template>
+              <template #default="{ payload }">
+                <div class="crm-module-grid">
+                  <div class="crm-module-stat" v-if="payload.active_habits_count !== undefined">
+                    <span class="crm-module-stat__label">活跃习惯</span>
+                    <span class="crm-module-stat__value">{{ payload.active_habits_count }} 个</span>
+                  </div>
+                  <div class="crm-module-stat" v-if="payload.avg_checkin_completion_rate_14d">
+                    <span class="crm-module-stat__label">14天打卡率</span>
+                    <span class="crm-module-stat__value">{{ payload.avg_checkin_completion_rate_14d }}</span>
+                  </div>
+                  <div class="crm-module-stat" v-if="payload.failed_checkin_days_14d !== undefined">
+                    <span class="crm-module-stat__label">未打卡</span>
+                    <span class="crm-module-stat__value">{{ payload.failed_checkin_days_14d }} 天</span>
+                  </div>
+                  <div class="crm-module-stat" v-if="payload.current_streak_max !== undefined">
+                    <span class="crm-module-stat__label">最大连续</span>
+                    <span class="crm-module-stat__value">{{ payload.current_streak_max }} 天</span>
+                  </div>
+                </div>
+                <div v-if="payload.top_obstacles?.length" style="margin-top: 10px;">
+                  <div class="crm-module-section">主要障碍</div>
+                  <el-tag v-for="o in payload.top_obstacles" :key="o" size="small" type="warning" round
+                    style="margin: 2px 4px 2px 0;">{{ o }}</el-tag>
+                </div>
+              </template>
+              <template #footer>
+                <span class="crm-footer-link" @click="openModuleDetail('habit_adherence_14d')">
+                  查看详情
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 5l5 5-5 5"/></svg>
+                </span>
+              </template>
+            </ProfileCard>
+
+            <!-- Plan Progress -->
+            <ProfileCard title="计划推进" :card="getCard('plan_progress_14d')">
+              <template #title-icon>
+                <span class="crm-card-icon" style="color: #3b82f6; background: rgba(59, 130, 246, 0.10);">
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="16" height="14" rx="2"/><path d="M2 9h16"/><path d="M6 2v4M14 2v4"/></svg>
+                </span>
+              </template>
+              <template #default="{ payload }">
+                <!-- Plan title + status -->
+                <div v-if="payload.current_plan_title" style="margin-bottom: 10px;">
+                  <div style="font-size: 14px; font-weight: 600; color: var(--text-primary);">{{ payload.current_plan_title }}</div>
+                  <span v-if="payload.current_plan_status === '进行中'" class="crm-module-status crm-module-status--active" style="margin-top: 4px;">进行中</span>
+                  <span v-else-if="payload.current_plan_status === '已完成'" class="crm-module-status crm-module-status--completed" style="margin-top: 4px;">已完成</span>
+                  <span v-else-if="payload.current_plan_status" class="crm-module-status crm-module-status--none" style="margin-top: 4px;">{{ payload.current_plan_status }}</span>
+                </div>
+                <!-- Progress bar -->
+                <div v-if="parsePlanProgress(payload.plan_day_progress) !== null" style="margin-bottom: 12px;">
+                  <div class="crm-module-progress-info">
+                    <span>{{ payload.plan_day_progress }}</span>
+                    <span>{{ parsePlanProgress(payload.plan_day_progress) }}%</span>
+                  </div>
+                  <div class="crm-module-progress">
+                    <div class="crm-module-progress__fill" :style="{ width: parsePlanProgress(payload.plan_day_progress) + '%' }" />
+                  </div>
+                </div>
+                <div class="crm-module-grid">
+                  <div class="crm-module-stat" v-if="payload.todo_completion_rate_14d">
+                    <span class="crm-module-stat__label">待办完成率</span>
+                    <span class="crm-module-stat__value">{{ payload.todo_completion_rate_14d }}</span>
+                  </div>
+                  <div class="crm-module-stat" v-if="payload.overdue_todo_count > 0">
+                    <span class="crm-module-stat__label">逾期待办</span>
+                    <span class="crm-module-stat__value crm-module-stat__value--danger">{{ payload.overdue_todo_count }} 项</span>
+                  </div>
+                </div>
+                <div v-if="payload.pause_resume_events" class="crm-module-summary">{{ payload.pause_resume_events }}</div>
+              </template>
+              <template #footer>
+                <span class="crm-footer-link" @click="openModuleDetail('plan_progress_14d')">
+                  查看详情
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 5l5 5-5 5"/></svg>
+                </span>
+              </template>
+            </ProfileCard>
+
+            <!-- Reminder Adherence -->
+            <ProfileCard title="提醒依从" :card="getCard('reminder_adherence_14d')">
+              <template #title-icon>
+                <span class="crm-card-icon" style="color: #f97316; background: rgba(249, 115, 22, 0.10);">
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M10 2a5 5 0 015 5c0 5 2 7 2 7H3s2-2 2-7a5 5 0 015-5z"/><path d="M8 17a2 2 0 004 0"/></svg>
+                </span>
+              </template>
+              <template #default="{ payload }">
+                <div class="crm-module-grid">
+                  <div class="crm-module-stat" v-if="payload.active_reminder_count !== undefined">
+                    <span class="crm-module-stat__label">活跃提醒</span>
+                    <span class="crm-module-stat__value">{{ payload.active_reminder_count }} 个</span>
+                  </div>
+                  <div class="crm-module-stat" v-if="payload.estimated_follow_through_rate">
+                    <span class="crm-module-stat__label">估算执行率</span>
+                    <span class="crm-module-stat__value">{{ payload.estimated_follow_through_rate }}</span>
+                  </div>
+                  <div class="crm-module-stat" v-if="payload.trigger_count_total !== undefined">
+                    <span class="crm-module-stat__label">总触发</span>
+                    <span class="crm-module-stat__value">{{ payload.trigger_count_total }} 次</span>
+                  </div>
+                </div>
+                <div v-if="payload.reminders_by_business_type?.length" style="margin-top: 10px;">
+                  <div class="crm-module-section">按类型分布</div>
+                  <div class="crm-reminder-types">
+                    <div v-for="rt in payload.reminders_by_business_type" :key="rt.type" class="crm-reminder-type-row">
+                      <span class="crm-reminder-type-name">{{ rt.type }}</span>
+                      <span class="crm-reminder-type-count">{{ rt.count }}个 · {{ rt.triggers }}次</span>
+                    </div>
+                  </div>
+                </div>
+              </template>
+              <template #footer>
+                <span class="crm-footer-link" @click="openModuleDetail('reminder_adherence_14d')">
+                  查看详情
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 5l5 5-5 5"/></svg>
+                </span>
+              </template>
+            </ProfileCard>
+
+            <!-- Learning Engagement -->
+            <ProfileCard title="学习吸收" :card="getCard('learning_engagement_30d')">
+              <template #title-icon>
+                <span class="crm-card-icon" style="color: #6366f1; background: rgba(99, 102, 241, 0.10);">
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M2 3h6a2 2 0 012 2v12a1.5 1.5 0 00-1.5-1.5H2V3z"/><path d="M18 3h-6a2 2 0 00-2 2v12a1.5 1.5 0 011.5-1.5H18V3z"/></svg>
+                </span>
+              </template>
+              <template #default="{ payload }">
+                <div class="crm-module-grid">
+                  <div class="crm-module-stat" v-if="payload.course_total_assigned !== undefined">
+                    <span class="crm-module-stat__label">分配课程</span>
+                    <span class="crm-module-stat__value">{{ payload.course_total_assigned }} 门</span>
+                  </div>
+                  <div class="crm-module-stat" v-if="payload.course_in_progress !== undefined">
+                    <span class="crm-module-stat__label">学习中</span>
+                    <span class="crm-module-stat__value">{{ payload.course_in_progress }} 门</span>
+                  </div>
+                  <div class="crm-module-stat" v-if="payload.course_completed !== undefined">
+                    <span class="crm-module-stat__label">已完成</span>
+                    <span class="crm-module-stat__value">{{ payload.course_completed }} 门</span>
+                  </div>
+                  <div class="crm-module-stat" v-if="payload.completion_rate">
+                    <span class="crm-module-stat__label">完成率</span>
+                    <span class="crm-module-stat__value">{{ payload.completion_rate }}</span>
+                  </div>
+                  <div class="crm-module-stat" v-if="payload.study_minutes_30d !== undefined">
+                    <span class="crm-module-stat__label">30天学习</span>
+                    <span class="crm-module-stat__value">{{ payload.study_minutes_30d }} 分钟</span>
+                  </div>
+                </div>
+              </template>
+              <template #footer>
+                <span class="crm-footer-link" @click="openModuleDetail('learning_engagement_30d')">
+                  查看详情
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 5l5 5-5 5"/></svg>
+                </span>
+              </template>
+            </ProfileCard>
+
+            <!-- AI Decision Labels -->
+            <ProfileCard title="AI决策标签" :card="getCard('ai_decision_labels')" class="crm-insights__wide">
+              <template #title-icon>
+                <span class="crm-card-icon" style="color: #8b5cf6; background: rgba(139, 92, 246, 0.10);">
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5A1.5 1.5 0 014.5 3H12l5 5-7 7-5-5V4.5z"/><circle cx="7" cy="7" r="1.5" fill="currentColor" stroke="none"/></svg>
+                </span>
+              </template>
+              <template #default="{ payload }">
+                <div v-if="payload.label_summary" class="crm-module-summary" style="margin-top: 0; margin-bottom: 10px;">{{ payload.label_summary }}</div>
+                <div v-if="payload.labels?.length" class="crm-labels-grid">
+                  <div v-for="lb in payload.labels" :key="lb.key" class="crm-label-chip">
+                    <span class="crm-label-name">{{ lb.name_cn }}</span>
+                    <span class="crm-label-weight">{{ Math.round(lb.weight * 100) }}%</span>
+                  </div>
+                </div>
+              </template>
+              <template #footer>
+                <span class="crm-footer-link" @click="openModuleDetail('ai_decision_labels')">
+                  查看详情
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 5l5 5-5 5"/></svg>
+                </span>
               </template>
             </ProfileCard>
           </div>
@@ -520,6 +754,12 @@
       <!-- Profile load failed -->
       <el-empty v-else description="客户档案加载失败" :image-size="48" />
 
+      <!-- Floating AI Coach Button -->
+      <div class="crm-ai-fab" @click="showAiDrawer = true" v-if="profile" :title="aiCoachEnabled ? 'AI 教练助手' : aiCoachReason">
+        <el-icon :size="22"><ChatDotRound /></el-icon>
+        <span class="crm-ai-fab__label">AI</span>
+      </div>
+
       <!-- AI Coach Drawer -->
       <AiCoachPanel
         v-if="profile"
@@ -528,9 +768,16 @@
         :used-modules="usedModules"
         :data-gaps="dataGaps"
         :disabled-reason="aiCoachReason"
+        :health-window-days="currentWindowDays"
+        :profile-cache-status="profileCacheStatus"
+      />
+
+      <ModuleDetailDialog
+        v-model:visible="detailDialog.visible"
+        :title="detailDialog.title"
+        :payload="detailDialog.payload"
       />
     </template>
-
   </div>
 </template>
 
@@ -539,11 +786,13 @@ export default { name: 'CrmProfile' }
 </script>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
-import { Search, ArrowLeft, Warning } from '@element-plus/icons-vue'
+import { ref, computed, onMounted, watch, reactive } from 'vue'
+import { Search, ArrowLeft, Warning, ChatDotRound, User, ScaleToOriginal, DataAnalysis, Star, UserFilled } from '@element-plus/icons-vue'
 import { useCrmProfile } from './composables/useCrmProfile'
 import ProfileCard from './components/ProfileCard.vue'
+import BodyCompCard from './components/BodyCompCard.vue'
 import AiCoachPanel from './components/AiCoachPanel.vue'
+import ModuleDetailDialog from './components/ModuleDetailDialog.vue'
 
 const {
   loading, selectedCustomer, profile,
@@ -551,6 +800,7 @@ const {
   genderText, calcAge,
   safetySnapshots, safetySnapshotLoading, loadSafetySnapshotDetail,
   currentWindowDays, healthLoading, switchHealthWindow,
+  profileCacheStatus,
   // list
   listLoading, listItems, listTotal, listPage, listPageSize,
   filters, filterOptions,
@@ -559,6 +809,7 @@ const {
 
 const showAiDrawer = ref(false)
 const showRx = ref(false)
+const detailDialog = reactive({ visible: false, title: '', payload: {} as Record<string, any> })
 const selectedSafetySnapshotId = ref<number | null>(null)
 const safetySnapshotDetailLoading = ref(false)
 const safetyCardOverride = ref<any | null>(null)
@@ -640,6 +891,38 @@ const dataGaps = computed(() => {
 })
 
 const toggleRx = () => { showRx.value = !showRx.value }
+
+const parsePlanProgress = (text: string | null | undefined): number | null => {
+  if (!text) return null
+  const m = text.match(/(\d+)\s*\/\s*(\d+)/)
+  if (!m) return null
+  const cur = parseInt(m[1], 10)
+  const total = parseInt(m[2], 10)
+  if (total <= 0) return null
+  return Math.round((cur / total) * 100)
+}
+
+const MODULE_TITLES: Record<string, string> = {
+  safety_profile: '安全档案详情',
+  health_summary_7d: '健康摘要详情',
+  points_engagement_14d: '积分活跃详情',
+  goals_preferences: '目标与偏好详情',
+  service_scope: '服务关系详情',
+  body_comp_latest_30d: '体成分详情',
+  habit_adherence_14d: '习惯执行详情',
+  plan_progress_14d: '计划推进详情',
+  reminder_adherence_14d: '提醒依从详情',
+  learning_engagement_30d: '学习吸收详情',
+  ai_decision_labels: 'AI决策标签详情',
+}
+
+const openModuleDetail = (moduleKey: string) => {
+  const card = moduleKey === 'safety_profile' ? safetyCard.value : getCard(moduleKey)
+  if (!card) return
+  detailDialog.title = MODULE_TITLES[moduleKey] || '详情'
+  detailDialog.payload = card.payload || {}
+  detailDialog.visible = true
+}
 
 const getCurrentSafetySnapshotId = () => {
   const rawId = getCard('safety_profile')?.payload?.snapshot?.snapshot_id

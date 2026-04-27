@@ -134,6 +134,7 @@ class AiChatRequest(BaseModel):
     entry_scene: str = "customer_profile"
     selected_expansions: list[str] | None = None
     output_style: str = "coach_brief"
+    health_window_days: int = 7
 
 
 class AiChatResponse(BaseModel):
@@ -181,3 +182,26 @@ class AiSessionDetailResponse(BaseModel):
     scene_key: str | None = None
     output_style: str | None = None
     prompt_version: str | None = None
+
+
+# ---------- AI Preload ----------
+
+class AiPreloadRequest(BaseModel):
+    health_window_days: int = 7
+    wait_ms: int = 0
+
+class AiPreloadResponse(BaseModel):
+    customer_id: int
+    status: str
+    cache_key: str
+    health_window_days: int = 7
+    ready: bool = False
+    source: str = ""
+    generated_at: str | None = None
+    expires_at: str | None = None
+    stale_expires_at: str | None = None
+    message: str = ""
+
+
+class AiCacheStatusResponse(AiPreloadResponse):
+    pass

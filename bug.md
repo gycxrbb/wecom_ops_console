@@ -559,3 +559,39 @@
 - **复现条件**: 打开一个近 30 天内只有少量健康记录的客户档案，例如只有 2026-04-25、2026-04-26 两天记录的客户；切换 7/14/30 天窗口。
 - **解决方案**: 健康摘要 meta 文案改为“近 X 天内共 N 天记录”，当 `N < X` 时展示“覆盖不足”标签和说明；同时 `switchHealthWindow` 请求成功后显式同步 `currentWindowDays`，避免状态只依赖 radio v-model。
 - **关联文件**: frontend/src/views/CrmProfile/index.vue, frontend/src/views/CrmProfile/composables/useCrmProfile.ts, frontend/src/views/CrmProfile/styles/CrmProfile.css
+
+## Bug #56: 从发送中心返回客户档案时丢失上次客户详情
+
+- **日期**: 2026-04-26
+- **现象**: 用户已在某个客户详情页，切到发送中心后再点击客户档案，页面回到客户列表，未恢复原本查看的客户。
+- **根因**: 客户详情恢复只依赖 `/crm-profile?cid=...`，侧边栏菜单再次进入客户档案时使用 `/crm-profile`，会丢失 query；同时客户档案 composable 是页面级状态，路由切换卸载后没有会话级恢复锚点。
+- **复现条件**: 进入客户档案详情页 -> 点击发送中心 -> 再点击侧边栏客户档案。
+- **解决方案**: 选择客户时把 `customerId/windowDays` 写入 `sessionStorage`；重新进入客户档案且 URL 没有 `cid` 时，从会话缓存恢复上次客户并补回 query；点击“返回客户列表”时清除缓存，避免用户主动回列表后被强制恢复详情。
+- **关联文件**: frontend/src/views/CrmProfile/composables/useCrmProfile.ts
+
+## Bug #57: RAG Qdrant 多值过滤被误组装成 AND，导致脚本/知识卡检索为空
+
+- **日期**: 2026-04-26
+- **现象**: RAG 检索传入 `content_kind=["script", "text", "knowledge_card"]` 时，本意是命中任意一种内容类型，但实际会要求同一条向量同时满足三个 `content_kind`，导致已经入库的话术也可能检索不到。
+- **根因**: `app/rag/vector_store.py` 在处理 list 过滤值时，为每个值都追加一个 `must FieldCondition`，把 OR 语义误写成 AND 语义。
+- **复现条件**: Qdrant payload 中 `content_kind=script`，调用 `search(..., filters={"content_kind": ["script", "text", "knowledge_card"]})`，过滤条件要求同时等于多个值，结果为空。
+- **解决方案**: list 类型过滤值改用 Qdrant `MatchAny`，保持 `status=active` 等不同字段仍是 AND，同一字段多候选值为 OR。
+- **关联文件**: app/rag/vector_store.py
+
+## Bug #58: CRM AI Profile L2 缓存半接入导致首问仍可能同步查 CRM DB
+
+- **日期**: 2026-04-27
+- **现象**: 代码已新增本地 DB L2 profile 快照，但 AI 对话链路仍未完整使用：路由传入 `health_window_days` 后 service 函数签名没接住；DeepSeek thinking-stream 仍走旧缓存分支并引用未导入符号；前端 AI 请求没有携带当前健康窗口。结果是用户已进入档案页后，AI 首问仍可能 miss 并等待 CRM profile 聚合查询，甚至在运行时抛参数/未定义错误。
+- **根因**: 缓存服务、路由 schema、AI 对话 service、前端抽屉四条线并行修改后没有收口到同一条 truth：L2 DB 快照存在，但 answer/thinking/context-preview/前端窗口参数没有统一接入。
+- **复现条件**: 打开 CRM 客户档案页后发起 AI 对话；尤其是当前窗口为 14/30 天或使用 DeepSeek thinking-stream 时，更容易触发 key 不一致、旧分支绕行或运行时异常。
+- **解决方案**: 新增 AI cache-only 读取方法，AI prepare 只读 L1/L2，true miss 只后台 preload 并快速提示；修复 `ask_ai_coach / stream_ai_coach_answer / stream_ai_coach_thinking` 的 `health_window_days` 参数；thinking-stream 收回统一 cached prepare；前端 profile 加载/窗口切换后静默 preload，AI 对话和 context-preview 均携带当前窗口。
+- **关联文件**: app/crm_profile/services/profile_context_cache.py, app/crm_profile/services/ai_coach.py, app/crm_profile/router.py, app/crm_profile/schemas/api.py, frontend/src/views/CrmProfile/composables/useCrmProfile.ts, frontend/src/views/CrmProfile/composables/useAiCoach.ts, frontend/src/views/CrmProfile/components/AiCoachPanel.vue, frontend/src/views/CrmProfile/index.vue
+
+## Bug #59: RAG 检索日志模型新增 `intent_json` 后旧库未自动补列
+
+- **日期**: 2026-04-27
+- **现象**: 后端可正常启动，CRM AI 对话也能进入 `chat-stream / thinking-stream`，但 RAG 检索审计落库时报 `OperationalError (1054) Unknown column 'intent_json' in 'field list'`，导致日志写入失败并在后端日志里持续刷 traceback。
+- **根因**: `RagRetrievalLog` ORM 模型已经新增 `intent_json` 字段，`write_retrieval_log()` 也会写入该字段；但 `ensure_rag_schema()` 只保证 RAG 索引存在，没有对旧数据库的 `rag_retrieval_logs` 表执行幂等补列，代码真值和数据库真值漂移。
+- **复现条件**: 使用已有旧库启动后端，进入 CRM 客户档案并发起 AI 对话，RAG 检索链路尝试写入检索日志。
+- **解决方案**: 在 `ensure_rag_schema()` 中检测 `rag_retrieval_logs.intent_json`，缺失时执行 `ALTER TABLE rag_retrieval_logs ADD COLUMN intent_json TEXT`；同时本地已手动执行一次 `ensure_rag_schema(engine)`，确认当前库已补齐字段。
+- **关联文件**: app/schema_migrations.py, app/models_rag.py, app/rag/audit.py

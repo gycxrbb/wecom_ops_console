@@ -3,23 +3,20 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import threading
 import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Literal
 
 from ...clients.ai_chat_client import chat_completion, chat_completion_stream
-from ...clients.crm_db import get_connection, return_connection
 from ...config import settings
 from ...database import SessionLocal
 from ...sse_debug_log import get_sse_logger
 from ..models import CustomerAiProfileNote
 from ..schemas.context import ModulePayload
 from . import audit
-from .cache import get as cache_get, get_stale as cache_get_stale, put as cache_put, PROFILE_TTL
 from .context_builder import build_context_text, validate_field_whitelist, get_module_label
-from .profile_loader import load_profile
+from .profile_context_cache import ProfileCacheNotReady, get_ai_ready_profile_context, normalize_window_days
 from .prompt_builder import assemble_prompt, assemble_visible_thinking_prompt
 from .safety_gate import build_safety_input, evaluate_ai_answer_safety
 
@@ -191,6 +188,9 @@ class PreparedAiTurn:
     ai_messages: list[dict[str, Any]]
     shortcut_answer: str | None = None
     shortcut_thinking: str | None = None
+    rag_context_text: str = ""
+    rag_sources: list[dict] = field(default_factory=list)
+    rag_recommended_assets: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -209,8 +209,16 @@ class AiChatResult:
 
 @dataclass
 class AiStreamEvent:
-    event: Literal["meta", "delta", "done", "error", "loading"]
+    event: Literal["meta", "delta", "done", "error", "loading", "rag"]
     data: dict[str, Any] = field(default_factory=dict)
+
+
+def _profile_cache_unready_payload(exc: ProfileCacheNotReady) -> dict[str, Any]:
+    result = exc.result
+    return {
+        "message": str(exc), "cache_status": result.status, "cache_key": result.cache_key,
+        "health_window_days": result.health_window_days, "source": result.source,
+    }
 
 
 # --- Prepare cache: avoid duplicate DB queries when answer + thinking run concurrently ---
@@ -220,8 +228,8 @@ _PREPARE_TTL = 15.0
 
 
 def _prepare_cache_key(customer_id: int, message: str, session_id: str | None,
-                       scene_key: str, output_style: str) -> tuple:
-    return (customer_id, message, session_id or "", scene_key, output_style)
+                       scene_key: str, output_style: str, health_window_days: int) -> tuple:
+    return (customer_id, message, session_id or "", scene_key, output_style, health_window_days)
 
 
 async def _prepare_ai_turn_cached(
@@ -231,11 +239,13 @@ async def _prepare_ai_turn_cached(
     session_id: str | None,
     scene_key: str,
     output_style: str,
+    health_window_days: int = 7,
     prompt_mode: Literal["answer", "thinking"],
     selected_expansions: list[str] | None = None,
 ) -> PreparedAiTurn:
     """Prepare with turn-level cache. First call writes, second call reads within TTL."""
-    key = _prepare_cache_key(customer_id, message, session_id, scene_key, output_style)
+    window_days = normalize_window_days(health_window_days)
+    key = _prepare_cache_key(customer_id, message, session_id, scene_key, output_style, window_days)
     now = time.time()
     hit = _PREPARE_CACHE.get(key)
     if hit and now - hit[0] < _PREPARE_TTL:
@@ -276,7 +286,8 @@ async def _prepare_ai_turn_cached(
     prepared = await _prepare_ai_turn_async(
         customer_id, message,
         session_id=session_id, scene_key=scene_key,
-        output_style=output_style, prompt_mode=prompt_mode,
+        output_style=output_style, health_window_days=window_days, prompt_mode=prompt_mode,
+        selected_expansions=selected_expansions,
     )
     _PREPARE_CACHE[key] = (now, prepared)
     return prepared
@@ -296,18 +307,40 @@ async def _prepare_ai_turn_async(
     session_id: str | None,
     scene_key: str,
     output_style: str,
+    health_window_days: int = 7,
     prompt_mode: Literal["answer", "thinking"],
     selected_expansions: list[str] | None = None,
 ) -> PreparedAiTurn:
-    """Async wrapper: runs the synchronous _prepare_ai_turn in a thread to avoid blocking the event loop."""
+    """Async wrapper: runs RAG retrieval (async) then _prepare_ai_turn (sync via executor)."""
+    rag_context_text = ""
+    rag_sources: list[dict] = []
+    rag_recommended_assets: list[dict] = []
+    if settings.rag_enabled:
+        try:
+            from ...rag.retriever import retrieve_rag_context as _rag_retrieve
+            rag_bundle = await _rag_retrieve(
+                customer_id=customer_id, message=message,
+                scene_key=scene_key, output_style=output_style,
+                profile_context=None,
+            )
+            if rag_bundle and rag_bundle.rag_status == "ok":
+                rag_context_text = rag_bundle.context_text
+                rag_sources = [s.model_dump() for s in rag_bundle.sources]
+                rag_recommended_assets = [a.model_dump() for a in rag_bundle.recommended_assets]
+        except Exception:
+            _log.exception("RAG retrieval failed for customer %s", customer_id)
+
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(
         None,
         lambda: _prepare_ai_turn(
             customer_id, message,
             session_id=session_id, scene_key=scene_key,
-            output_style=output_style, prompt_mode=prompt_mode,
+            output_style=output_style, health_window_days=health_window_days, prompt_mode=prompt_mode,
             selected_expansions=selected_expansions,
+            rag_context_text=rag_context_text,
+            rag_sources=rag_sources,
+            rag_recommended_assets=rag_recommended_assets,
         ),
     )
 
@@ -319,44 +352,26 @@ def _prepare_ai_turn(
     session_id: str | None,
     scene_key: str,
     output_style: str,
+    health_window_days: int = 7,
     prompt_mode: Literal["answer", "thinking"],
     selected_expansions: list[str] | None = None,
+    rag_context_text: str = "",
+    rag_sources: list[dict] | None = None,
+    rag_recommended_assets: list[dict] | None = None,
 ) -> PreparedAiTurn:
     reuse_session = bool(session_id) and audit.session_exists(session_id)
     if not session_id:
         session_id = str(uuid.uuid4())
 
-    profile_cache_key = f"profile:{customer_id}"
-    ctx = cache_get(profile_cache_key)
-    if ctx:
-        _sse.info("[SSE-TIMING] profile from cache (hit)")
-    else:
-        # Stale-while-revalidate: use expired cache if available, refresh in background
-        stale_ctx = cache_get_stale(profile_cache_key)
-        if stale_ctx:
-            ctx = stale_ctx
-            _sse.info("[SSE-TIMING] profile from STALE cache (stale-while-revalidate)")
-            # Refresh in background so next request gets fresh data
-            def _bg_refresh():
-                try:
-                    conn = get_connection()
-                    try:
-                        fresh = load_profile(customer_id)
-                    finally:
-                        return_connection(conn)
-                    cache_put(profile_cache_key, fresh, PROFILE_TTL)
-                except Exception:
-                    pass
-            threading.Thread(target=_bg_refresh, daemon=True).start()
-        else:
-            # True miss — must load synchronously
-            conn = get_connection()
-            try:
-                ctx = load_profile(customer_id)
-            finally:
-                return_connection(conn)
-            cache_put(profile_cache_key, ctx, PROFILE_TTL)
-            _sse.info("[SSE-TIMING] profile loaded from DB (cache miss)")
+    window_days = normalize_window_days(health_window_days)
+    profile_result = get_ai_ready_profile_context(customer_id, window_days=window_days)
+    ctx = profile_result.ctx
+    _sse.info(
+        "[SSE-TIMING] profile cache ready source=%s key=%s window=%s",
+        profile_result.source,
+        profile_result.cache_key,
+        window_days,
+    )
 
     safety_card = next((c for c in ctx.cards if c.key == "safety_profile"), None)
     if not safety_card or safety_card.status not in ("ok", "partial"):
@@ -383,6 +398,11 @@ def _prepare_ai_turn(
             missing_notes.extend(card.warnings)
 
     profile_note = _load_profile_note(customer_id)
+
+    # RAG context retrieval (optional, degrades gracefully)
+    # Note: actual RAG retrieval is done in _prepare_ai_turn_async (async context)
+    # and passed here via rag_context_text parameter.
+
     if prompt_mode == "thinking":
         assembly = assemble_visible_thinking_prompt(
             scene_key=scene_key,
@@ -390,6 +410,7 @@ def _prepare_ai_turn(
             customer_name=customer_name,
             profile_note=profile_note,
             user_message=message,
+            rag_context_text=rag_context_text,
         )
     else:
         assembly = assemble_prompt(
@@ -399,6 +420,7 @@ def _prepare_ai_turn(
             profile_note=profile_note,
             user_message=message,
             output_style=output_style,
+            rag_context_text=rag_context_text,
         )
 
     return PreparedAiTurn(
@@ -412,6 +434,9 @@ def _prepare_ai_turn(
         ai_messages=_compose_ai_messages(assembly, session_id, reuse_session),
         shortcut_answer=_try_answer_profile_fact_question(message, ctx),
         shortcut_thinking=_build_shortcut_thinking_text(message, ctx),
+        rag_context_text=rag_context_text,
+        rag_sources=rag_sources or [],
+        rag_recommended_assets=rag_recommended_assets or [],
     )
 
 
@@ -426,6 +451,7 @@ async def ask_ai_coach(
     entry_scene: str = "customer_profile",
     selected_expansions: list[str] | None = None,
     output_style: str = "coach_brief",
+    health_window_days: int = 7,
 ) -> AiChatResult:
     """Non-streaming fallback entry for AI coach."""
     prepared = _prepare_ai_turn(
@@ -434,7 +460,9 @@ async def ask_ai_coach(
         session_id=session_id,
         scene_key=scene_key,
         output_style=output_style,
+        health_window_days=health_window_days,
         prompt_mode="answer",
+        selected_expansions=selected_expansions,
     )
     user_message_id = str(uuid.uuid4())
 
@@ -451,7 +479,7 @@ async def ask_ai_coach(
     )
     audit.write_message(prepared.session_id, user_message_id, "user", message)
     audit.write_context_snapshot(
-        prepared.session_id, build_context_text(prepared.ctx.cards), prepared.used_modules,
+        prepared.session_id, build_context_text(prepared.ctx.cards, selected_expansions=selected_expansions), prepared.used_modules,
         prompt_version=prepared.assembly.prompt_version,
         prompt_hash=prepared.assembly.prompt_hash,
         scene_key=prepared.assembly.scene_key,
@@ -535,6 +563,7 @@ async def stream_ai_coach_answer(
     entry_scene: str = "customer_profile",
     output_style: str = "coach_brief",
     selected_expansions: list[str] | None = None,
+    health_window_days: int = 7,
 ) -> AsyncIterator[AiStreamEvent]:
     t_start = time.time()
     _sse.info("[SSE-TIMING] === answer-stream request arrived ===")
@@ -542,15 +571,21 @@ async def stream_ai_coach_answer(
     yield AiStreamEvent(event="loading", data={"stage": "prepare"})
 
     _sse.info("[SSE-TIMING] prepare start at %.3fs", time.time() - t_start)
-    prepared = await _prepare_ai_turn_cached(
-        customer_id,
-        message,
-        session_id=session_id,
-        scene_key=scene_key,
-        output_style=output_style,
-        prompt_mode="answer",
-        selected_expansions=selected_expansions,
-    )
+    try:
+        prepared = await _prepare_ai_turn_cached(
+            customer_id,
+            message,
+            session_id=session_id,
+            scene_key=scene_key,
+            output_style=output_style,
+            health_window_days=health_window_days,
+            prompt_mode="answer",
+            selected_expansions=selected_expansions,
+        )
+    except ProfileCacheNotReady as exc:
+        _sse.info("[SSE-TIMING] answer profile cache unready key=%s", exc.result.cache_key)
+        yield AiStreamEvent(event="error", data=_profile_cache_unready_payload(exc))
+        return
     _sse.info("[SSE-TIMING] prepare done at %.3fs", time.time() - t_start)
 
     assistant_message_id = str(uuid.uuid4())
@@ -568,6 +603,14 @@ async def stream_ai_coach_answer(
         },
     )
     _sse.info("[SSE-TIMING] meta yielded, firing background audit writes at %.3fs", time.time() - t_start)
+
+    # RAG sources event (optional)
+    if prepared.rag_sources or prepared.rag_recommended_assets:
+        yield AiStreamEvent(event="rag", data={
+            "rag_status": "ok",
+            "sources": prepared.rag_sources,
+            "recommended_assets": prepared.rag_recommended_assets,
+        })
 
     yield AiStreamEvent(event="loading", data={"stage": "model_call"})
 
@@ -588,12 +631,12 @@ async def stream_ai_coach_answer(
                 ),
                 audit.write_message(prepared.session_id, user_message_id, "user", message),
                 audit.write_context_snapshot(
-                    prepared.session_id, build_context_text(prepared.ctx.cards), prepared.used_modules,
+                    prepared.session_id, build_context_text(prepared.ctx.cards, selected_expansions=selected_expansions), prepared.used_modules,
                     prompt_version=prepared.assembly.prompt_version,
                     prompt_hash=prepared.assembly.prompt_hash,
                     scene_key=prepared.assembly.scene_key,
                     output_style=output_style,
-                    selected_expansions=None,
+                    selected_expansions=selected_expansions,
                 ),
             ),
         )
@@ -694,106 +737,31 @@ async def stream_ai_coach_thinking(
     session_id: str | None = None,
     scene_key: str = "qa_support",
     output_style: str = "coach_brief",
+    selected_expansions: list[str] | None = None,
+    health_window_days: int = 7,
 ) -> AsyncIterator[AiStreamEvent]:
     t_start = time.time()
     _sse.info("[SSE-TIMING] === thinking-stream request arrived (provider=%s) ===", settings.ai_provider)
 
     yield AiStreamEvent(event="loading", data={"stage": "prepare"})
 
-    # DeepSeek: lightweight path — skip _prepare_ai_turn_async (SQLite contention),
-    # read profile from cache directly, build prompt inline, then call API normally.
-    if settings.ai_provider == 'deepseek':
-        _sse.info("[SSE-TIMING] deepseek thinking: lightweight prepare at %.3fs", time.time() - t_start)
-        resolved_sid = session_id or str(uuid.uuid4())
-        profile_cache_key = f"profile:{customer_id}"
-        ctx = cache_get(profile_cache_key)
-
-        if not ctx:
-            # Stale-while-revalidate for DeepSeek thinking path too
-            stale_ctx = cache_get_stale(profile_cache_key)
-            if stale_ctx:
-                ctx = stale_ctx
-                _sse.info("[SSE-TIMING] deepseek thinking: profile from STALE cache at %.3fs", time.time() - t_start)
-                def _bg_refresh_ds():
-                    try:
-                        conn = get_connection()
-                        try:
-                            fresh = load_profile(customer_id)
-                        finally:
-                            return_connection(conn)
-                        cache_put(profile_cache_key, fresh, PROFILE_TTL)
-                    except Exception:
-                        pass
-                threading.Thread(target=_bg_refresh_ds, daemon=True).start()
-            else:
-                _sse.info("[SSE-TIMING] deepseek thinking: profile cache miss, loading from DB at %.3fs", time.time() - t_start)
-                loop = asyncio.get_event_loop()
-                ctx = await loop.run_in_executor(None, lambda: load_profile(customer_id))
-                if ctx:
-                    cache_put(profile_cache_key, ctx, PROFILE_TTL)
-                else:
-                    yield AiStreamEvent(event="meta", data={"session_id": resolved_sid})
-                    yield AiStreamEvent(event="delta", data={"delta": "等待客户数据加载…"})
-                    yield AiStreamEvent(event="done", data={"session_id": resolved_sid})
-                    return
-
-        # Shortcut for simple fact questions — no API call needed
-        shortcut_thinking = _build_shortcut_thinking_text(message, ctx)
-        if shortcut_thinking:
-            yield AiStreamEvent(event="meta", data={"session_id": resolved_sid})
-            async for chunk in _emit_text_chunks(shortcut_thinking, size=14, delay=0.035):
-                yield AiStreamEvent(event="delta", data={"delta": chunk})
-            yield AiStreamEvent(event="done", data={"session_id": resolved_sid})
-            return
-
-        context_text = build_context_text(ctx.cards)
-        basic_card = next((c for c in ctx.cards if c.key == "basic_profile"), None)
-        customer_name = ""
-        if basic_card and basic_card.payload:
-            customer_name = str(basic_card.payload.get("display_name") or "").strip()
-
-        assembly = assemble_visible_thinking_prompt(
-            scene_key=scene_key,
-            context_text=context_text,
-            customer_name=customer_name,
-            user_message=message,
-        )
-
-        yield AiStreamEvent(event="meta", data={
-            "session_id": resolved_sid,
-            "prompt_version": assembly.prompt_version,
-            "scene_key": assembly.scene_key,
-        })
-        yield AiStreamEvent(event="loading", data={"stage": "model_call"})
-        _sse.info("[SSE-TIMING] deepseek thinking: prepare done at %.3fs, API call starts",
-                  time.time() - t_start)
-        try:
-            chunk_count = 0
-            async for chunk in chat_completion_stream(assembly.messages, temperature=0.4, max_tokens=4096):
-                if chunk.delta:
-                    chunk_count += 1
-                    _sse.info("[SSE-TIMING] deepseek thinking chunk #%d at %.3fs",
-                              chunk_count, time.time() - t_start)
-                    yield AiStreamEvent(event="delta", data={"delta": chunk.delta})
-                    await asyncio.sleep(0)
-            _sse.info("[SSE-TIMING] deepseek thinking done, %d chunks, %.3fs",
-                      chunk_count, time.time() - t_start)
-            yield AiStreamEvent(event="done", data={"session_id": resolved_sid})
-        except Exception as exc:
-            _log.error("DeepSeek thinking stream failed: %s", exc, exc_info=True)
-            yield AiStreamEvent(event="error", data={"message": str(exc) or "AI 思考流异常"})
-        return
-
-    # aihubmix: cached prepare path (shares context with answer stream)
+    # Cached prepare path shared by all providers.
     _sse.info("[SSE-TIMING] thinking prepare start at %.3fs", time.time() - t_start)
-    prepared = await _prepare_ai_turn_cached(
-        customer_id,
-        message,
-        session_id=session_id,
-        scene_key=scene_key,
-        output_style=output_style,
-        prompt_mode="thinking",
-    )
+    try:
+        prepared = await _prepare_ai_turn_cached(
+            customer_id,
+            message,
+            session_id=session_id,
+            scene_key=scene_key,
+            output_style=output_style,
+            health_window_days=health_window_days,
+            prompt_mode="thinking",
+            selected_expansions=selected_expansions,
+        )
+    except ProfileCacheNotReady as exc:
+        _sse.info("[SSE-TIMING] thinking profile cache unready key=%s", exc.result.cache_key)
+        yield AiStreamEvent(event="error", data=_profile_cache_unready_payload(exc))
+        return
     _sse.info("[SSE-TIMING] thinking prepare done at %.3fs", time.time() - t_start)
 
     yield AiStreamEvent(

@@ -5,7 +5,7 @@
       <span>思考摘要</span>
       <span v-if="thinkingDone" style="margin-left:auto; font-size:11px; color:#94a3b8;">{{ collapsed ? '展开' : '收起' }}</span>
     </div>
-    <div v-if="!collapsed" class="ai-thinking-box__body">
+    <div v-if="!collapsed" class="ai-thinking-box__body" ref="bodyRef">
       <template v-if="loadingStage && !thinkingContent">
         <div class="ai-skeleton-line" style="width: 80%"></div>
         <div class="ai-skeleton-line" style="width: 60%"></div>
@@ -17,7 +17,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, nextTick } from 'vue'
 import { MagicStick } from '@element-plus/icons-vue'
 import MarkdownRenderer from '#/components/markdown/MarkdownRenderer.vue'
 
@@ -29,6 +29,18 @@ const props = defineProps<{
 }>()
 
 const collapsed = ref(false)
+const bodyRef = ref<HTMLElement>()
+
+watch(() => props.thinkingContent, async () => {
+  if (!collapsed.value && props.streaming && !props.thinkingDone && bodyRef.value) {
+    const el = bodyRef.value
+    const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 50
+    await nextTick()
+    if (isAtBottom) {
+      el.scrollTop = el.scrollHeight
+    }
+  }
+})
 
 watch(() => props.thinkingDone, (val) => {
   if (val) {

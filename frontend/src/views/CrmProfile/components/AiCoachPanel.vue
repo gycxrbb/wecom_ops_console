@@ -18,30 +18,10 @@
     </div>
 
     <div class="ai-panel">
-      <!-- Custom header -->
-      <div class="ai-panel-header">
-        <div class="ai-panel-header__left">
-          <div class="ai-panel-logo">
-            <img src="https://cdn.mengfugui.com/logo.png" alt="AI Coach" style="width: 100%; height: 100%; border-radius: inherit; object-fit: cover;" />
-          </div>
-          <span class="ai-panel-header__title">AI 教练助手</span>
-          <el-tag v-if="sessionId" size="small" type="success" round class="ai-session-tag">会话中</el-tag>
-        </div>
-        <div class="ai-panel-header__right">
-          <el-button text circle size="small" @click="clearSession()" title="清空会话">
-            <el-icon><Delete /></el-icon>
-          </el-button>
-          <el-button text circle size="small" @click="visible = false" title="关闭">
-            <el-icon><Close /></el-icon>
-          </el-button>
-        </div>
-      </div>
-
-      <!-- Body: sidebar + main -->
+      <!-- Body: sidebar + main (no header bar) -->
       <div class="ai-panel-body">
         <!-- Sidebar rail -->
-        <div class="ai-sidebar" :class="{ 'is-expanded': sidebarExpanded }">
-          
+        <div class="ai-sidebar" :class="{ 'is-expanded': sidebarExpanded }" @mouseenter="onSidebarEnter" @mouseleave="onSidebarLeave">
           <div class="ai-sidebar-menu">
             <div class="ai-sidebar-menu-item" :class="{ 'is-active': sidebarTab === null }" @click="sidebarTab = null">
               <el-icon class="ai-sidebar-icon" :size="18"><ChatLineRound /></el-icon>
@@ -137,6 +117,27 @@
                   </div>
                   <div class="ai-expansion-hint">勾选后发送时自动展开详细数据</div>
                 </div>
+                <!-- RAG knowledge base index (admin only) -->
+                <div v-if="isAdmin" class="ai-rag-section">
+                  <span class="ai-scene-label">知识库索引</span>
+                  <div class="ai-rag-status">
+                    <span class="ai-rag-dot" :class="ragStatus.qdrant_available ? 'ai-rag-dot--ok' : 'ai-rag-dot--off'" />
+                    <span>{{ ragStatus.qdrant_available ? 'Qdrant 已连接' : 'Qdrant 未连接' }}</span>
+                  </div>
+                  <el-button
+                    size="small"
+                    class="ai-preview-btn"
+                    :loading="ragReindexing"
+                    @click="triggerReindex"
+                  >
+                    {{ ragReindexing ? '索引中...' : '更新话术索引' }}
+                  </el-button>
+                  <div v-if="ragReindexResult" class="ai-rag-result">
+                    <span v-if="ragReindexResult.speech_templates">
+                      话术：{{ ragReindexResult.speech_templates.indexed }} 入库 / {{ ragReindexResult.speech_templates.skipped }} 跳过 / {{ ragReindexResult.speech_templates.errors }} 错误
+                    </span>
+                  </div>
+                </div>
               </template>
               <template v-if="sidebarTab === 'notes'">
                 <div class="ai-profile-note-hint">
@@ -176,6 +177,25 @@
 
         <!-- Main chat area -->
         <div class="ai-main">
+          <!-- Floating top bar (ChatGPT style) -->
+          <div class="ai-floating-top">
+            <span class="ai-floating-title">AI 教练助手</span>
+            <div class="ai-floating-actions">
+              <button class="ai-action-btn" :class="{ 'is-active': selectMode }" @click="toggleSelectMode" :title="selectMode ? '退出选择' : '选择消息发送'">
+                <el-icon :size="14"><Select /></el-icon>
+              </button>
+              <button class="ai-action-btn" @click="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏'">
+                <el-icon :size="14"><FullScreen /></el-icon>
+              </button>
+              <button class="ai-action-btn" @click="clearSession()" title="清空会话">
+                <el-icon :size="14"><Delete /></el-icon>
+              </button>
+              <button class="ai-action-btn" @click="visible = false" title="关闭">
+                <el-icon :size="14"><Close /></el-icon>
+              </button>
+            </div>
+          </div>
+
           <div v-if="disabledReason" class="ai-disabled-state">
             <el-alert :title="disabledReason" type="warning" :closable="false" show-icon />
           </div>
@@ -192,24 +212,36 @@
             :is-admin="userStore.user?.role === 'admin'"
             :disabled-reason="disabledReason"
             :visible-data-gaps="visibleDataGaps"
+            :select-mode="selectMode"
+            :selected-indices="selectedIndices"
             @copy="copyText"
             @mark-medical-review="onMarkMedicalReview"
             @quick-ask="askQuick"
             @dismiss-data-gap="dismissDataGap"
+            @toggle-select="onToggleSelect"
           />
+
+          <!-- Select mode action bar -->
+          <transition name="ai-action-bar">
+            <div v-if="selectMode && selectedIndices.size" class="ai-select-action-bar">
+              <span class="ai-select-count">已选 {{ selectedIndices.size }} 条消息</span>
+              <el-button size="small" @click="selectedIndices = new Set()">清除</el-button>
+              <el-button type="primary" size="small" @click="sendToCenter">发送到发送中心</el-button>
+            </div>
+          </transition>
 
           <!-- Input -->
           <div class="ai-input-wrapper">
+            <div v-if="cacheStatusText" class="ai-cache-status" :class="{ 'is-blocking': cacheSendBlocked }">
+              {{ cacheStatusText }}
+            </div>
             <div class="ai-input-card">
-              <el-input v-model="input" type="textarea" :autosize="{ minRows: 1, maxRows: 6 }" placeholder="输入本次问题，例如：基于她最近一周血糖..." :disabled="loading || !!disabledReason" @keydown.enter.exact.prevent="send" class="ai-chat-input" />
-              <div class="ai-input-footer">
-                <span class="ai-hint">按 Enter 发送，Shift + Enter 换行</span>
-                <div class="ai-input-actions">
-                  <el-icon class="ai-magic-icon" title="使用结构化提示词" @click="askQuick('请帮我总结核心跟进点')"><MagicStick /></el-icon>
-                  <el-button type="primary" class="ai-send-btn" :class="{ 'is-active': input.trim() }" :loading="loading" circle @click="send" :disabled="!input.trim() || !!disabledReason">
-                    <el-icon :size="18"><Promotion /></el-icon>
-                  </el-button>
-                </div>
+              <el-input v-model="input" type="textarea" :autosize="{ minRows: 1, maxRows: 8 }" placeholder="输入本次问题，例如：基于她最近一周血糖..." :disabled="loading || !!disabledReason || cacheSendBlocked" @keydown.enter.exact.prevent="send" class="ai-chat-input" />
+              <div class="ai-input-toolbar">
+                <el-icon class="ai-magic-icon" title="使用结构化提示词" @click="askQuick('请帮我总结核心跟进点')"><MagicStick /></el-icon>
+                <el-button type="primary" class="ai-send-btn" :class="{ 'is-active': input.trim() }" :loading="loading" circle size="small" @click="send" :disabled="!input.trim() || !!disabledReason || cacheSendBlocked">
+                  <el-icon :size="16"><Promotion /></el-icon>
+                </el-button>
               </div>
             </div>
           </div>
@@ -221,6 +253,7 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref, nextTick, watch, onBeforeUnmount } from 'vue'
+import { useRouter } from 'vue-router'
 import {
   Clock,
   MagicStick,
@@ -232,16 +265,21 @@ import {
   Fold,
   Expand,
   Document,
-  Setting
+  Setting,
+  FullScreen,
+  Select
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '#/stores/user'
 import request from '#/utils/request'
 import { useAiCoach } from '../composables/useAiCoach'
+import type { AiProfileCacheStatus } from '../composables/useCrmProfile'
 import AiSessionHistoryList from './AiSessionHistoryList.vue'
 import AiCoachMessageList from './AiCoachMessageList.vue'
 
 const userStore = useUserStore()
+const router = useRouter()
+const isAdmin = computed(() => userStore.user?.role === 'admin')
 
 const DRAWER_WIDTH_KEY = 'ai-coach-drawer-width'
 const DEFAULT_WIDTH = 560
@@ -255,11 +293,15 @@ const props = withDefaults(defineProps<{
   usedModules?: string[]
   dataGaps?: string[]
   disabledReason?: string
+  healthWindowDays?: number
+  profileCacheStatus?: AiProfileCacheStatus | null
 }>(), {
   customerName: '',
   usedModules: () => [],
   dataGaps: () => [],
   disabledReason: '',
+  healthWindowDays: 7,
+  profileCacheStatus: null,
 })
 
 const emit = defineEmits<{
@@ -273,7 +315,17 @@ watch(visible, v => { emit('update:modelValue', v) })
 // --- Resizable drawer ---
 const savedWidth = Number(localStorage.getItem(DRAWER_WIDTH_KEY)) || DEFAULT_WIDTH
 const drawerWidth = ref(Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, savedWidth)))
+const isFullscreen = ref(false)
 let resizing = false
+
+const toggleFullscreen = () => {
+  isFullscreen.value = !isFullscreen.value
+  if (isFullscreen.value) {
+    drawerWidth.value = window.innerWidth
+  } else {
+    drawerWidth.value = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, savedWidth))
+  }
+}
 
 const onResizeStart = (e: MouseEvent) => {
   resizing = true
@@ -317,11 +369,105 @@ const input = ref('')
 const messageListRef = ref<InstanceType<typeof AiCoachMessageList>>()
 const sidebarTab = ref<'history' | 'context' | 'notes' | null>(null)
 const sidebarExpanded = ref(true)
+let sidebarHoverTimer: ReturnType<typeof setTimeout> | null = null
+
+const onSidebarEnter = () => {
+  if (sidebarExpanded.value) return
+  sidebarHoverTimer = setTimeout(() => { sidebarExpanded.value = true }, 200)
+}
+const onSidebarLeave = () => {
+  if (sidebarHoverTimer) { clearTimeout(sidebarHoverTimer); sidebarHoverTimer = null }
+}
+
+const selectMode = ref(false)
+const selectedIndices = ref<Set<number>>(new Set())
+
+const toggleSelectMode = () => {
+  selectMode.value = !selectMode.value
+  if (!selectMode.value) selectedIndices.value = new Set()
+}
+const onToggleSelect = (index: number) => {
+  const s = new Set(selectedIndices.value)
+  if (s.has(index)) s.delete(index); else s.add(index)
+  selectedIndices.value = s
+}
+
+const sendToCenter = () => {
+  const indices = [...selectedIndices.value].sort((a, b) => a - b)
+  const items = indices.map((idx, i) => {
+    const msg = chatHistory.value[idx]
+    if (!msg || !('content' in msg) || !msg.content?.trim()) return null
+    return {
+      id: Date.now() + i,
+      title: msg.content.replace(/\n/g, ' ').substring(0, 40) || `消息 ${i + 1}`,
+      msg_type: 'markdown',
+      description: msg.role === 'user' ? '用户提问' : 'AI 教练回复',
+      contentJson: { content: msg.content },
+      variablesJson: {},
+    }
+  }).filter(Boolean) as { id: number; title: string; msg_type: string; description: string; contentJson: Record<string, any>; variablesJson: Record<string, any> }[]
+
+  if (!items.length) { ElMessage.warning('没有可发送的消息'); return }
+
+  sessionStorage.setItem('send-center-prefill', JSON.stringify(items))
+  selectMode.value = false
+  selectedIndices.value = new Set()
+  visible.value = false
+  router.push('/send')
+}
+
 const contextPreviewText = ref('')
 const contextPreviewTokens = ref(0)
 const contextPreviewChars = ref(0)
 const contextPreviewLoading = ref(false)
 const visibleDataGaps = ref<string[]>([])
+
+const cacheSendBlocked = computed(() => {
+  const status = props.profileCacheStatus
+  if (!status || status.ready) return false
+  return ['checking', 'scheduled', 'already_running', 'building', 'missing'].includes(status.status)
+})
+
+const cacheStatusText = computed(() => {
+  const status = props.profileCacheStatus
+  if (!status) return ''
+  if (status.ready) {
+    return status.source === 'l2_stale' ? '客户档案缓存可用，后台会继续刷新' : ''
+  }
+  if (['checking', 'scheduled', 'already_running', 'building'].includes(status.status)) {
+    return '客户档案正在准备，稍后即可提问'
+  }
+  if (status.status === 'missing') {
+    return '客户档案缓存未就绪，系统正在准备'
+  }
+  return status.message || ''
+})
+
+// RAG admin
+const ragStatus = ref<{ rag_enabled: boolean; qdrant_available: boolean }>({ rag_enabled: false, qdrant_available: false })
+const ragReindexing = ref(false)
+const ragReindexResult = ref<Record<string, { indexed: number; skipped: number; errors: number }> | null>(null)
+
+const loadRagStatus = async () => {
+  try {
+    ragStatus.value = await request.get('/v1/rag/status') as any
+  } catch { /* ignore */ }
+}
+
+const triggerReindex = async () => {
+  ragReindexing.value = true
+  ragReindexResult.value = null
+  try {
+    const res: any = await request.post('/v1/rag/reindex', null, { params: { force: true } })
+    ragReindexResult.value = res.results || null
+    await loadRagStatus()
+    ElMessage.success('知识库索引更新完成')
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '索引更新失败')
+  } finally {
+    ragReindexing.value = false
+  }
+}
 
 const moduleLabelMap: Record<string, string> = {
   basic_profile: '基础档案',
@@ -331,6 +477,9 @@ const moduleLabelMap: Record<string, string> = {
   body_comp_latest_30d: '近30天体成分',
   points_engagement_14d: '近14天积分与活跃',
   service_scope: '服务关系',
+  habit_adherence_14d: '近14天习惯执行',
+  plan_progress_14d: '近14天计划推进',
+  learning_engagement_30d: '近30天学习吸收',
 }
 const usedModuleLabels = computed(() => props.usedModules.map(m => moduleLabelMap[m] || m))
 
@@ -342,6 +491,9 @@ const moduleColorMap: Record<string, string> = {
   body_comp_latest_30d: '#f59e0b',
   points_engagement_14d: '#f97316',
   service_scope: '#8b5cf6',
+  habit_adherence_14d: '#db2777',
+  plan_progress_14d: '#0ea5e9',
+  learning_engagement_30d: '#84cc16',
 }
 
 const usedModuleEntries = computed(() =>
@@ -380,6 +532,8 @@ const onSaveNote = () => {
 
 watch(() => props.customerId, (id) => {
   clearSession()
+  selectMode.value = false
+  selectedIndices.value = new Set()
   visibleDataGaps.value = props.dataGaps.slice()
   startAutoDismiss()
   if (id) {
@@ -389,11 +543,18 @@ watch(() => props.customerId, (id) => {
 })
 
 watch(visible, (v) => {
+  if (!v) {
+    selectMode.value = false
+    selectedIndices.value = new Set()
+  }
   if (v && props.customerId && !configLoaded.value) {
     loadAiConfig(props.customerId)
   }
   if (v && props.customerId) {
     loadSessionHistory(props.customerId)
+  }
+  if (v && isAdmin) {
+    loadRagStatus()
   }
   if (v) {
     visibleDataGaps.value = props.dataGaps.slice()
@@ -427,6 +588,7 @@ const loadContextPreview = async () => {
   contextPreviewLoading.value = true
   try {
     const params = new URLSearchParams({ scene_key: currentScene.value })
+    params.set('health_window_days', String(props.healthWindowDays || 7))
     if (selectedExpansions.value.length) {
       params.set('selected_expansions', selectedExpansions.value.join(','))
     }
@@ -444,19 +606,30 @@ const loadContextPreview = async () => {
 const send = async () => {
   const msg = input.value.trim()
   if (!msg || !props.customerId) return
+  if (cacheSendBlocked.value) {
+    ElMessage.warning('客户档案正在准备，稍后再问')
+    return
+  }
   input.value = ''
   visibleDataGaps.value = []
-  await sendChat(props.customerId, msg)
+  await sendChat(props.customerId, msg, { healthWindowDays: props.healthWindowDays })
   await nextTick()
-  scrollBottom()
+  forceScrollBottom()
 }
 
 const askQuick = async (prompt: string) => {
   if (!props.customerId) return
+  if (cacheSendBlocked.value) {
+    ElMessage.warning('客户档案正在准备，稍后再问')
+    return
+  }
   visibleDataGaps.value = []
-  await sendChat(props.customerId, prompt, { entryScene: 'quick_prompt' })
+  await sendChat(props.customerId, prompt, {
+    entryScene: 'quick_prompt',
+    healthWindowDays: props.healthWindowDays,
+  })
   await nextTick()
-  scrollBottom()
+  forceScrollBottom()
 }
 
 const dismissDataGap = (gap: string) => {
@@ -479,6 +652,10 @@ const startAutoDismiss = () => {
 
 const scrollBottom = () => {
   messageListRef.value?.scrollToBottom()
+}
+
+const forceScrollBottom = () => {
+  messageListRef.value?.forceScrollToBottom()
 }
 
 const copyText = (text: string) => {
@@ -506,7 +683,7 @@ const onSelectHistorySession = async (targetSessionId: string) => {
   if (ok) {
     sidebarTab.value = null
     await nextTick()
-    scrollBottom()
+    forceScrollBottom()
   }
 }
 
@@ -517,6 +694,6 @@ const onCreateNewSession = () => {
 }
 </script>
 
-<style scoped>
+<style>
 @import './styles/aiCoachPanel.css';
 </style>

@@ -38,8 +38,23 @@
 
     <!-- Messages -->
     <template v-for="(msg, i) in chatHistory" :key="i">
-      <AiCoachAssistantMessage v-if="msg.role === 'assistant'" :msg="msg" @copy="$emit('copy', $event)" @mark-medical-review="$emit('mark-medical-review', $event)" />
-      <AiCoachUserMessage v-else :msg="msg" :user-avatar="userAvatar" :user-display-name="userDisplayName" :is-admin="isAdmin" />
+      <div v-if="selectMode"
+        class="ai-msg-selectable"
+        :class="{ 'is-selected': selectedIndices?.has(i) }"
+        @click="emit('toggle-select', i)"
+      >
+        <el-checkbox :model-value="selectedIndices?.has(i)" @click.stop @change="emit('toggle-select', i)" class="ai-msg-checkbox" />
+        <div class="ai-msg-content-wrap">
+          <AiCoachAssistantMessage v-if="msg.role === 'assistant'" :msg="msg" @copy="$emit('copy', $event)" @mark-medical-review="$emit('mark-medical-review', $event)" />
+          <AiCoachReferenceMessage v-else-if="msg.role === 'reference'" :msg="msg" />
+          <AiCoachUserMessage v-else :msg="msg" :user-avatar="userAvatar" :user-display-name="userDisplayName" :is-admin="isAdmin" />
+        </div>
+      </div>
+      <template v-else>
+        <AiCoachAssistantMessage v-if="msg.role === 'assistant'" :msg="msg" @copy="$emit('copy', $event)" @mark-medical-review="$emit('mark-medical-review', $event)" />
+        <AiCoachReferenceMessage v-else-if="msg.role === 'reference'" :msg="msg" />
+        <AiCoachUserMessage v-else :msg="msg" :user-avatar="userAvatar" :user-display-name="userDisplayName" :is-admin="isAdmin" />
+      </template>
     </template>
   </div>
 </template>
@@ -49,6 +64,7 @@ import { ref } from 'vue'
 import { MagicStick, ArrowRight, EditPen, Search, ChatLineRound } from '@element-plus/icons-vue'
 import AiCoachAssistantMessage from './AiCoachAssistantMessage.vue'
 import AiCoachUserMessage from './AiCoachUserMessage.vue'
+import AiCoachReferenceMessage from './AiCoachReferenceMessage.vue'
 import type { AiChatMessage } from '../composables/useAiCoach'
 
 const props = defineProps<{
@@ -62,24 +78,38 @@ const props = defineProps<{
   isAdmin?: boolean
   disabledReason?: string
   visibleDataGaps: string[]
+  selectMode?: boolean
+  selectedIndices?: Set<number>
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   copy: [content: string]
   'mark-medical-review': [msg: AiChatMessage]
   'quick-ask': [text: string]
   'dismiss-data-gap': [gap: string]
+  'toggle-select': [index: number]
 }>()
 
 const messagesRef = ref<HTMLElement>()
 
-function scrollToBottom() {
+function forceScrollToBottom() {
   if (messagesRef.value) {
     messagesRef.value.scrollTop = messagesRef.value.scrollHeight
   }
 }
 
-defineExpose({ scrollToBottom })
+function scrollToBottom() {
+  if (messagesRef.value) {
+    const el = messagesRef.value
+    // If user has scrolled up more than 100px from the bottom, don't auto-scroll
+    const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100
+    if (isAtBottom) {
+      el.scrollTop = el.scrollHeight
+    }
+  }
+}
+
+defineExpose({ scrollToBottom, forceScrollToBottom })
 
 const sceneLabel = (key: string) => {
   const map: Record<string, string> = { meal_review: '餐评', data_monitoring: '数据监测', abnormal_intervention: '异常干预', qa_support: '问题答疑', period_review: '周月复盘', long_term_maintenance: '长期维护' }
@@ -115,4 +145,10 @@ const quickPromptItems = [
 .ai-quick-card__text { flex: 1; font-size: 13px; font-weight: 500; color: #374151; white-space: nowrap; }
 .ai-quick-card__arrow { color: #d1d5db; font-size: 13px; flex-shrink: 0; transition: color 0.2s, transform 0.2s; }
 .ai-quick-card:hover .ai-quick-card__arrow { color: #6366f1; transform: translateX(3px); }
+/* Select mode */
+.ai-msg-selectable { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; padding: 6px 8px; border-radius: 12px; transition: background 0.15s; }
+.ai-msg-selectable:hover { background: rgba(99, 102, 241, 0.04); }
+.ai-msg-selectable.is-selected { background: rgba(99, 102, 241, 0.08); }
+.ai-msg-checkbox { margin-top: 12px; flex-shrink: 0; }
+.ai-msg-content-wrap { flex: 1; min-width: 0; }
 </style>

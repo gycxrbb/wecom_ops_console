@@ -26,6 +26,11 @@ FILTER_OPTIONS_TTL = 300  # filter dropdowns: 5 min
 STALE_GRACE = 300  # 5 minutes
 
 
+def profile_cache_key(customer_id: int, window_days: int) -> str:
+    """Unified profile cache key. Used by router, ai_coach, and preload."""
+    return f"profile:{customer_id}:hw{window_days}"
+
+
 def get(key: str) -> Any | None:
     """Return cached value if it exists and hasn't expired, else None.
 

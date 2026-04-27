@@ -13,8 +13,37 @@ _log = logging.getLogger(__name__)
 
 STYLES = ('professional', 'encouraging', 'competitive')
 
+# 分类体系种子数据
+CATEGORY_SEED = [
+    {'name': '健康管理类', 'children': ['体重管理', '饮食管理', '运动管理', '生理指标管理', '生活习惯管理', '特定人群健康']},
+    {'name': '系统操作类', 'children': ['功能操作', '系统异常', '数据问题', '设备管理']},
+    {'name': '社区运营类', 'children': ['社群管理', '活动管理', '积分管理', '内容管理']},
+    {'name': '服务支持类', 'children': ['用户协助', '教练服务', '问题反馈', '产品建议']},
+]
+
+# scene_key -> L2 子类名称
+SCENE_CATEGORY_MAP = {
+    'meal_checkin': '饮食管理', 'meal_review': '饮食管理', 'habit_education': '饮食管理',
+    'obstacle_breaking': '生活习惯管理', 'emotional_support': '生活习惯管理', 'maintenance': '生活习惯管理',
+    'period_review': '生理指标管理',
+    'top_leader': '积分管理', 'top_six': '积分管理', 'top_ten': '积分管理',
+    'consistent': '积分管理', 'surge': '积分管理', 'comeback': '积分管理',
+    'dropout_recovery': '积分管理', 'rapid_progress': '积分管理', 'reverse_bottom': '积分管理',
+    'lurker_remind': '社群管理', 'daily_remind': '社群管理', 'group_pk': '社群管理',
+    'qa_support': '用户协助',
+}
+
 # 场景标签映射
 SCENE_LABELS: dict[str, str] = {
+    'meal_checkin': '晒餐打卡',
+    'meal_review': '餐评指导',
+    'obstacle_breaking': '阻碍干预',
+    'habit_education': '习惯科普',
+    'emotional_support': '情绪陪伴',
+    'qa_support': '问题答疑',
+    'period_review': '阶段复盘',
+    'maintenance': '长期维持',
+    'rag_import': '语料导入',
     'top_leader': '头部领先 (TOP3)',
     'top_six': '前六冲刺',
     'top_ten': '前十竞争',

@@ -8,12 +8,13 @@ const ALLOWED_TAGS = [
   'p', 'br', 'strong', 'em', 'u', 's', 'ul', 'ol', 'li', 'blockquote',
   'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'code', 'pre', 'table', 'thead',
   'tbody', 'tr', 'th', 'td', 'a', 'img', 'hr', 'input', 'span', 'del',
-  'sup', 'sub', 'dd', 'dt', 'dl',
+  'sup', 'sub', 'dd', 'dt', 'dl', 'div',
 ]
 
 const ALLOWED_ATTR = [
   'href', 'src', 'alt', 'title', 'class', 'target', 'rel', 'id',
   'type', 'checked', 'disabled', 'colspan', 'rowspan',
+  'loading', 'decoding',
 ]
 
 function createInstance(): MarkdownIt {
@@ -44,6 +45,43 @@ function createInstance(): MarkdownIt {
     return defaultRender(tokens, idx, options, env, self)
   }
 
+  // Images: lazy loading + domain whitelist
+  const IMAGE_DOMAIN_WHITELIST = ['cdn.mengfugui.com']
+
+  md.renderer.rules.image = (tokens, idx) => {
+    const token = tokens[idx]
+    const src = token.attrGet('src') || ''
+    const alt = token.content || ''
+    const title = token.attrGet('title') || ''
+    let domain = ''
+    try { domain = new URL(src, 'https://localhost').hostname } catch { /* ignore */ }
+    const isWhitelisted = IMAGE_DOMAIN_WHITELIST.includes(domain) || src.startsWith('/api/')
+    const attrs = [
+      `src="${src}"`,
+      `alt="${alt}"`,
+      'loading="lazy"',
+      'decoding="async"',
+      `class="md-img${isWhitelisted ? '' : ' md-img--external'}"`,
+    ]
+    if (title) attrs.push(`title="${title}"`)
+    return `<img ${attrs.join(' ')} />`
+  }
+
+  // Tables: wrap in scrollable div
+  const defaultTableOpen =
+    md.renderer.rules.table_open ||
+    ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options))
+  md.renderer.rules.table_open = (tokens, idx, options, env, self) => {
+    return '<div class="md-table-scroll">' + defaultTableOpen(tokens, idx, options, env, self)
+  }
+
+  const defaultTableClose =
+    md.renderer.rules.table_close ||
+    ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options))
+  md.renderer.rules.table_close = (tokens, idx, options, env, self) => {
+    return defaultTableClose(tokens, idx, options, env, self) + '</div>'
+  }
+
   return md
 }
 
@@ -51,7 +89,7 @@ export function sanitize(html: string): string {
   return DOMPurify.sanitize(html, {
     ALLOWED_TAGS,
     ALLOWED_ATTR,
-    ADD_ATTR: ['target'],
+    ADD_ATTR: ['target', 'onerror'],
   })
 }
 

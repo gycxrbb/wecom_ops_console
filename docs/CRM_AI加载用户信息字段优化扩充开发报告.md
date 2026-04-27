@@ -39,11 +39,13 @@
 
 ### 2.2 当前链路概述
 
-1. 前端客户详情页调用 /profile 拉取档案并预热缓存。
-2. AI聊天请求触发 _prepare_ai_turn，优先命中 profile:customer_id 缓存，miss 时回源。
-3. build_context_text 将模块 payload 序列化为上下文文本。
-4. prompt_builder 组装 system prompt + context + user message。
-5. chat_completion/chat_completion_stream 发起模型调用。
+1. 前端客户详情页调用 /profile 拉取结构化档案。
+2. /profile 成功后，前端通过 fire-and-forget 调用 /ai/preload，后台预热 AI 侧 profile 缓存。
+3. 后端通过 profile_cache_key(customer_id, window_days) 管理 profile 缓存，默认 key 口径为 profile:{customer_id}:hw7。
+4. AI聊天请求触发 _prepare_ai_turn，当前默认读取 profile_cache_key(customer_id)，也就是 hw7 档案缓存；如果前端当前健康窗口为 14/30 天，预热 key 与 AI 默认读取 key 仍可能不一致。
+5. build_context_text 将模块 payload 序列化为上下文文本，并根据 selected_expansions 做扩展模块筛选。
+6. prompt_builder 组装 system prompt + context + user message。
+7. chat_completion/chat_completion_stream 发起模型调用。
 
 ### 2.3 已有安全约束
 
@@ -66,7 +68,7 @@
 1. 提升回答准确性: 让 AI 知道客户“当前真实状态”。
 2. 提升建议可执行性: 建议要贴合客户执行能力和阻碍。
 3. 提升个性化: 用标签、服务轨迹、学习状态约束回答。
-4. 控制上下文成本: 保持可解释、可压缩、可回退。
+4. 保持上下文可解释、可压缩、可回退。
 
 ### 3.2 设计原则
 
@@ -196,39 +198,54 @@
 2. 长文本截断到合理长度（例如每字段 120-200 字）。
 3. JSON 字段先抽取关键统计再输出。
 4. 对空值和异常值进行兜底，避免噪声。
-
-### 5.3 token 预算建议
-
-1. 保持现有总 budget 30000 上限不变。
-2. 新增模块优先通过摘要压缩，首批目标新增不超过 3500 tokens。
-3. 模块优先级裁剪顺序:
-   1. safety_profile
-   2. basic_profile
-   3. plan_progress_14d
-   4. habit_adherence_14d
-   5. reminder_adherence_14d
-   6. learning_engagement_30d
-   7. ai_decision_labels
-   8. 其他
+5. 字段裁剪以业务相关性、隐私安全和回答聚焦度为准，不在本报告中定义模型侧上下文额度。
 
 ## 6. 已识别实现问题与修复建议
 
-### 6.1 selected_expansions 参数未真正生效
+### 6.1 selected_expansions 参数链路未完全闭环
 
 现象:
 
-1. 路由层会传 selected_expansions 给 ask_ai_coach。
-2. ask_ai_coach 当前准备上下文时未把 selected_expansions 透传到 _prepare_ai_turn/context_plan。
+1. 路由层会把 selected_expansions 传给 chat-stream / ask_ai_coach。
+2. _prepare_ai_turn 已支持 selected_expansions，并会传给 build_context_text。
+3. 但当前仍存在部分未闭环路径:
+   - _prepare_ai_turn_cached 在 cache miss 时调用 _prepare_ai_turn_async，未继续透传 selected_expansions。
+   - 非流式 ask_ai_coach 调用 _prepare_ai_turn 时未透传 selected_expansions，且写审计快照时 build_context_text 未按选择重建上下文文本。
+   - chat-stream 写审计快照时 build_context_text 未按选择重建上下文文本，selected_expansions 仍写为 None。
+   - DeepSeek thinking 轻量路径当前未接收 selected_expansions。
 
 影响:
 
-1. 前端“扩展上下文选择”无法控制实际注入内容。
+1. 前端“扩展上下文选择”在部分命中路径可影响上下文，但首轮 miss、非流式路径、审计回放与部分 thinking 路径不稳定。
+2. 审计快照无法准确还原本轮实际选择过哪些扩展模块。
 
 修复建议:
 
-1. 在 _prepare_ai_turn 参数中加入 selected_expansions。
-2. 传递给 resolve_context_plan，并在 build_context_text 前按 plan 控制模块集合。
-3. 在审计快照中记录扩展模块，便于回放分析。
+1. _prepare_ai_turn_cached 的 miss 路径调用 _prepare_ai_turn_async 时补传 selected_expansions。
+2. ask_ai_coach 非流式调用 _prepare_ai_turn 时补传 selected_expansions。
+3. chat-stream / 非流式写 context snapshot 时，用 build_context_text(prepared.ctx.cards, selected_expansions=selected_expansions) 重建快照文本，并记录真实 selected_expansions。
+4. DeepSeek thinking 轻量路径补充 selected_expansions 参数并传给 build_context_text。
+
+### 6.2 profile 预热仍只是第一阶段缓存优化
+
+现象:
+
+1. 当前 /ai/preload 预热的是 profile cache，不写 AI 会话审计。
+2. 预热结果不等于正式会话上下文快照。
+3. 当前 AI prepare 默认读取 hw7 profile cache，/profile 与 /ai/preload 使用的 health_window_days 如果不是 7，仍可能出现预热成功但 AI 首问缓存未命中的情况。
+
+影响:
+
+1. 用户首问 prepare 等待可下降，但真正的会话上下文仍应在用户发问后正式写入 crm_ai_context_snapshots。
+2. 后续如果要进一步减少 prepare 时间，需要抽出 prompt-ready 的 ai_context_cache，而不是继续把逻辑堆到 ai_coach.py。
+3. 多健康窗口场景下，缓存命中率取决于 AI prepare 是否能拿到并使用当前窗口参数。
+
+修复建议:
+
+1. 保持 preload 只作为 support cache。
+2. 后续新增 ai_context_cache 时，必须与真实对话复用同一套上下文构建函数。
+3. 不在 preload 阶段写 crm_ai_sessions、crm_ai_messages、crm_ai_context_snapshots。
+4. 将 health_window_days 明确纳入 AI chat/chat-stream 请求与 prepare cache key，或者在前端预热时同时预热 AI 默认读取的 hw7 key，避免窗口不一致造成缓存未命中。
 
 ## 7. 数据安全与合规要求
 
@@ -257,7 +274,7 @@
 ### 8.3 性能验收
 
 1. /profile P95 时延增加不超过 120ms（首批模块）。
-2. chat-stream 首token时间（TTFT）增加不超过 250ms。
+2. chat-stream 首个流式 delta 返回时间增加不超过 250ms。
 3. 上下文构建失败率小于 0.5%。
 
 ## 9. 开发排期建议
@@ -296,7 +313,7 @@
 
 1. 风险: 新模块导致查询变慢。
    - 应对: 增加索引利用、限制时间窗、先聚合后注入。
-2. 风险: 上下文过长导致模型成本升高。
+2. 风险: 上下文过长导致回答聚焦度下降。
    - 应对: 强摘要策略 + 优先级裁剪。
 3. 风险: 标签值噪声影响回答质量。
    - 应对: 仅纳入 is_ai_decision 标签并做清洗。

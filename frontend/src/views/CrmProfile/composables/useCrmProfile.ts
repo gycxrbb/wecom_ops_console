@@ -67,6 +67,73 @@ export type ListFilters = {
   channel_id: number | null
 }
 
+type CrmProfileNavigationCache = {
+  customerId: number
+  windowDays: number
+}
+
+export type AiProfileCacheStatus = {
+  customer_id: number
+  status: string
+  cache_key: string
+  health_window_days: number
+  ready: boolean
+  source: string
+  generated_at?: string | null
+  expires_at?: string | null
+  stale_expires_at?: string | null
+  message?: string
+}
+
+const NAVIGATION_CACHE_KEY = 'crm_profile.navigation_cache'
+const HEALTH_WINDOWS = [7, 14, 30]
+
+const normalizePositiveInt = (value: unknown): number | null => {
+  const raw = Array.isArray(value) ? value[0] : value
+  const parsed = Number(raw)
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null
+}
+
+const normalizeWindowDays = (value: unknown): number => {
+  const parsed = Number(value)
+  return HEALTH_WINDOWS.includes(parsed) ? parsed : 7
+}
+
+const readNavigationCache = (): CrmProfileNavigationCache | null => {
+  try {
+    const raw = window.sessionStorage.getItem(NAVIGATION_CACHE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    const customerId = normalizePositiveInt(parsed?.customerId)
+    if (!customerId) return null
+    return {
+      customerId,
+      windowDays: normalizeWindowDays(parsed?.windowDays),
+    }
+  } catch {
+    return null
+  }
+}
+
+const writeNavigationCache = (customerId: number, windowDays: number) => {
+  try {
+    window.sessionStorage.setItem(
+      NAVIGATION_CACHE_KEY,
+      JSON.stringify({ customerId, windowDays: normalizeWindowDays(windowDays) }),
+    )
+  } catch {
+    // sessionStorage may be unavailable in restricted browser modes.
+  }
+}
+
+const clearNavigationCache = () => {
+  try {
+    window.sessionStorage.removeItem(NAVIGATION_CACHE_KEY)
+  } catch {
+    // sessionStorage may be unavailable in restricted browser modes.
+  }
+}
+
 export function useCrmProfile() {
   const router = useRouter()
   const route = useRoute()
@@ -80,6 +147,7 @@ export function useCrmProfile() {
   const safetySnapshotLoading = ref(false)
   const currentWindowDays = ref(7)
   const healthLoading = ref(false)
+  const profileCacheStatus = ref<AiProfileCacheStatus | null>(null)
 
   // --- List state ---
   const listLoading = ref(false)
@@ -164,10 +232,48 @@ export function useCrmProfile() {
     }
   }
 
+  const refreshProfileCacheStatus = async (customerId: number, windowDays: number) => {
+    try {
+      const res: any = await request.get(`/v1/crm-customers/${customerId}/ai/cache-status`, {
+        params: { health_window_days: normalizeWindowDays(windowDays) },
+      })
+      profileCacheStatus.value = res || null
+      return profileCacheStatus.value
+    } catch {
+      return null
+    }
+  }
+
+  const preloadProfileCache = async (customerId: number, windowDays: number) => {
+    const w = normalizeWindowDays(windowDays)
+    profileCacheStatus.value = {
+      customer_id: customerId,
+      status: 'checking',
+      cache_key: `profile:${customerId}:hw${w}`,
+      health_window_days: w,
+      ready: false,
+      source: 'frontend',
+    }
+    try {
+      await request.post(`/v1/crm-customers/${customerId}/ai/preload`, {
+        health_window_days: w,
+      }).then((res: any) => {
+        profileCacheStatus.value = res || profileCacheStatus.value
+      })
+      if (!profileCacheStatus.value?.ready) {
+        window.setTimeout(() => { void refreshProfileCacheStatus(customerId, w) }, 1500)
+        window.setTimeout(() => { void refreshProfileCacheStatus(customerId, w) }, 5000)
+      }
+    } catch {
+      await refreshProfileCacheStatus(customerId, w)
+    }
+  }
+
   // --- Profile detail ---
   const loadProfile = async (customerId: number, windowDays?: number) => {
     loading.value = true
     profile.value = null
+    profileCacheStatus.value = null
     try {
       const w = windowDays ?? currentWindowDays.value
       const res: any = await request.get(`/v1/crm-customers/${customerId}/profile`, {
@@ -175,6 +281,7 @@ export function useCrmProfile() {
       })
       profile.value = res
       currentWindowDays.value = w
+      void preloadProfileCache(customerId, w)
     } catch {
       profile.value = null
     } finally {
@@ -202,6 +309,8 @@ export function useCrmProfile() {
       })
       profile.value = res
       currentWindowDays.value = windowDays
+      writeNavigationCache(customerId, windowDays)
+      void preloadProfileCache(customerId, windowDays)
     } catch {
       // keep existing profile on error
     } finally {
@@ -220,28 +329,38 @@ export function useCrmProfile() {
     currentWindowDays.value = 7
     loadProfile(item.id)
     loadSafetySnapshots(item.id)
+    writeNavigationCache(item.id, currentWindowDays.value)
     router.replace({ query: { ...route.query, cid: String(item.id) } })
   }
 
   const backToList = () => {
     selectedCustomer.value = null
     profile.value = null
+    profileCacheStatus.value = null
     safetySnapshots.value = []
+    clearNavigationCache()
     const q = { ...route.query }
     delete q.cid
     router.replace({ query: q })
   }
 
   const restoreFromUrl = async () => {
-    const cid = route.query.cid
-    if (cid) {
-      const customerId = Number(cid)
-      if (!isNaN(customerId) && customerId > 0) {
-        selectedCustomer.value = { id: customerId, name: '', gender: null, birthday: null, points: 0, total_points: 0, status: 0 }
-        currentWindowDays.value = 7
-        await Promise.all([loadProfile(customerId), loadSafetySnapshots(customerId)])
-      }
+    const routeCustomerId = normalizePositiveInt(route.query.cid)
+    const cachedNavigation = readNavigationCache()
+    const customerId = routeCustomerId ?? cachedNavigation?.customerId
+    if (!customerId) return
+
+    const windowDays = cachedNavigation?.customerId === customerId
+      ? cachedNavigation.windowDays
+      : 7
+
+    selectedCustomer.value = { id: customerId, name: '', gender: null, birthday: null, points: 0, total_points: 0, status: 0 }
+    currentWindowDays.value = windowDays
+    writeNavigationCache(customerId, windowDays)
+    if (!routeCustomerId) {
+      router.replace({ query: { ...route.query, cid: String(customerId) } })
     }
+    await Promise.all([loadProfile(customerId, windowDays), loadSafetySnapshots(customerId)])
   }
 
   const getCard = (key: string): CardModule | undefined => {
@@ -267,6 +386,7 @@ export function useCrmProfile() {
     genderText, calcAge, backToList, restoreFromUrl,
     safetySnapshots, safetySnapshotLoading, loadSafetySnapshots, loadSafetySnapshotDetail,
     currentWindowDays, healthLoading, switchHealthWindow,
+    profileCacheStatus, preloadProfileCache, refreshProfileCacheStatus,
     // list
     listLoading, listItems, listTotal, listPage, listPageSize,
     filters, filterOptions, filterOptionsLoaded,

@@ -10,7 +10,7 @@ from .database import Base, engine, SessionLocal
 from .routers.auth import router as auth_router
 from .routers.pages import router as pages_router
 from .routers.api import router as api_router
-from .schema_migrations import ensure_schedule_schema, ensure_asset_folders_schema, ensure_plan_schema, ensure_user_profile_schema, ensure_external_docs_schema
+from .schema_migrations import ensure_schedule_schema, ensure_asset_folders_schema, ensure_plan_schema, ensure_user_profile_schema, ensure_external_docs_schema, ensure_rag_schema, ensure_speech_category_schema
 from .routers.api_folders import router as folders_router
 from .routers.api_operation_plans import router as operation_plans_router
 from .routers.api_profile import router as profile_router
@@ -22,6 +22,7 @@ from .routers.api_crm_groups import router as crm_groups_router
 from .routers.api_crm_points import router as crm_points_router
 from .routers.api_speech_templates import router as speech_templates_router
 from .routers.api_external_docs import router as external_docs_router
+from .routers.api_rag import router as rag_router
 from .services.seed import seed_all
 from .services.scheduler_service import schedule_service
 import hashlib
@@ -36,6 +37,8 @@ async def lifespan(app: FastAPI):
     ensure_plan_schema(engine)
     ensure_user_profile_schema(engine)
     ensure_external_docs_schema(engine)
+    ensure_rag_schema(engine)
+    ensure_speech_category_schema(engine)
     db = SessionLocal()
     try:
         seed_all(db)
@@ -47,6 +50,8 @@ async def lifespan(app: FastAPI):
     # AI client warmup: pre-establish TLS/TCP connections
     asyncio.create_task(_ai_warmup())
     asyncio.create_task(_ai_keepalive_loop())
+    if settings.crm_profile_enabled:
+        asyncio.create_task(_crm_profile_cache_cleanup_loop())
 
     yield
     schedule_service.shutdown()
@@ -78,6 +83,19 @@ async def _ai_keepalive_loop():
             await client.head(url, timeout=5.0)
         except Exception:
             pass
+
+
+async def _crm_profile_cache_cleanup_loop():
+    """Periodically clean expired CRM AI profile L2 snapshots."""
+    while True:
+        try:
+            from .crm_profile.services.profile_context_cache import cleanup_expired_profile_cache
+            deleted = await asyncio.get_event_loop().run_in_executor(None, cleanup_expired_profile_cache)
+            if deleted:
+                _log.info("CRM AI profile cache cleanup deleted %s expired snapshots", deleted)
+        except Exception:
+            _log.exception("CRM AI profile cache cleanup failed")
+        await asyncio.sleep(6 * 60 * 60)
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
 
@@ -135,6 +153,7 @@ app.include_router(crm_groups_router)
 app.include_router(crm_points_router)
 app.include_router(speech_templates_router)
 app.include_router(external_docs_router)
+app.include_router(rag_router)
 
 if settings.crm_profile_enabled:
     from .crm_profile import router as crm_profile_router, init_models

@@ -10,6 +10,8 @@ from ..schemas.context import ModulePayload, CustomerProfileContextV1, SourceSta
 from .context_builder import estimate_tokens, resolve_context_plan, validate_field_whitelist
 from .modules import basic_profile, safety_profile, goals_preferences
 from .modules import health_summary, body_comp, points_engagement, service_scope
+from .modules import habit_adherence, plan_progress, reminder_adherence
+from .modules import learning_engagement, ai_decision_labels
 
 _log = logging.getLogger(__name__)
 
@@ -21,6 +23,11 @@ _LOADERS = [
     body_comp,
     points_engagement,
     service_scope,
+    habit_adherence,
+    plan_progress,
+    reminder_adherence,
+    learning_engagement,
+    ai_decision_labels,
 ]
 
 

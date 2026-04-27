@@ -2,20 +2,50 @@ import { computed, ref } from 'vue'
 import request from '#/utils/request'
 import { ElMessage } from 'element-plus'
 
-export type AiChatMessage = {
-  role: 'user' | 'assistant'
-  content: string
-  messageId?: string
-  safetyNotes?: string[]
-  safetyResult?: { level: string; reason_codes: string[]; notes: string[] }
-  requiresMedicalReview?: boolean
-  tokenUsage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
-  thinkingContent?: string
-  loadingStage?: 'prepare' | 'model_call'
-  thinkingVisible?: boolean
-  thinkingDone?: boolean
-  streaming?: boolean
+export type RagSource = {
+  resource_id: number
+  source_type: string
+  title: string
+  snippet: string
+  score: number
+  content_kind: string
+  safety_level: string
 }
+
+export type RagRecommendedAsset = {
+  material_id: number
+  title: string
+  material_type: string
+  preview_url: string | null
+  download_url: string | null
+  public_url: string | null
+  reason: string
+}
+
+export type AiChatMessage =
+  | { role: 'user'; messageType: 'user'; content: string }
+  | {
+      role: 'assistant'; messageType: 'assistant_answer'; content: string
+      messageId?: string
+      safetyNotes?: string[]
+      safetyResult?: { level: string; reason_codes: string[]; notes: string[] }
+      requiresMedicalReview?: boolean
+      tokenUsage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
+      thinkingContent?: string
+      loadingStage?: 'prepare' | 'model_call'
+      thinkingVisible?: boolean
+      thinkingDone?: boolean
+      streaming?: boolean
+    }
+  | {
+      role: 'reference'; messageType: 'rag_reference'
+      resource_id: number; title: string; snippet: string
+      score: number; source_type: string; content_kind: string
+    }
+  | {
+      role: 'reference'; messageType: 'rag_attachment'
+      title: string; asset: RagRecommendedAsset
+    }
 
 export type SceneOption = { key: string; label: string }
 
@@ -61,6 +91,9 @@ type StreamPayload = {
   safety_notes?: string[]
   missing_data_notes?: string[]
   safety_result?: { level: string; reason_codes: string[]; notes: string[] }
+  sources?: RagSource[]
+  recommended_assets?: RagRecommendedAsset[]
+  rag_status?: string
 }
 
 function buildAuthHeaders() {
@@ -167,6 +200,11 @@ function createSessionId() {
   return `crm-ai-${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
+const normalizeHealthWindowDays = (value: unknown) => {
+  const parsed = Number(value)
+  return [7, 14, 30].includes(parsed) ? parsed : 7
+}
+
 export function useAiCoach() {
   const loading = ref(false)
   const chatHistory = ref<AiChatMessage[]>([])
@@ -260,7 +298,8 @@ export function useAiCoach() {
       error.value = ''
       sessionId.value = res.session?.session_id || targetSessionId
       chatHistory.value = (res.messages || []).map((item: AiSessionMessage) => ({
-        role: item.role,
+        role: item.role as 'user' | 'assistant',
+        messageType: item.role === 'user' ? 'user' as const : 'assistant_answer' as const,
         content: item.content || '',
         messageId: item.message_id,
         requiresMedicalReview: item.requires_medical_review,
@@ -279,7 +318,8 @@ export function useAiCoach() {
         promptVersion: res.prompt_version || '',
       }
 
-      const lastAssistant = [...chatHistory.value].reverse().find(msg => msg.role === 'assistant' && msg.tokenUsage)
+      type AsstMsg = Extract<AiChatMessage, { role: 'assistant' }>
+      const lastAssistant = [...chatHistory.value].reverse().find((msg): msg is AsstMsg => msg.role === 'assistant' && 'tokenUsage' in msg && !!msg.tokenUsage)
       lastTokenUsage.value = lastAssistant?.tokenUsage || null
       return true
     } catch (e) {
@@ -294,19 +334,19 @@ export function useAiCoach() {
   const sendChat = async (
     customerId: number,
     message: string,
-    options?: { entryScene?: string; selectedExpansions?: string[] },
+    options?: { entryScene?: string; selectedExpansions?: string[]; healthWindowDays?: number },
   ) => {
     loading.value = true
     error.value = ''
     const messageText = message.trim()
-    chatHistory.value.push({ role: 'user', content: messageText })
+    chatHistory.value.push({ role: 'user', messageType: 'user', content: messageText })
 
     const nextSessionId = sessionId.value || createSessionId()
     sessionId.value = nextSessionId
 
     const assistantIdx = chatHistory.value.length
     chatHistory.value.push({
-      role: 'assistant',
+      role: 'assistant', messageType: 'assistant_answer',
       content: '',
       safetyNotes: [],
       thinkingContent: '',
@@ -315,7 +355,8 @@ export function useAiCoach() {
       streaming: true,
     })
     // Use reactive reference from the array so mutations trigger Vue reactivity
-    const assistantMessage = chatHistory.value[assistantIdx] as AiChatMessage
+    type AssistantMsg = Extract<AiChatMessage, { role: 'assistant' }>
+    const assistantMessage = chatHistory.value[assistantIdx] as AssistantMsg
 
     const answerController = new AbortController()
     const thinkingController = new AbortController()
@@ -329,6 +370,7 @@ export function useAiCoach() {
       output_style: outputStyle.value,
       entry_scene: options?.entryScene || 'customer_profile',
       selected_expansions: selectedExpansions.value.length ? selectedExpansions.value : undefined,
+      health_window_days: normalizeHealthWindowDays(options?.healthWindowDays),
     }
 
     let answerCompleted = false
@@ -346,6 +388,34 @@ export function useAiCoach() {
 
         if (event === 'loading') {
           assistantMessage.loadingStage = payload.stage as 'prepare' | 'model_call'
+          return
+        }
+
+        if (event === 'rag') {
+          const ragSources = payload.sources || []
+          const ragAssets = payload.recommended_assets || []
+          // Insert reference messages before the assistant message in chatHistory
+          const refMessages: AiChatMessage[] = []
+          for (const src of ragSources) {
+            refMessages.push({
+              role: 'reference', messageType: 'rag_reference',
+              resource_id: src.resource_id, title: src.title,
+              snippet: src.snippet || '', score: src.score,
+              source_type: src.source_type, content_kind: src.content_kind,
+            })
+          }
+          for (const asset of ragAssets) {
+            refMessages.push({
+              role: 'reference', messageType: 'rag_attachment',
+              title: asset.title, asset,
+            })
+          }
+          if (refMessages.length) {
+            // Insert before the current assistant message
+            chatHistory.value.splice(assistantIdx, 0, ...refMessages)
+            // Adjust assistantIdx since we inserted before it
+            // (assistantMessage ref is still valid via Vue reactivity)
+          }
           return
         }
 
@@ -440,8 +510,8 @@ export function useAiCoach() {
   const markMedicalReview = async (customerId: number, messageId: string) => {
     try {
       await request.patch(`/v1/crm-customers/${customerId}/ai/messages/${messageId}/review`)
-      const msg = chatHistory.value.find(m => m.messageId === messageId)
-      if (msg) {
+      const msg = chatHistory.value.find(m => 'messageId' in m && m.messageId === messageId)
+      if (msg && 'requiresMedicalReview' in msg) {
         msg.requiresMedicalReview = true
       }
       return true

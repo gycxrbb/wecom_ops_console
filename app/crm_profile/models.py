@@ -85,3 +85,20 @@ class CustomerAiProfileNote(Base):
     updated_by: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
     created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now())
+
+
+class CrmAiProfileCache(Base):
+    """Shared cached CustomerProfileContextV1 snapshot for AI prepare paths."""
+    __tablename__ = "crm_ai_profile_cache"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    cache_key: Mapped[str] = mapped_column(String(96), unique=True, nullable=False, index=True)
+    crm_customer_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    health_window_days: Mapped[int] = mapped_column(Integer, nullable=False, default=7)
+    context_json: Mapped[str] = mapped_column(Text, nullable=False)
+    generated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, index=True)
+    stale_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    last_hit_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now())

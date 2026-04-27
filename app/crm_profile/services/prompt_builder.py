@@ -68,6 +68,7 @@ def assemble_prompt(
     profile_note: CustomerAiProfileNote | None = None,
     user_message: str,
     output_style: str = "coach_brief",
+    rag_context_text: str = "",
 ) -> PromptAssembly:
     """Assemble the full 5-layer prompt into a messages list."""
     style_hints = {
@@ -102,6 +103,18 @@ def assemble_prompt(
     )
     used_layers.append("customer_context")
 
+    # Layer 4.5: RAG knowledge context (optional)
+    if rag_context_text:
+        context_header += (
+            "\n\n【公司话术与知识库参考】\n"
+            "- 以下内容来自内部话术库/知识库，是辅助参考，不等于客户档案事实。\n"
+            "- 回答时优先结合客户档案和安全档案。\n"
+            "- 可借鉴话术风格，但不要机械照抄。\n"
+            "- 医疗敏感内容只做风险提醒，不做诊断。\n\n"
+            + rag_context_text
+        )
+        used_layers.append("rag_context")
+
     # Layer 5: coach profile note
     note_text = build_profile_note_text(profile_note)
     if note_text:
@@ -130,6 +143,7 @@ def assemble_visible_thinking_prompt(
     customer_name: str,
     profile_note: CustomerAiProfileNote | None = None,
     user_message: str,
+    rag_context_text: str = "",
 ) -> PromptAssembly:
     """Assemble a separate, UI-safe reasoning-summary prompt for the thinking box."""
     system_text = get_platform_guardrails() + "\n\n" + get_visible_thinking_core()
@@ -155,6 +169,14 @@ def assemble_visible_thinking_prompt(
         + context_text
     )
     used_layers.append("customer_context")
+
+    if rag_context_text:
+        context_header += (
+            "\n\n【公司话术与知识库参考】\n"
+            "- 以下内容来自内部话术库/知识库，是辅助参考。\n\n"
+            + rag_context_text
+        )
+        used_layers.append("rag_context")
 
     note_text = build_profile_note_text(profile_note)
     if note_text:

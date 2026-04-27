@@ -4,6 +4,7 @@ import json
 
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
+from sqlalchemy.orm import sessionmaker
 
 
 SCHEDULE_COLUMN_SPECS = {
@@ -384,6 +385,9 @@ def ensure_crm_ai_indexes(engine: Engine) -> None:
         ("crm_ai_messages", "ix_crm_ai_messages_message_id", ("message_id",), False),
         ("crm_ai_context_snapshots", "ix_crm_ai_snapshots_session_id", ("session_id",), False),
         ("crm_ai_guardrail_events", "ix_crm_ai_guardrails_session_id", ("session_id",), False),
+        ("crm_ai_profile_cache", "ix_crm_ai_profile_cache_key", ("cache_key",), True),
+        ("crm_ai_profile_cache", "ix_crm_ai_profile_cache_customer_window", ("crm_customer_id", "health_window_days"), False),
+        ("crm_ai_profile_cache", "ix_crm_ai_profile_cache_expires", ("expires_at",), False),
     ]
 
     with engine.begin() as conn:
@@ -454,3 +458,89 @@ def ensure_external_docs_schema(engine: Engine) -> None:
         for idx_name, table, columns, unique in idx_checks:
             if table in existing_tables:
                 _ensure_named_index(conn, table, idx_name, columns, unique=unique)
+
+
+def ensure_rag_schema(engine: Engine) -> None:
+    """确保 RAG 表补充列和索引存在。表由 Base.metadata.create_all 创建。"""
+    inspector = inspect(engine)
+    existing_tables = inspector.get_table_names()
+
+    if "rag_retrieval_logs" in existing_tables:
+        existing_columns = {c["name"] for c in inspector.get_columns("rag_retrieval_logs")}
+        if "intent_json" not in existing_columns:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE rag_retrieval_logs ADD COLUMN intent_json TEXT"))
+
+    rag_indexes = [
+        ("idx_rag_tags_dimension", "rag_tags", ("dimension",), False),
+        ("idx_rag_resources_source", "rag_resources", ("source_type", "source_id"), False),
+        ("idx_rag_resources_status", "rag_resources", ("status",), False),
+        ("idx_rag_chunks_resource", "rag_chunks", ("resource_id",), False),
+        ("idx_rag_chunks_status", "rag_chunks", ("status",), False),
+        ("idx_rag_retrieval_logs_session", "rag_retrieval_logs", ("session_id",), False),
+        ("idx_rag_retrieval_logs_customer", "rag_retrieval_logs", ("customer_id",), False),
+    ]
+    with engine.begin() as conn:
+        for idx_name, table, columns, unique in rag_indexes:
+            if table in existing_tables:
+                _ensure_named_index(conn, table, idx_name, columns, unique=unique)
+
+
+def ensure_speech_category_schema(engine: Engine) -> None:
+    """确保 speech_categories 表存在，并种子分类数据 + 回填 category_id。"""
+    inspector = inspect(engine)
+    existing_tables = inspector.get_table_names()
+
+    with engine.begin() as conn:
+        # 1. Create table if not exists
+        if 'speech_categories' not in existing_tables:
+            conn.execute(text("""
+                CREATE TABLE speech_categories (
+                    id INTEGER PRIMARY KEY,
+                    name VARCHAR(64) NOT NULL,
+                    parent_id INTEGER REFERENCES speech_categories(id),
+                    level INTEGER NOT NULL DEFAULT 1,
+                    sort_order INTEGER NOT NULL DEFAULT 0,
+                    created_at DATETIME,
+                    updated_at DATETIME,
+                    deleted_at DATETIME
+                )
+            """))
+            _ensure_named_index(conn, 'speech_categories', 'ix_speech_cat_parent', ('parent_id',), unique=False)
+
+        # 2. Add category_id column to speech_templates if missing
+        existing_columns = [c['name'] for c in inspector.get_columns('speech_templates')]
+        if 'category_id' not in existing_columns:
+            conn.execute(text("ALTER TABLE speech_templates ADD COLUMN category_id INTEGER"))
+            _ensure_named_index(conn, 'speech_templates', 'ix_speech_tpl_category', ('category_id',), unique=False)
+        if 'metadata_json' not in existing_columns:
+            conn.execute(text("ALTER TABLE speech_templates ADD COLUMN metadata_json TEXT"))
+
+    # 3. Seed categories if empty
+    from .models import SpeechCategory, SpeechTemplate
+    Session = sessionmaker(bind=engine)
+    db = Session()
+    try:
+        if db.query(SpeechCategory).count() == 0:
+            from .services.crm_speech_templates import CATEGORY_SEED, SCENE_CATEGORY_MAP
+            name_to_id: dict[str, int] = {}
+            for l1 in CATEGORY_SEED:
+                cat_l1 = SpeechCategory(name=l1['name'], level=1, sort_order=CATEGORY_SEED.index(l1) + 1)
+                db.add(cat_l1)
+                db.flush()
+                name_to_id[l1['name']] = cat_l1.id
+                for idx, child_name in enumerate(l1['children'], 1):
+                    cat_l2 = SpeechCategory(name=child_name, level=2, parent_id=cat_l1.id, sort_order=idx)
+                    db.add(cat_l2)
+                    db.flush()
+                    name_to_id[child_name] = cat_l2.id
+            db.commit()
+
+            # 4. Backfill category_id for existing templates
+            for tpl in db.query(SpeechTemplate).filter(SpeechTemplate.category_id.is_(None)).all():
+                l2_name = SCENE_CATEGORY_MAP.get(tpl.scene_key)
+                if l2_name and l2_name in name_to_id:
+                    tpl.category_id = name_to_id[l2_name]
+            db.commit()
+    finally:
+        db.close()

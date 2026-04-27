@@ -31,6 +31,8 @@ class ContextBuildPlan(BaseModel):
     summary_modules: list[str] = [
         "goals_preferences", "health_summary_7d",
         "body_comp_latest_30d", "points_engagement_14d", "service_scope",
+        "habit_adherence_14d", "plan_progress_14d", "reminder_adherence_14d",
+        "learning_engagement_30d", "ai_decision_labels",
     ]
     expansion_modules: list[str] = []
 

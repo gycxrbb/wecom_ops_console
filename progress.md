@@ -393,3 +393,74 @@
   - 已沉淀 Bug #55 到 `bug.md`。
   - 本轮 focused validation：`cd frontend; .\node_modules\.bin\vue-tsc.cmd --noEmit` 通过；`cd frontend; npm.cmd run build` 通过。
   - 本轮项目启动验证结果：后端 `python -m uvicorn app.main:app --host 0.0.0.0 --port 8004` 已确认 `Application startup complete`；前端 `npm.cmd run dev -- --host 0.0.0.0 --port 5178` 在当前环境仍触发既有 `esbuild spawn EPERM`，dev server 未能监听，但生产构建已通过。
+- 已开始修复客户档案详情导航缓存问题：
+  - 已确认客户详情当前只依赖 `/crm-profile?cid=...` 恢复；侧边栏菜单再次进入客户档案时只跳 `/crm-profile`，会丢失 query。
+  - 已在 `useCrmProfile.ts` 中新增会话级导航缓存：选择客户时保存 `customerId/windowDays`，重新进入客户档案且 URL 没有 `cid` 时自动恢复上次客户并补回 query。
+  - 点击“返回客户列表”会清除会话缓存，避免用户主动回列表后被自动拉回详情。
+  - 已沉淀 Bug #56 到 `bug.md`，沉淀经验 #110 到 `memory.md`。
+  - 本轮 focused validation：`python -m py_compile app\main.py` 通过；`cd frontend; .\node_modules\.bin\vue-tsc.cmd --noEmit` 通过；`cd frontend; npm.cmd run build` 通过。
+  - 本轮项目启动验证结果：后端 `python -m uvicorn app.main:app --host 0.0.0.0 --port 8005` 已确认 `Application startup complete`；前端沙箱内启动仍触发既有 `esbuild spawn EPERM`，提权后 `npm.cmd run dev -- --host 0.0.0.0 --port 5179` 已确认 Vite 正常启动并监听，随后已回收 `5179` 端口进程。
+- 已完成 CRM AI 上下文缓存与预加载优化计划：
+  - 已恢复当前架构：客户档案页走 `GET /crm-customers/{id}/profile`，AI 对话走 `chat-stream + thinking-stream`，后端通过 `load_profile -> build_context_text -> assemble_prompt` 组装上下文。
+  - 已定位关键缓存未命中原因：profile 接口缓存 key 为 `profile:{customer_id}:hw{window}`，AI prepare / DeepSeek thinking 读取的是 `profile:{customer_id}`，导致页面已加载档案后 AI 首问仍可能重新查库。
+  - 已确认当前已有两层缓存：10 分钟 profile TTL cache、15 秒 turn-level prepare cache；前者 key 口径漂移，后者只解决同轮 answer/thinking 共享，不解决用户进入详情后的首问预热。
+  - 已输出正式计划 [docs/CRM_AI_CONTEXT_CACHE_PRELOAD_OPTIMIZATION_PLAN.md](</d:/惯能/群机器人定时推送/wecom_ops_console/docs/CRM_AI_CONTEXT_CACHE_PRELOAD_OPTIMIZATION_PLAN.md>)，建议按 Phase 1 统一 key、Phase 2 preload endpoint、Phase 3 context cache、Phase 4 指标、Phase 5 Redis 化推进。
+  - 本轮为方案文档任务，未改业务代码；focused validation 已确认文档落盘并包含关键章节。
+- 已审核并修正 CRM AI 用户信息字段扩充报告：
+  - 已将 [docs/CRM_AI加载用户信息字段优化扩充开发报告.md](</d:/惯能/群机器人定时推送/wecom_ops_console/docs/CRM_AI加载用户信息字段优化扩充开发报告.md>) 的链路描述对齐当前代码：`/profile` 拉取结构化档案，前端随后 fire-and-forget 调用 `/ai/preload`，后端通过 `profile_cache_key(customer_id, window_days)` 管理缓存。
+  - 已补充当前真实缺口：AI prepare 默认读取 `hw7`，当页面健康窗口为 14/30 天时，预热 key 与 AI 默认读取 key 仍可能不一致。
+  - 已修正 `selected_expansions` 章节：当前不是完全没生效，而是 cache miss、非流式 prepare、审计快照、DeepSeek thinking 轻量路径仍未闭环。
+  - 已删除模型额度限制类章节与性能指标中的相关表述，性能验收改为“首个流式 delta 返回时间”。
+  - 本轮为文档校准任务，未改业务代码；focused validation 已确认报告中不再包含相关限制关键词，关键链路章节存在。
+- 已重写 RAG 集成方案手册：
+  - 已将 [docs/RAG集成到wecom项目手册.md](</d:/惯能/群机器人定时推送/wecom_ops_console/docs/RAG集成到wecom项目手册.md>) 从“独立 RAG demo 接入”改为“复用当前系统模块的正式接入方案”。
+  - 文档明确了话术管理与模板中心的边界：话术管理负责干预语料，模板中心负责企业微信发送格式和变量。
+  - 文档明确素材库升级方向：现有 `materials / asset_folders` 作为资产 truth，但需要补充摘要、标签、适用场景、安全级别、可发状态、图片说明和视频转写文本。
+  - 文档新增 `rag_tags / rag_resources / rag_resource_tags / rag_chunks / rag_retrieval_logs` 方案，避免把 RAG 做成另一套内容 truth。
+  - embedding 方案已改为走 aihubmix，P0 推荐 `text-embedding-3-large`，并保留 `jina-embeddings-v4 / Qwen3-Embedding` 的中文场景评测位。
+  - 本轮为文档任务，未改业务代码；focused validation 已确认核心章节、模型选型、AI 教练接入与素材推荐闭环均已落盘。
+- 已继续补强 RAG 手册的开发交接口径：
+  - 已新增“开发交接说明与硬性叮嘱”章节，明确当前方案可以开工，但首轮必须限定为 P0 最小闭环。
+  - 已把 P0 拆成 6 条开发线：RAG 表与模型、aihubmix embedding client、Qdrant vector store、资源入库、RAG 检索服务、CRM AI 教练接入。
+  - 已明确开发边界：RAG 只做索引和审计，不替代话术管理/素材库；不能新增长期独立 RAG 聊天入口；RAG 失败不能拖垮 AI 教练主回答。
+  - 已补充开发人员必须先读的后端/前端文件清单，以及每个分支的验收门槛。
+  - 本轮仍为文档任务，未改业务代码。
+- 已新增 RAG 语料准备与标注工作计划：
+  - 新文档 [docs/RAG语料准备与标注工作计划.md](</d:/惯能/群机器人定时推送/wecom_ops_console/docs/RAG语料准备与标注工作计划.md>) 已为业务侧准备飞书文档、微信聊天、图片、视频和教练经验语料提供执行计划。
+  - 文档明确先做 P0 试点集，不建议先全量搬运；建议首批围绕晒餐、餐评、晚间零食、外食、血糖波动、平台期、不打卡唤回等 10 个高频场景。
+  - 文档给出标注字段模板、标签字段、素材专属字段、脱敏/去重/改写/安全审查规则，以及 8 天左右的 P0 时间计划。
+  - 文档明确 P0 最小交付物：100 条话术、50 条知识卡片、30 个图片素材、10 个视频素材、50 条评估问题。
+  - 本轮为文档任务，未改业务代码；focused validation 已确认关键章节与交付物均已落盘。
+- 已完成 RAG P0 话术 CSV 测试入库准备：
+  - 已规范 [docs/shujubiaozhu/test.csv](</d:/惯能/群机器人定时推送/wecom_ops_console/docs/shujubiaozhu/test.csv>) 的 5 条纯文本话术：修正多值标签分隔、场景/问题类型混用、第 5 条医学敏感话术可见范围。
+  - 已新增 [scripts/import_speech_templates_csv.py](</d:/惯能/群机器人定时推送/wecom_ops_console/scripts/import_speech_templates_csv.py>)，支持从 CSV 导入到话术管理，并兼容顿号、中文逗号、英文逗号、分号、斜杠、竖线等多值分隔符。
+  - 已修复 [app/rag/vector_store.py](</d:/惯能/群机器人定时推送/wecom_ops_console/app/rag/vector_store.py>) 的 Qdrant list filter 语义，把同字段多候选值从错误 AND 改为 OR。
+  - 已沉淀 Bug #57 到 `bug.md`，沉淀经验 #115 到 `memory.md`。
+  - 本轮 focused validation：`py_compile` 通过；CSV `Import-Csv` 可解析 5 行；导入脚本 `--dry-run` 输出 created=5 updated=0 skipped=0。
+  - 本轮项目启动验证结果：后端 `python -m uvicorn app.main:app --host 0.0.0.0 --port 8007 --log-level info` 已确认 `Application startup complete`；本轮未改前端代码，未执行前端启动。
+- 2026-04-27 已开始 CRM AI 用户 Profile 缓存 L2 快照收口：
+  - 目标边界：当前阶段不引 Redis，使用本地数据库作为 L2 缓存快照，确保用户进入档案页后可静默检查/预热缓存，AI 对话首问优先命中缓存上下文。
+  - 已确认本轮会按审查现状、补齐后端 L1/L2、补齐前端静默触发、验证启动、回写沉淀的顺序推进。
+  - 已确认代码半成品缺口：L2 DB 快照服务已存在，但 AI 对话函数签名没接住 `health_window_days`，DeepSeek thinking 仍绕过统一缓存且引用了未导入符号，前端 AI 请求也没携带当前窗口。
+  - 已补齐后端：AI prepare 改为只读 L1/L2 profile 快照，true miss 只触发后台 preload 并快速返回“缓存准备中”，不在 AI 对话线程同步执行 CRM profile 聚合查询。
+  - 已补齐前端：profile 加载和健康窗口切换后都会静默调用 `/ai/preload`；AI 对话和 context-preview 都会携带当前 `health_window_days`。
+  - 已重写 [docs/CRM_AI用户Profile缓存机制调研与优化报告.md](</d:/惯能/群机器人定时推送/wecom_ops_console/docs/CRM_AI用户Profile缓存机制调研与优化报告.md>)，把当前 official 方案改为“本地应用数据库 L2 快照”，Redis 仅保留为未来候选方向。
+  - 已沉淀 Bug #58 到 `bug.md`，沉淀经验 #116 到 `memory.md`。
+  - 本轮 focused validation：`py_compile` 通过；`cd frontend; .\node_modules\.bin\vue-tsc.cmd --noEmit` 通过；`cd frontend; npm.cmd run build` 通过。
+  - 本轮项目启动验证结果：后端 `python -m uvicorn app.main:app --host 0.0.0.0 --port 8008 --log-level info` 已确认 `Application startup complete`；前端沙箱内启动仍触发既有 `esbuild spawn EPERM`，提权后 `npm.cmd run dev -- --host 0.0.0.0 --port 5178` 已确认 Vite ready，随后已回收测试监听进程。
+- 2026-04-27 已继续优化 CRM AI Profile 缓存状态门禁：
+  - 后端新增 `GET /api/v1/crm-customers/{customer_id}/ai/cache-status`，只读 L1/L2 状态，不触发 CRM profile 构建；返回 ready/status/source/cache_key/generated_at/expires_at/stale_expires_at。
+  - 后端新增 `cleanup_expired_profile_cache()`，应用生命周期中每 6 小时清理一次 `stale_expires_at` 已过期的 L2 support snapshot。
+  - 前端 `useCrmProfile()` 已保存 `profileCacheStatus`，profile 加载和健康窗口切换后的 preload 结果会进入状态；若后台构建中，会在 1.5 秒和 5 秒后静默刷新状态。
+  - AI 抽屉输入区已接入 `profileCacheStatus`，在 `checking / scheduled / already_running / building / missing` 状态下短暂禁用发送并提示“客户档案正在准备”，避免用户点击后等待 DB。
+  - 已更新 [docs/CRM_AI用户Profile缓存机制调研与优化报告.md](</d:/惯能/群机器人定时推送/wecom_ops_console/docs/CRM_AI用户Profile缓存机制调研与优化报告.md>)，把 cache-status 和 L2 清理从“下一步建议”提升为已落地能力。
+  - 用户现场复测时，后端已确认启动成功，`/profile`、`/ai/preload`、`/ai/config`、`/ai/sessions` 均返回 200；进入 AI 对话后新暴露 RAG 检索审计表旧库缺列问题。
+  - 已修复 `rag_retrieval_logs.intent_json` 数据库漂移：`ensure_rag_schema()` 现在会对旧库幂等补列；当前本地库已执行一次迁移并确认 `intent_json` 字段存在。
+  - 已沉淀 Bug #59 到 `bug.md`。
+  - 本轮 focused validation：`py_compile` 通过；`ensure_rag_schema(engine)` 通过并确认 `intent_json` 存在；`write_retrieval_log(intent_json='{}')` 写入通过；`git diff --check` 通过。
+  - 本轮项目启动验证结果：后端 `python -m uvicorn app.main:app --host 0.0.0.0 --port 8010 --log-level info` 已确认 `Application startup complete`，随后已回收 8010；前端沙箱内仍复现既有 `esbuild spawn EPERM`，提权后 `npm.cmd run dev -- --host 0.0.0.0 --port 5178` 已确认 Vite ready，随后已回收 5178。
+- 2026-04-27 已新增 CRM AI Profile 缓存机制当前实现报告：
+  - 新文档 [docs/CRM_AI_Profile缓存机制当前实现报告.md](</d:/惯能/群机器人定时推送/wecom_ops_console/docs/CRM_AI_Profile缓存机制当前实现报告.md>) 已落盘，定位为当前实现交接报告。
+  - 报告梳理了 L1 进程内缓存、L2 本地数据库快照 `crm_ai_profile_cache`、统一 cache key、TTL、请求链路、AI cache-only prepare、前端状态门禁、过期清理和多 worker 风险。
+  - 报告明确 `crm_ai_profile_cache` 是 support snapshot，不是 CRM 用户档案 official truth；Redis 仍只是未来候选方向。
+  - 本轮为文档任务，未改业务代码；focused validation 已确认报告关键章节、接口名、缓存状态与风险边界均存在。

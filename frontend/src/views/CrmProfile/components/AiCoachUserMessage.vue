@@ -16,8 +16,10 @@
 import MarkdownRenderer from '#/components/markdown/MarkdownRenderer.vue'
 import type { AiChatMessage } from '../composables/useAiCoach'
 
+type UserMsg = Extract<AiChatMessage, { role: 'user' }>
+
 defineProps<{
-  msg: AiChatMessage
+  msg: UserMsg
   userAvatar?: string
   userDisplayName?: string
   isAdmin?: boolean

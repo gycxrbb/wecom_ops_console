@@ -1,7 +1,8 @@
 from datetime import datetime
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, backref
 from .database import Base
+from . import models_rag  # noqa: F401 — ensure RAG tables are registered with Base.metadata
 
 class TimestampMixin:
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -311,6 +312,16 @@ class AuditLog(Base, TimestampMixin):
     user = relationship('User')
 
 
+class SpeechCategory(Base, TimestampMixin):
+    __tablename__ = 'speech_categories'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    parent_id: Mapped[int | None] = mapped_column(ForeignKey('speech_categories.id'), nullable=True)
+    level: Mapped[int] = mapped_column(Integer, default=1)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    children = relationship('SpeechCategory', backref=backref('parent', remote_side=[id]))
+
+
 class SpeechTemplate(Base, TimestampMixin):
     __tablename__ = 'speech_templates'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -318,9 +329,12 @@ class SpeechTemplate(Base, TimestampMixin):
     style: Mapped[str] = mapped_column(String(32))
     label: Mapped[str] = mapped_column(String(128), default='')
     content: Mapped[str] = mapped_column(Text, default='')
+    metadata_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_builtin: Mapped[int] = mapped_column(Integer, default=1)
     owner_id: Mapped[int | None] = mapped_column(ForeignKey('users.id'), nullable=True)
+    category_id: Mapped[int | None] = mapped_column(ForeignKey('speech_categories.id'), nullable=True)
     owner = relationship('User')
+    category = relationship('SpeechCategory')
 
 
 from .models_external_docs import *  # noqa: F401,F403

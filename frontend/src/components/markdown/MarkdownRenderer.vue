@@ -2,6 +2,8 @@
   <div class="md-prose">
     <template v-for="(seg, i) in segments" :key="i">
       <CodeBlock v-if="seg.type === 'code'" :code="seg.code" :language="seg.language" />
+      <MermaidBlock v-else-if="seg.type === 'mermaid'" :code="seg.code" :streaming="streaming" />
+      <MathBlock v-else-if="seg.type === 'math'" :code="seg.code" />
       <div v-else v-html="seg.html" />
     </template>
   </div>
@@ -13,9 +15,13 @@ import { useMarkdownIt, sanitize } from '#/composables/useMarkdownIt'
 import { safeCloseMarkdown } from '#/lib/streaming/chunkBuffer'
 import '#/styles/markdown.css'
 import CodeBlock from './CodeBlock.vue'
+import MermaidBlock from './MermaidBlock.vue'
+import MathBlock from './MathBlock.vue'
 
 type Segment =
   | { type: 'code'; code: string; language: string }
+  | { type: 'mermaid'; code: string }
+  | { type: 'math'; code: string }
   | { type: 'html'; html: string }
 
 const props = withDefaults(defineProps<{
@@ -46,11 +52,18 @@ const segments = computed<Segment[]>(() => {
     const token = tokens[i]
     if (token.type === 'fence' || token.type === 'code_block') {
       flushHtml()
-      result.push({
-        type: 'code',
-        code: token.content,
-        language: (token.info || '').trim().split(/\s+/)[0] || '',
-      })
+      const lang = (token.info || '').trim().split(/\s+/)[0] || ''
+      if (lang === 'mermaid') {
+        result.push({ type: 'mermaid', code: token.content })
+      } else if (lang === 'math' || lang === 'katex' || lang === 'latex') {
+        result.push({ type: 'math', code: token.content })
+      } else {
+        result.push({
+          type: 'code',
+          code: token.content,
+          language: lang,
+        })
+      }
     } else {
       htmlBatch.push(token)
     }

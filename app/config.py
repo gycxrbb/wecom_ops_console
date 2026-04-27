@@ -51,6 +51,9 @@ class Settings(BaseSettings):
     deepseek_api_key: str = ''
     deepseek_base_url: str = 'https://api.deepseek.com'
     deepseek_model: str = 'deepseek-v4-pro'
+    crm_profile_cache_fresh_ttl_seconds: int = 1800
+    crm_profile_cache_stale_ttl_seconds: int = 86400
+    crm_profile_cache_preload_wait_ms: int = 15000
     send_timeout_seconds: int = 30
     file_upload_timeout_seconds: int = 120
     send_max_retries: int = 3
@@ -63,6 +66,27 @@ class Settings(BaseSettings):
     cors_allowed_origins: str = ''  # 逗号分隔，留空则只允许同源
     crm_profile_enabled: bool = False
     ai_coach_enabled: bool = False
+    # RAG
+    rag_enabled: bool = False
+    qdrant_mode: str = "local"  # "local" = 本地文件, "remote" = 远程服务器
+    qdrant_host: str = "127.0.0.1"
+    qdrant_port: int = 6333
+    qdrant_local_path: str = "data/qdrant"
+    qdrant_collection: str = "wecom_health_rag"
+    rag_embedding_base_url: str = "https://aihubmix.com/v1"
+    rag_embedding_api_key: str = ""
+    rag_embedding_model: str = "text-embedding-3-large"
+    rag_embedding_dimension: int = 1024
+    rag_rerank_enabled: bool = False
+    rag_rerank_model: str = "jina-reranker-v3"
+    rag_top_k: int = 30
+    rag_rerank_top_n: int = 6
+    rag_chunk_size: int = 600
+    rag_chunk_overlap: int = 80
+    rag_min_score: float = 0.42
+    rag_relative_score_ratio: float = 0.72
+    rag_max_visible_sources: int = 3
+    rag_points_operation_scenes: str = "top_leader,top_six,top_ten,surge,daily_remind,group_pk,lurker_remind"
 
 settings = Settings()
 DATA_DIR.mkdir(parents=True, exist_ok=True)

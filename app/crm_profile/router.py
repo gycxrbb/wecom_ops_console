@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import logging
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Body, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -13,7 +13,8 @@ from ..database import get_db
 from ..route_helper import UnifiedResponseRoute
 from ..security import get_current_user
 from ..sse_debug_log import get_sse_logger
-from .services.cache import get as cache_get, put as cache_put, PROFILE_TTL, FILTER_OPTIONS_TTL
+from .services.cache import get as cache_get, put as cache_put, FILTER_OPTIONS_TTL
+from .services.profile_context_cache import ensure_profile_context, get_profile_cache_status, normalize_window_days
 from .schemas.api import (
     CustomerSearchItem, CustomerListItem, CustomerListResponse,
     CustomerListWithFiltersResponse,
@@ -23,10 +24,10 @@ from .schemas.api import (
     AiProfileNoteRequest, AiProfileNoteResponse, AiConfigResponse, SceneOption,
     AiChatRequest, AiChatResponse,
     AiSessionListResponse, AiSessionDetailResponse,
+    AiPreloadRequest, AiPreloadResponse, AiCacheStatusResponse,
 )
 from .models import CustomerAiProfileNote
 from .services.permission import assert_can_view, resolve_visible_customers
-from .services.profile_loader import load_profile
 from .services import audit as audit_service
 from .services.modules import safety_profile as safety_profile_module
 from .services.context_builder import build_context_text as _build_context_text
@@ -287,15 +288,41 @@ def get_customer_profile(
     user = get_current_user(request, db)
     assert_can_view(user, customer_id)
 
-    w = window if window in (7, 14, 30) else 7
-    cache_key = f"profile:{customer_id}:hw{w}"
-    cached = cache_get(cache_key)
-    if cached:
-        return cached
+    w = normalize_window_days(window)
+    result = ensure_profile_context(customer_id, window_days=w, allow_stale=True)
+    return result.ctx
 
-    ctx = load_profile(customer_id, health_window_days=w)
-    cache_put(cache_key, ctx, PROFILE_TTL)
-    return ctx
+
+@router.post("/{customer_id}/ai/preload", response_model=AiPreloadResponse)
+def preload_ai_context(
+    customer_id: int,
+    request: Request,
+    body: AiPreloadRequest = Body(default=AiPreloadRequest()),
+    db: Session = Depends(get_db),
+):
+    """Background-warm AI profile cache. Fire-and-forget from frontend."""
+    from .services.ai_context_preload import preload_ai_context as _preload
+    user = get_current_user(request, db)
+    assert_can_view(user, customer_id)
+    result = _preload(customer_id, window_days=body.health_window_days, wait_ms=body.wait_ms)
+    return AiPreloadResponse(customer_id=customer_id, **result)
+
+
+@router.get("/{customer_id}/ai/cache-status", response_model=AiCacheStatusResponse)
+def get_ai_cache_status(
+    customer_id: int,
+    request: Request,
+    health_window_days: int = Query(7, ge=7, le=30),
+    db: Session = Depends(get_db),
+):
+    """Return AI profile cache readiness without building CRM profile."""
+    user = get_current_user(request, db)
+    assert_can_view(user, customer_id)
+    result = get_profile_cache_status(
+        customer_id,
+        window_days=normalize_window_days(health_window_days),
+    )
+    return AiCacheStatusResponse(customer_id=customer_id, **result.__dict__)
 
 
 @router.get("/{customer_id}/safety-snapshots", response_model=SafetySnapshotListResponse)
@@ -445,13 +472,18 @@ def get_ai_context_preview(
     request: Request,
     scene_key: str = Query("qa_support"),
     selected_expansions: str = Query(""),
+    health_window_days: int = Query(7, ge=7, le=30),
     db: Session = Depends(get_db),
 ):
     """Return the assembled context text that AI would see for this customer."""
     user = get_current_user(request, db)
     assert_can_view(user, customer_id)
 
-    ctx = load_profile(customer_id)
+    ctx = ensure_profile_context(
+        customer_id,
+        window_days=normalize_window_days(health_window_days),
+        allow_stale=True,
+    ).ctx
     expansions = [e.strip() for e in selected_expansions.split(",") if e.strip()] if selected_expansions else None
     context_text = _build_context_text(ctx.cards, selected_expansions=expansions)
     used_modules = [c.key for c in ctx.cards if c.status in ("ok", "partial")]
@@ -541,6 +573,7 @@ if _ai_coach_enabled:
             entry_scene=body.entry_scene,
             selected_expansions=body.selected_expansions,
             output_style=body.output_style,
+            health_window_days=body.health_window_days,
         )
         return result
 
@@ -571,6 +604,7 @@ if _ai_coach_enabled:
                 entry_scene=body.entry_scene,
                 output_style=body.output_style,
                 selected_expansions=body.selected_expansions,
+                health_window_days=body.health_window_days,
             ):
                 _sse_log.info("[SSE-ROUTE] chat-stream writing SSE event=%s at %.3fs", event.event, _time.time() - _t)
                 yield _sse(event.event, event.data)
@@ -605,6 +639,8 @@ if _ai_coach_enabled:
                 session_id=body.session_id,
                 scene_key=body.scene_key,
                 output_style=body.output_style,
+                selected_expansions=body.selected_expansions,
+                health_window_days=body.health_window_days,
             ):
                 _sse_log.info("[SSE-ROUTE] thinking-stream writing SSE event=%s at %.3fs", event.event, _time.time() - _t)
                 yield _sse(event.event, event.data)

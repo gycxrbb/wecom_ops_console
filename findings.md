@@ -73,3 +73,13 @@
 - `diet_assessment` 不应默认作为 AI 正式上下文真值，更适合作为 support；它本身是长文本点评，容易污染当前 AI 生成。
 - 健康摘要建议从固定 `health_summary_7d` 升级成参数化 `health_summary(window_days=7|14|30)`，但兼容层可暂保留 `health_summary_7d`。
 - 档案页推荐把“近7天健康摘要”改名为统一“健康摘要”，右上角提供 `近7天 / 近14天 / 近30天` 切换。
+
+## CRM AI 用户 Profile 缓存 L2 快照收口
+- 代码中已新增 `app/crm_profile/services/profile_context_cache.py`，当前实现为 L1 进程内缓存 + L2 应用数据库表 `crm_ai_profile_cache`，符合“当前阶段不引 Redis”的方向。
+- `profile_context_cache.py` 已提供 `get_cached_profile_context / ensure_profile_context / schedule_profile_preload`，并有同进程 single-flight；L2 快照是 support cache，不是 CRM 用户档案 official truth。
+- `docs/CRM_AI用户Profile缓存机制调研与优化报告.md` 当前仍大量推荐 Redis L2，与用户 2026-04-27 最新诉求“不先引 Redis，先用本地数据库做 L2 快照”不一致，需要更新口径。
+- `router.py` 已把 `/profile`、`/ai/preload`、`/ai/context-preview` 改到统一缓存服务，并且 `AiChatRequest` 已包含 `health_window_days`。
+- `ai_coach.py` 尚未收口：`ask_ai_coach / stream_ai_coach_answer / stream_ai_coach_thinking` 函数签名没有接 `health_window_days`，但路由已经传参，运行时会触发 unexpected keyword argument。
+- `ai_coach.py` 的 DeepSeek thinking 轻量路径仍使用旧的 `profile_cache_key/cache_get/cache_get_stale/load_profile/get_connection` 逻辑，这些符号当前没有导入；并且它绕过了新的本地 DB L2 快照。
+- `useAiCoach.ts` 发送 `chat-stream/thinking-stream` 时还没有把当前健康窗口写入请求体；`AiCoachPanel.vue` 也没有接收 `currentWindowDays`。
+- `useCrmProfile.ts` 初次 `loadProfile()` 后会 fire-and-forget 调 `/ai/preload`，但 `switchHealthWindow()` 后没有同步预热新窗口，`context-preview` 前端也未携带 `health_window_days`。

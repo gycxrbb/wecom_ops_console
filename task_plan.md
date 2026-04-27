@@ -41,3 +41,143 @@
 ### 风险与待确认
 - 高血糖/低血糖阈值不宜在第一版硬编码到多处，建议统一配置。
 - 现有主报告 `CRM_USER_PROFILE_AI_INTEGRATION_REPORT.md` 仍以 `health_summary_7d` 为主，后续需要和本次报告同步口径，避免真值漂移。
+
+---
+
+## 2026-04-26 临时任务锚点：客户档案详情导航缓存修复
+
+### 目标
+- 修复客户在详情页切到发送中心后，再回客户档案时丢失原客户详情、退回客户列表的问题。
+
+### 阶段
+- [x] Phase 1: 恢复客户档案路由、页面和 composable 状态现状
+- [x] Phase 2: 定位详情恢复只依赖 URL query，侧边栏导航会丢 query 的根因
+- [x] Phase 3: 在客户档案 composable 中补充会话级恢复锚点
+- [x] Phase 4: 运行 focused validation 与项目启动验证
+
+### 当前判断
+- `official` 的显式恢复入口仍是 `/crm-profile?cid=...`。
+- `sessionStorage` 只作为同一浏览器会话内的辅助恢复锚点，不写成长期 truth。
+- 点击“返回客户列表”是用户显式退出详情，应清理恢复锚点。
+
+---
+
+## 2026-04-26 临时任务锚点：CRM AI 上下文缓存与预加载优化计划
+
+### 目标
+- 梳理当前 AI 对话缓存架构、缓存未命中原因，并输出一份符合工程规范的后台预热优化计划到 `docs/`。
+
+### 阶段
+- [x] Phase 1: 恢复 `cache.py / profile_loader.py / context_builder.py / ai_coach.py / useAiCoach.ts` 现状
+- [x] Phase 2: 定位 profile cache key 不一致、首次对话未预热、DeepSeek thinking 轻量路径绕行等问题
+- [x] Phase 3: 设计 P0/P1/P2 分阶段工程方案
+- [x] Phase 4: 输出正式计划文档到 `docs/CRM_AI_CONTEXT_CACHE_PRELOAD_OPTIMIZATION_PLAN.md`
+
+### 当前判断
+- 当前缓存未命中最直接 blocker 是客户档案页使用 `profile:{id}:hw{window}`，AI prepare 使用 `profile:{id}`。
+- 用户提出的“进入客户档案后后台预加载 AI 上下文”方向成立，但必须先统一 key、加 single-flight、区分 preload candidate 与正式审计 snapshot。
+- 当前任务仅为方案文档，未改业务代码。
+
+---
+
+## 2026-04-26 临时任务锚点：CRM AI 用户信息字段扩充报告校准
+
+### 目标
+- 审核 `docs/CRM_AI加载用户信息字段优化扩充开发报告.md`，对齐当前代码仓库真实链路，删除模型额度限制类表述，修正不合理结论。
+
+### 阶段
+- [x] Phase 1: 恢复报告、AI coach、router、cache、前端预热调用现状
+- [x] Phase 2: 对齐 `/profile -> /ai/preload -> profile_cache_key -> _prepare_ai_turn` 缓存链路
+- [x] Phase 3: 修正 `selected_expansions` 未闭环问题描述
+- [x] Phase 4: 删除相关限制章节并完成 focused validation
+
+### 当前判断
+- 当前 `/ai/preload` 只属于 support cache 预热，不是 formal 会话上下文快照。
+- 当前 AI prepare 默认读取 `profile:{customer_id}:hw7`，非 7 天健康窗口仍可能出现预热成功但首问未命中的情况。
+- 当前报告已调整为“当前代码真实口径 + 后续修复建议”，未改业务代码。
+
+---
+
+## 2026-04-26 临时任务锚点：RAG 接入方案重写
+
+### 目标
+- 将 `docs/RAG集成到wecom项目手册.md` 从独立 RAG demo 调整为适配当前系统的正式开发手册，覆盖话术管理、素材库标签治理、aihubmix embedding、Qdrant、AI 教练接入与前端推荐资料闭环。
+
+### 阶段
+- [x] Phase 1: 恢复当前 `speech_templates / materials / crm_profile ai_coach / ai_chat_client / docker-compose.prod.yml` 真值
+- [x] Phase 2: 核对 aihubmix embedding/rerank 接口与候选模型
+- [x] Phase 3: 重写 RAG 手册，明确复用当前模块、不新建长期独立 RAG 对话入口
+- [x] Phase 4: 补充开发交接说明、P0 最小闭环拆分与硬性叮嘱
+- [x] Phase 5: 聚焦校验关键漂移点与核心章节
+
+### 当前判断
+- 固定干预话术应进入“话术管理”，模板中心只负责企业微信发送格式与变量。
+- 素材库已有 `materials.tags` 基础字段，但要支撑 RAG，还需要摘要、适用场景、安全级别、可发状态、图片说明和视频转写。
+- 第一版 embedding 推荐通过 aihubmix 使用 `text-embedding-3-large`，Qdrant 负责向量存储，RAG 作为 support knowledge 接入现有 CRM AI 教练链路。
+- 当前文档已能作为开发蓝图交接，但要求开发先做 P0 最小闭环，不允许把全量知识库平台一次性混进首轮。
+
+---
+
+## 2026-04-27 临时任务锚点：CRM AI 用户 Profile 缓存 L2 快照收口
+
+### 目标
+- 审查并补齐 AI 对话用户 profile 缓存机制：当前阶段先不引入 Redis，使用本地数据库做 L2 缓存快照，避免用户在 AI 对话首问时等待 CRM 业务表聚合查询。
+
+### 阶段
+- [x] Phase 1: 恢复报告、缓存服务、AI 对话 prepare、用户档案页预热链路现状
+- [x] Phase 2: 判断本地 DB L2 快照模型、迁移、读写路径是否已闭环
+- [x] Phase 3: 补齐后端 L1/L2/profile preload/AI prepare 的健壮缓存路径
+- [x] Phase 4: 补齐用户档案页静默检查或预热触发，避免只在打开 AI 抽屉时才补缓存
+- [x] Phase 5: 跑 focused validation、项目启动验证，并回写报告、bug/memory/进度
+
+### 当前判断
+- 用户诉求明确为“不先引 Redis”；Redis 只能作为未来扩展，不能作为当前 official 依赖。
+- 本地 DB 快照只能作为 L2 support cache，不应覆盖 CRM 业务表 official truth。
+- AI 对话链路应优先读已准备好的缓存上下文；缓存缺失时可以后台刷新，但不能把常规路径设计成首问同步重查大量 DB。
+- 当前代码已存在 `crm_ai_profile_cache` 本地表和 `profile_context_cache.py`；本轮已把 AI 对话改为 cache-only 读取 L1/L2，true miss 仅后台 preload。
+- focused validation 与项目启动验证已通过；前端沙箱内 dev server 仍有既有 `esbuild spawn EPERM`，提权验证已确认 Vite 正常启动。
+
+### 风险与待确认
+- 需要避免把过期 L2 快照写成正式用户档案 truth。
+- 需要确认用户档案页加载、健康窗口切换、AI preload、thinking/answer 双流是否使用同一套 cache key。
+
+---
+
+## 2026-04-27 临时任务锚点：CRM AI Profile 缓存状态门禁续优化
+
+### 目标
+- 在本地 DB L2 快照方案基础上继续补齐可观测、前端门禁和过期快照治理，让“缓存准备中/已就绪/过期可用”成为系统可判断状态。
+
+### 阶段
+- [x] Phase 1: 恢复上一轮 L1/L2/profile preload/AI prepare 状态
+- [x] Phase 2: 后端新增 cache-status 与 L2 过期快照清理能力
+- [x] Phase 3: 前端保存 profile cache 状态，并在缓存未就绪时短暂禁用 AI 发送
+- [x] Phase 4: 更新调研报告、进度和经验沉淀
+- [x] Phase 5: 跑 focused validation、项目启动验证，并复测现场 AI 对话报错
+
+### 当前判断
+- cache-status 只读缓存状态，不触发 CRM profile 构建，避免把调试/门禁接口变成新的慢查询入口。
+- 前端门禁只在 `checking / scheduled / already_running / building / missing` 状态下短暂生效；fresh/stale ready 仍允许提问。
+- L2 清理只删除 `stale_expires_at` 已过期的 support snapshot，不影响 CRM official truth。
+- 用户现场测试已确认后端能启动且 `/ai/preload` 能返回 200；新暴露的 blocker 是 RAG 审计表旧库缺少 `rag_retrieval_logs.intent_json`，不是 Profile L2 缓存本身。
+- 已补 `ensure_rag_schema()` 的幂等补列，并已对当前库执行一次迁移；下一步需要复测 AI 对话不再刷该 traceback。
+- focused validation 已通过：`py_compile`、`ensure_rag_schema` 字段检查、`write_retrieval_log(intent_json=...)` 写入测试、`git diff --check`。
+- 项目启动验证已通过：后端备用端口 8010 启动到 `Application startup complete`；前端沙箱内仍复现既有 `esbuild spawn EPERM`，提权后 5178 启动到 Vite ready 并已回收监听进程。
+
+---
+
+## 2026-04-26 临时任务锚点：RAG 语料准备与标注计划
+
+### 目标
+- 为业务侧整理散落在飞书文档、微信聊天、图片、视频和教练经验中的语料提供一份可执行计划，保障后续 RAG 链路能顺畅接入话术管理、素材库和 AI 教练助手。
+
+### 阶段
+- [x] Phase 1: 恢复 RAG 接入方案、外部文档资源模型和素材库模型现状
+- [x] Phase 2: 设计语料来源盘点、清洗、脱敏、标注、审核、交付链路
+- [x] Phase 3: 输出 `docs/RAG语料准备与标注工作计划.md`
+- [x] Phase 4: 聚焦校验关键章节与交付物
+
+### 当前判断
+- 业务侧应先做高质量 P0 试点集，而不是全量搬运散落文档。
+- P0 目标建议为 100 条话术、50 条知识卡片、30 个图片素材、10 个视频素材、50 条评估问题。
+- 图片/视频必须补摘要、图片说明或转写文本，否则无法形成可检索语义。

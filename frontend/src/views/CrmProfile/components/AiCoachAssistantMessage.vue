@@ -42,13 +42,15 @@ import MarkdownRenderer from '#/components/markdown/MarkdownRenderer.vue'
 import AiCoachThinkingPanel from './AiCoachThinkingPanel.vue'
 import type { AiChatMessage } from '../composables/useAiCoach'
 
+type AssistantMsg = Extract<AiChatMessage, { role: 'assistant' }>
+
 defineProps<{
-  msg: AiChatMessage
+  msg: AssistantMsg
 }>()
 
 defineEmits<{
   copy: [content: string]
-  'mark-medical-review': [msg: AiChatMessage]
+  'mark-medical-review': [msg: AssistantMsg]
 }>()
 
 const safetyCodeLabel = (code: string) => {
