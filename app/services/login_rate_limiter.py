@@ -35,11 +35,14 @@ def check(ip: str, username: str) -> tuple[bool, int]:
         return True, 0
 
 
-def record_failure(ip: str, username: str) -> None:
+def record_failure(ip: str, username: str) -> int:
+    """记录一次失败，返回当前窗口内的累计失败次数。"""
     now = time.time()
     k = _key(ip, username)
     with _lock:
+        _attempts[k] = [t for t in _attempts[k] if now - t < WINDOW_SECONDS]
         _attempts[k].append(now)
+        return len(_attempts[k])
 
 
 def reset(ip: str, username: str) -> None:

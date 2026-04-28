@@ -59,8 +59,13 @@ async def api_login(request: Request, db: Session = Depends(get_db)):
     except CrmAdminAuthUnavailable:
         return {'code': 50300, 'message': 'CRM 用户库暂时不可用，请稍后重试', 'data': {}}
     if not user:
-        rate_limiter.record_failure(client_ip, username or '')
-        return {'code': 40100, 'message': '用户名或密码错误', 'data': {}}
+        failed_count = rate_limiter.record_failure(client_ip, username or '')
+        remaining = rate_limiter.MAX_ATTEMPTS - failed_count
+        return {'code': 40100, 'message': '用户名或密码错误', 'data': {
+            'failed_attempts': failed_count,
+            'max_attempts': rate_limiter.MAX_ATTEMPTS,
+            'remaining': max(remaining, 0),
+        }}
 
     rate_limiter.reset(client_ip, username or '')
     
@@ -571,6 +576,17 @@ async def perform_job_send(db: Session, schedule: models.Schedule, run_mode: str
     return results
 def get_user_or_401(request: Request, db: Session):
     return get_current_user(request, db)
+
+@router.get('/health')
+def health_check(db: Session = Depends(get_db)):
+    """无需鉴权的健康检查端点，供 Docker healthcheck / 监控使用。"""
+    try:
+        from sqlalchemy import text as sa_text
+        db.execute(sa_text('SELECT 1'))
+        db_ok = True
+    except Exception:
+        db_ok = False
+    return {'status': 'ok' if db_ok else 'degraded', 'db': db_ok}
 
 @router.get('/bootstrap')
 def bootstrap(request: Request, db: Session = Depends(get_db)):

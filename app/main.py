@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 from .config import STATIC_DIR, UPLOAD_DIR, FRONTEND_DIR, DATA_DIR, settings
 from .database import Base, engine, SessionLocal
+from .middleware.ip_rate_limit import IPRateLimitMiddleware, cleanup_buckets as _cleanup_ip_buckets
 from .routers.auth import router as auth_router
 from .routers.pages import router as pages_router
 from .routers.api import router as api_router
@@ -50,6 +51,7 @@ async def lifespan(app: FastAPI):
     # AI client warmup: pre-establish TLS/TCP connections
     asyncio.create_task(_ai_warmup())
     asyncio.create_task(_ai_keepalive_loop())
+    asyncio.create_task(_ip_rate_limit_cleanup_loop())
     if settings.crm_profile_enabled:
         asyncio.create_task(_crm_profile_cache_cleanup_loop())
         asyncio.create_task(_crm_profile_cache_refresh_loop())
@@ -111,6 +113,15 @@ async def _crm_profile_cache_refresh_loop():
         except Exception:
             _log.exception("CRM profile cache refresh failed")
 
+async def _ip_rate_limit_cleanup_loop():
+    """定期清理 IP 限流桶过期记录，防止内存泄漏。"""
+    while True:
+        await asyncio.sleep(300)
+        try:
+            _cleanup_ip_buckets()
+        except Exception:
+            pass
+
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
 
 # ── 安全默认值检查 ──
@@ -121,6 +132,7 @@ if settings.jwt_secret_key in _INSECURE_SECRETS:
     _log.warning('⚠️  JWT_SECRET_KEY 仍为默认值，请在 .env 中设置一个独立的强随机密钥！')
 
 app.add_middleware(SessionMiddleware, secret_key=settings.app_secret_key)
+app.add_middleware(IPRateLimitMiddleware)
 
 # ── CORS ──
 _cors_origins = [o.strip() for o in settings.cors_allowed_origins.split(',') if o.strip()]

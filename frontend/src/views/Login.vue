@@ -36,12 +36,16 @@
             </template>
           </el-input>
         </el-form-item>
-        <div v-if="loginError" class="login-error">{{ loginError }}</div>
+        <div v-if="lockoutSeconds > 0" class="login-lockout">
+          <el-icon :size="16" style="margin-right:6px;"><Warning /></el-icon>
+          账号已被临时锁定，请 <strong>{{ lockoutSeconds }}</strong> 秒后重试
+        </div>
+        <div v-else-if="loginError" class="login-error">{{ loginError }}</div>
         <div class="login-tip">
           admin 继续使用当前本地管理员账号，其他运营成员请使用 CRM 后台账号登录。
         </div>
         <el-form-item>
-          <el-button type="primary" class="login-btn" :loading="loading" @click="handleLogin">
+          <el-button type="primary" class="login-btn" :loading="loading" :disabled="lockoutSeconds > 0" @click="handleLogin">
             登 录
           </el-button>
         </el-form-item>
@@ -57,7 +61,7 @@
 import { ref, reactive, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { View, Hide, RefreshRight } from '@element-plus/icons-vue'
+import { View, Hide, RefreshRight, Warning } from '@element-plus/icons-vue'
 import ThemeToggle from '#/components/ThemeToggle.vue'
 import request from '#/utils/request'
 import { useUserStore } from '#/stores/user'
@@ -98,7 +102,10 @@ const updateClock = () => {
 }
 updateClock()
 clockTimer = setInterval(updateClock, 1000)
-onBeforeUnmount(() => { if (clockTimer) clearInterval(clockTimer) })
+onBeforeUnmount(() => {
+  if (clockTimer) clearInterval(clockTimer)
+  if (lockoutTimer) clearInterval(lockoutTimer)
+})
 
 const handleRefresh = () => { window.location.reload() }
 
@@ -108,6 +115,8 @@ const formRef = ref()
 const loading = ref(false)
 const showPassword = ref(false)
 const loginError = ref('')
+const lockoutSeconds = ref(0)
+let lockoutTimer: ReturnType<typeof setInterval> | null = null
 
 const form = reactive({
   username: '',
@@ -152,7 +161,32 @@ const handleLogin = async () => {
     await userStore.fetchUser()
     router.push('/')
   } catch (error: any) {
-    loginError.value = error?.message || '登录失败，请检查账号密码或稍后重试'
+    const retryAfter = error?.serverData?.retry_after
+    if (retryAfter && retryAfter > 0) {
+      loginError.value = ''
+      lockoutSeconds.value = retryAfter
+      if (lockoutTimer) clearInterval(lockoutTimer)
+      lockoutTimer = setInterval(() => {
+        lockoutSeconds.value--
+        if (lockoutSeconds.value <= 0) {
+          if (lockoutTimer) clearInterval(lockoutTimer)
+          lockoutTimer = null
+        }
+      }, 1000)
+    } else {
+      const data = error?.serverData
+      const baseMsg = error?.message || '登录失败，请检查账号密码或稍后重试'
+      if (data?.failed_attempts && data?.max_attempts) {
+        const remaining = data.max_attempts - data.failed_attempts
+        if (remaining > 0) {
+          loginError.value = `${baseMsg}（已失败 ${data.failed_attempts} 次，还剩 ${remaining} 次机会将被锁定）`
+        } else {
+          loginError.value = `${baseMsg}（已达 ${data.max_attempts} 次上限，账号即将被锁定）`
+        }
+      } else {
+        loginError.value = baseMsg
+      }
+    }
   } finally {
     loading.value = false
   }
@@ -255,6 +289,27 @@ const handleLogin = async () => {
 :global(html.dark) .login-error {
   background: rgba(245, 108, 108, 0.12);
   border-color: rgba(245, 108, 108, 0.3);
+}
+.login-lockout {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fdf6ec;
+  border: 1px solid #faecd8;
+  color: #e6a23c;
+  font-size: 13px;
+  line-height: 1.5;
+  display: flex;
+  align-items: center;
+}
+.login-lockout strong {
+  margin: 0 3px;
+  font-size: 15px;
+  color: #f56c6c;
+}
+:global(html.dark) .login-lockout {
+  background: rgba(230, 162, 60, 0.12);
+  border-color: rgba(230, 162, 60, 0.3);
 }
 
 .password-toggle {

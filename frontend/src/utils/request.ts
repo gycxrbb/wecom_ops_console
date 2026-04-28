@@ -26,11 +26,16 @@ service.interceptors.response.use(
     // Backend V2 format compatibility
     if (res.code !== undefined) {
       if (res.code !== 0 && res.code !== 200) {
-        ElMessage.error(res.message || '系统错误')
-        if (res.code === 40100 || res.code === 401) {
+        if (!window.location.pathname.startsWith('/login')) {
+          ElMessage.error(res.message || '系统错误')
+        }
+        if ((res.code === 40100 || res.code === 401) && !window.location.pathname.startsWith('/login')) {
           window.location.href = '/login'
         }
-        return Promise.reject(new Error(res.message || '系统错误'))
+        const err: any = new Error(res.message || '系统错误')
+        err.serverCode = res.code
+        err.serverData = res.data
+        return Promise.reject(err)
       }
       return res.data
     }
