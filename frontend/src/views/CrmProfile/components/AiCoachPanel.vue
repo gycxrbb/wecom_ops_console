@@ -219,6 +219,7 @@
             @quick-ask="askQuick"
             @dismiss-data-gap="dismissDataGap"
             @toggle-select="onToggleSelect"
+            @send-to-center="sendAssetToCenter"
           />
 
           <!-- Select mode action bar -->
@@ -273,6 +274,7 @@ import { ElMessage } from 'element-plus'
 import { useUserStore } from '#/stores/user'
 import request from '#/utils/request'
 import { useAiCoach } from '../composables/useAiCoach'
+import type { AiChatMessage } from '../composables/useAiCoach'
 import type { AiProfileCacheStatus } from '../composables/useCrmProfile'
 import AiSessionHistoryList from './AiSessionHistoryList.vue'
 import AiCoachMessageList from './AiCoachMessageList.vue'
@@ -392,19 +394,51 @@ const onToggleSelect = (index: number) => {
   selectedIndices.value = s
 }
 
+const msgTypeMap: Record<string, string> = { image: 'image', video: 'file', meme: 'emotion', file: 'file' }
+
 const sendToCenter = () => {
   const indices = [...selectedIndices.value].sort((a, b) => a - b)
   const items = indices.map((idx, i) => {
     const msg = chatHistory.value[idx]
-    if (!msg || !('content' in msg) || !msg.content?.trim()) return null
-    return {
-      id: Date.now() + i,
-      title: msg.content.replace(/\n/g, ' ').substring(0, 40) || `消息 ${i + 1}`,
-      msg_type: 'markdown',
-      description: msg.role === 'user' ? '用户提问' : 'AI 教练回复',
-      contentJson: { content: msg.content },
-      variablesJson: {},
+    if (!msg) return null
+    // 素材卡片 → 文件/图片消息
+    if (msg.role === 'reference' && msg.messageType === 'rag_attachment') {
+      const asset = msg.asset
+      const mt = msgTypeMap[asset.material_type] || 'file'
+      return {
+        id: Date.now() + i,
+        title: asset.title,
+        msg_type: mt,
+        description: `AI教练推荐素材${asset.reason ? ' — ' + asset.reason.substring(0, 60) : ''}`,
+        contentJson: { asset_id: asset.material_id, asset_name: asset.source_filename, asset_url: asset.preview_url || '' },
+        variablesJson: {},
+      }
     }
+    // 话术/知识卡片 → markdown 消息
+    if (msg.role === 'reference' && msg.messageType === 'rag_reference') {
+      const text = msg.snippet || msg.title
+      if (!text?.trim()) return null
+      return {
+        id: Date.now() + i,
+        title: msg.title,
+        msg_type: 'markdown',
+        description: `RAG 参考：${msg.content_kind === 'script' ? '话术' : '知识'}`,
+        contentJson: { content: text },
+        variablesJson: {},
+      }
+    }
+    // 用户/AI 文本消息 → markdown
+    if ('content' in msg && msg.content?.trim()) {
+      return {
+        id: Date.now() + i,
+        title: msg.content.replace(/\n/g, ' ').substring(0, 40) || `消息 ${i + 1}`,
+        msg_type: 'markdown',
+        description: msg.role === 'user' ? '用户提问' : 'AI 教练回复',
+        contentJson: { content: msg.content },
+        variablesJson: {},
+      }
+    }
+    return null
   }).filter(Boolean) as { id: number; title: string; msg_type: string; description: string; contentJson: Record<string, any>; variablesJson: Record<string, any> }[]
 
   if (!items.length) { ElMessage.warning('没有可发送的消息'); return }
@@ -412,6 +446,23 @@ const sendToCenter = () => {
   sessionStorage.setItem('send-center-prefill', JSON.stringify(items))
   selectMode.value = false
   selectedIndices.value = new Set()
+  visible.value = false
+  router.push('/send')
+}
+
+const sendAssetToCenter = (msg: AiChatMessage) => {
+  if (msg.role !== 'reference' || msg.messageType !== 'rag_attachment') return
+  const asset = msg.asset
+  const msgType = msgTypeMap[asset.material_type] || 'file'
+  const item = {
+    id: Date.now(),
+    title: asset.title,
+    msg_type: msgType,
+    description: `AI教练推荐素材${asset.reason ? ' — ' + asset.reason.substring(0, 60) : ''}`,
+    contentJson: { asset_id: asset.material_id, asset_name: asset.source_filename, asset_url: asset.preview_url || '' },
+    variablesJson: {},
+  }
+  sessionStorage.setItem('send-center-prefill', JSON.stringify([item]))
   visible.value = false
   router.push('/send')
 }

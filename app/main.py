@@ -52,6 +52,7 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(_ai_keepalive_loop())
     if settings.crm_profile_enabled:
         asyncio.create_task(_crm_profile_cache_cleanup_loop())
+        asyncio.create_task(_crm_profile_cache_refresh_loop())
 
     yield
     schedule_service.shutdown()
@@ -96,6 +97,19 @@ async def _crm_profile_cache_cleanup_loop():
         except Exception:
             _log.exception("CRM AI profile cache cleanup failed")
         await asyncio.sleep(6 * 60 * 60)
+
+
+async def _crm_profile_cache_refresh_loop():
+    """Periodically refresh L2 cache entries that are about to expire."""
+    while True:
+        await asyncio.sleep(30 * 60)  # every 30 min
+        try:
+            from .crm_profile.services.profile_context_cache import refresh_expiring_cache_entries
+            refreshed = await asyncio.get_event_loop().run_in_executor(None, refresh_expiring_cache_entries)
+            if refreshed:
+                _log.info("CRM AI profile cache refreshed %s expiring entries", refreshed)
+        except Exception:
+            _log.exception("CRM profile cache refresh failed")
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
 

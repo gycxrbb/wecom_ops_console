@@ -176,6 +176,351 @@ EOF
 nginx -t && systemctl restart nginx
 ```
 
+### 4.3 根域名 HTTPS 配置（gezelling.com）
+
+当前旧入口：
+
+```text
+http://120.48.156.119:8080
+```
+
+目标正式入口：
+
+```text
+https://gezelling.com
+```
+
+#### 4.3.1 DNS 解析
+
+在域名 DNS 控制台添加根域名解析：
+
+```text
+主机记录：@
+记录类型：A
+记录值：120.48.156.119
+TTL：600
+```
+
+如需同时支持 `www.gezelling.com`，再添加一条：
+
+```text
+主机记录：www
+记录类型：CNAME
+记录值：gezelling.com
+```
+
+验证解析：
+
+```bash
+nslookup gezelling.com
+```
+
+应解析到：
+
+```text
+120.48.156.119
+```
+
+#### 4.3.2 证书上传
+
+证书文件不要放到 Git 项目目录。建议放到 Nginx 专用目录：
+
+```bash
+mkdir -p /etc/nginx/ssl/gezelling
+```
+
+上传后建议命名为：
+
+```text
+/etc/nginx/ssl/gezelling/gezelling.com.crt
+/etc/nginx/ssl/gezelling/gezelling.com.key
+```
+
+设置权限：
+
+```bash
+chmod 644 /etc/nginx/ssl/gezelling/gezelling.com.crt
+chmod 600 /etc/nginx/ssl/gezelling/gezelling.com.key
+```
+
+注意：SSL 证书必须覆盖 `gezelling.com`。如果证书只覆盖 `www.gezelling.com` 或其他子域名，需要重新申请包含 `gezelling.com` 的证书。
+
+#### 4.3.3 Nginx 配置
+新增一个配置文件专门为 域名服务：
+在 `/etc/nginx/sites-enabled/wecom-ops-gezelling.conf` 写入：
+
+```nginx
+server {
+    listen 80;
+    server_name gezelling.com www.gezelling.com;
+
+    return 301 https://gezelling.com$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name gezelling.com www.gezelling.com;
+
+    ssl_certificate /etc/nginx/ssl/gezelling/gezelling.com.crt;
+    ssl_certificate_key /etc/nginx/ssl/gezelling/gezelling.com.key;
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers on;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+
+    client_max_body_size 100m;
+
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml;
+    gzip_min_length 1024;
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+        proxy_buffering off;
+        proxy_cache off;
+    }
+}
+```
+
+如果 Nginx 实际没有 include `/etc/nginx/sites-enabled/`，先检查：
+
+```bash
+nginx -T | grep include
+```
+
+检查是否配置文件生效：
+nginx -T | grep wecom-ops
+
+
+再把配置文件放到实际被 include 的目录，例如：
+
+```text
+/etc/nginx/conf.d/
+/www/server/panel/vhost/nginx/
+```
+
+
+
+#### 4.3.4 端口放行
+
+云服务器安全组和宝塔防火墙都要放行：
+
+```text
+TCP 443
+TCP 80
+```
+
+旧的 `8080` 可以先保留，作为回退入口。
+
+#### 4.3.5 检查与重载
+
+```bash
+nginx -t
+systemctl reload nginx
+```
+
+如果 reload 后未生效：
+
+```bash
+systemctl restart nginx
+```
+
+#### 4.3.6 验证
+
+强制指定解析测试：
+
+```bash
+curl -Ik --resolve gezelling.com:443:120.48.156.119 https://gezelling.com
+```
+
+这一步的时候遇到问题了：
+我发现系统另外一个路径也有配置文件:
+/www/server/panel/vhost/nginx/wecom-ops.conf
+
+服务器上同时跑了两套 Nginx。
+系统 Nginx：/usr/sbin/nginx
+宝塔 Nginx：/www/server/nginx/sbin/nginx
+
+本次排障过程记录（2026-04-27）：
+
+1. 最初现象：
+
+```bash
+curl -Ik --resolve gezelling.com:443:120.48.156.119 https://gezelling.com
+```
+
+返回：
+
+```text
+curl: (7) Failed to connect to gezelling.com port 443: Connection refused
+```
+
+这不是证书错误，也不是域名解析错误，而是 `443` 端口当时没有任何服务在监听。
+
+2. 同时测试 HTTP：
+
+```bash
+curl -I http://gezelling.com
+```
+
+返回：
+
+```text
+HTTP/1.1 200 OK
+Server: nginx
+Content-Length: 138
+```
+
+这说明 `80` 端口有 Nginx 在响应，但命中的是默认静态页，不是我们预期的 `301` 跳转到 HTTPS。
+
+3. 查看监听端口：
+
+```bash
+ss -lntp | grep -E ':80|:443|:8080|:8000'
+```
+
+当时结果显示：
+
+```text
+0.0.0.0:8080  -> 系统 Nginx
+0.0.0.0:80    -> 宝塔 Nginx
+0.0.0.0:8000  -> uvicorn
+```
+
+没有 `0.0.0.0:443`，所以 HTTPS 必然不通。
+
+4. 查看 Nginx 进程：
+
+```bash
+ps -ef | grep '[n]ginx'
+```
+
+发现服务器同时存在两套 Nginx：
+
+```text
+系统 Nginx：/usr/sbin/nginx
+宝塔 Nginx：/www/server/nginx/sbin/nginx
+```
+
+其中：
+
+```text
+系统 Nginx 使用 /etc/nginx/nginx.conf
+宝塔 Nginx 使用 /www/server/nginx/conf/nginx.conf
+宝塔站点配置位于 /www/server/panel/vhost/nginx/
+```
+
+5. 根因：
+
+`gezelling.com` 的 HTTPS 配置写在系统 Nginx 的 `/etc/nginx/sites-enabled/` 下，`nginx -T` 能看到配置，`nginx -t` 也通过。
+
+但 `80` 端口被宝塔 Nginx 占用，系统 Nginx 无法完整接管 `80/443/8080`。因此表现为：
+
+```text
+80 仍然返回宝塔默认页
+443 没有监听
+8080 旧入口仍可访问
+```
+
+6. 临时修复动作：
+
+```bash
+fuser -k 80/tcp
+systemctl start nginx
+```
+
+这一步杀掉了占用 `80` 的宝塔 Nginx，再启动系统 Nginx。随后系统 Nginx 成功监听：
+
+```text
+0.0.0.0:80
+0.0.0.0:443
+0.0.0.0:8080
+```
+
+7. 修复后验证：
+
+```bash
+curl -I --resolve gezelling.com:80:127.0.0.1 http://gezelling.com
+```
+
+返回：
+
+```text
+HTTP/1.1 301 Moved Permanently
+Location: https://gezelling.com/
+```
+
+继续验证 HTTPS：
+
+```bash
+curl -Ik --resolve gezelling.com:443:120.48.156.119 https://gezelling.com
+```
+
+返回：
+
+```text
+HTTP/2 405
+allow: GET
+```
+
+这里的 `405` 不是 HTTPS 失败，而是 `curl -I` 发送的是 `HEAD` 请求，后端入口只允许 `GET`。这说明 HTTPS、证书、Nginx 反代链路已经打通。
+
+可用 GET 再验证：
+
+```bash
+curl -kL https://gezelling.com -o /dev/null -w "%{http_code}\n"
+curl -k https://gezelling.com/api/v1/bootstrap
+```
+
+8. 收口原则：
+
+这台服务器以后必须明确一套 official Nginx：
+
+```text
+official：系统 Nginx
+二进制：/usr/sbin/nginx
+主配置：/etc/nginx/nginx.conf
+站点配置：/etc/nginx/sites-enabled/wecom-ops.conf
+```
+
+不要再让宝塔 Nginx 抢占 `80/443`。否则服务器重启、宝塔重启 Nginx 后，可能再次出现：
+
+```text
+80 命中默认页
+443 connection refused
+systemctl restart nginx 报 bind() to 0.0.0.0:80 failed
+```
+
+
+验证 HTTP 自动跳转 HTTPS：
+
+```bash
+curl -I http://gezelling.com
+```
+
+预期：
+
+```text
+HTTP/1.1 301 Moved Permanently
+Location: https://gezelling.com/
+```
+
+浏览器最终访问：
+
+```text
+https://gezelling.com
+```
+
 ---
 
 ## 五、日常部署
@@ -279,6 +624,69 @@ Debian 官方源在国内很慢，Dockerfile 中加阿里云镜像：
 ```dockerfile
 RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources
 ```
+
+### 6.9 同时运行系统 Nginx 和宝塔 Nginx 会导致端口归属混乱
+
+2026-04-27 配置 `https://gezelling.com` 时遇到一次典型问题：
+
+```text
+curl -Ik --resolve gezelling.com:443:120.48.156.119 https://gezelling.com
+curl: (7) Failed to connect to gezelling.com port 443: Connection refused
+```
+
+当时 `nginx -T` 能看到 `gezelling.com` 配置，`nginx -t` 也通过，但 `ss -lntp` 没有 `:443` 监听。
+
+最终确认服务器上同时存在两套 Nginx：
+
+```text
+系统 Nginx：/usr/sbin/nginx
+宝塔 Nginx：/www/server/nginx/sbin/nginx
+```
+
+当时实际端口归属：
+
+```text
+8080 -> 系统 Nginx
+80   -> 宝塔 Nginx
+443  -> 未监听
+8000 -> uvicorn
+```
+
+因此 `http://gezelling.com` 命中宝塔默认页并返回 `200 OK`，而 `https://gezelling.com` 直接 `Connection refused`。
+
+排查命令：
+
+```bash
+ps -ef | grep '[n]ginx'
+which nginx
+nginx -T | grep -n "gezelling.com"
+nginx -T | grep -n "include"
+/www/server/nginx/sbin/nginx -t
+ss -lntp | grep -E ':80|:443|:8080|:8000'
+```
+
+临时修复：
+
+```bash
+fuser -k 80/tcp
+systemctl start nginx
+```
+
+修复后系统 Nginx 成功监听 `80/443/8080`，验证结果：
+
+```text
+http://gezelling.com -> 301 https://gezelling.com/
+https://gezelling.com -> 已进入 Nginx 反代链路
+```
+
+注意：`curl -I https://gezelling.com` 返回 `HTTP/2 405 allow: GET` 不代表 HTTPS 失败，而是 HEAD 请求不被后端入口允许。用 GET 验证：
+
+```bash
+curl -kL https://gezelling.com -o /dev/null -w "%{http_code}\n"
+curl -k https://gezelling.com/api/v1/bootstrap
+```
+
+收口建议：本项目当前应以系统 Nginx 作为 official 入口，不要再让宝塔 Nginx 管理 `80/443`。如果后续必须使用宝塔 Nginx，则需要把 official 配置整体迁移到 `/www/server/panel/vhost/nginx/`，不能两套 Nginx 同时抢占公网入口端口。
 
 ---
 

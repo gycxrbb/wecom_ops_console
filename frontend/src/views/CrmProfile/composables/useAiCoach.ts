@@ -16,10 +16,15 @@ export type RagRecommendedAsset = {
   material_id: number
   title: string
   material_type: string
+  source_filename: string
   preview_url: string | null
   download_url: string | null
   public_url: string | null
   reason: string
+  visibility: string
+  safety_level: string
+  customer_sendable: boolean
+  resource_id: number
 }
 
 export type AiChatMessage =

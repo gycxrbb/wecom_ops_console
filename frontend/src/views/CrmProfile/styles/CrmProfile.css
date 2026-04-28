@@ -846,6 +846,68 @@
   color: var(--text-secondary);
 }
 
+/* ---- Service Issues (用户阻碍) ---- */
+.crm-issues-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.crm-issue-row {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.04);
+  border: 1px solid rgba(239, 68, 68, 0.08);
+}
+html.dark .crm-issue-row {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+.crm-issue-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.crm-issue-status-tag {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.crm-issue-status-tag--open {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.10);
+}
+.crm-issue-status-tag--resolved {
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.10);
+}
+.crm-issue-date {
+  color: var(--text-muted);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.crm-issue-desc {
+  font-size: 12px;
+  color: var(--text-primary);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.crm-issue-solution {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+  line-height: 1.4;
+}
+.crm-issue-solution-label {
+  color: #10b981;
+  font-weight: 500;
+}
+
 /* ---- Labels Grid ---- */
 .crm-labels-grid {
   display: flex;

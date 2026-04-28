@@ -157,6 +157,7 @@ def serialize_material(material: models.Material):
         'download_url': download_url,
         'created_at': _dt(material.created_at),
         'tags': json.loads(material.tags) if material.tags else [],
+        'rag_meta': json.loads(material.rag_meta_json) if material.rag_meta_json else {},
     }
 
 def get_request_ip(request: Request) -> str:
@@ -904,6 +905,22 @@ async def move_asset(asset_id: int, request: Request, db: Session = Depends(get_
     asset.folder_id = int(folder_id) if folder_id is not None else None
     db.commit()
     return serialize_material(asset)
+
+
+@router.patch('/assets/{asset_id}/rag-meta')
+async def update_asset_rag_meta(asset_id: int, request: Request, db: Session = Depends(get_db)):
+    user = get_user_or_401(request, db)
+    require_permission(user, 'asset')
+    asset = db.query(models.Material).filter(models.Material.id == asset_id).first()
+    if not asset:
+        raise HTTPException(404, '素材不存在')
+    body = await request.json()
+    from ..schemas.material_rag import RagMetaUpdate
+    rag_data = RagMetaUpdate(**body)
+    from ..services.material_rag_service import save_rag_meta_and_index
+    result = await save_rag_meta_and_index(db, asset_id, rag_data.model_dump())
+    return result
+
 
 @router.post('/preview')
 async def preview_message(request: Request, db: Session = Depends(get_db)):

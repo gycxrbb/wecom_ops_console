@@ -70,20 +70,6 @@ def _build_semantic_text_speech(
     return "\n".join(parts)
 
 
-def _build_semantic_text_material(material: Material) -> tuple[str, str]:
-    """Returns (semantic_text, quality). Quality is 'weak' if no real description."""
-    parts = [material.name]
-    try:
-        tags = json.loads(material.tags or "[]")
-        if tags:
-            parts.append("标签: " + ", ".join(tags))
-    except (json.JSONDecodeError, TypeError):
-        pass
-    if material.material_type:
-        parts.append(f"类型: {material.material_type}")
-    return "\n".join(parts), "weak"
-
-
 def _build_payload_from_metadata(meta: dict, category_l1: str = "", category_l2: str = "") -> dict:
     """Build Qdrant payload fields from parsed metadata."""
     payload_tags: dict[str, list[str]] = {}
@@ -231,95 +217,54 @@ async def index_speech_templates(db: Session) -> dict:
 
 
 async def index_materials(db: Session) -> dict:
-    """Index all materials with tags. Returns stats."""
-    stats = {"indexed": 0, "skipped": 0, "errors": 0}
-    materials = db.query(Material).filter(
-        Material.deleted_at.is_(None),
-        Material.enabled == 1,
+    """Sync material RAG resources — disable orphans, auto-index materials with rag_meta_json."""
+    stats = {"synced": 0, "disabled": 0, "indexed": 0, "errors": 0}
+
+    # Phase 1: disable orphan rag_resources
+    rag_resources = db.query(RagResource).filter(
+        RagResource.source_type == "material",
+        RagResource.status == "active",
     ).all()
 
-    for mat in materials:
+    for rag_res in rag_resources:
         try:
-            semantic_text, quality = _build_semantic_text_material(mat)
-            source_hash = compute_hash(semantic_text)
-
-            existing = db.query(RagResource).filter_by(
-                source_type="material", source_id=mat.id
-            ).first()
-
-            if existing and existing.source_hash == source_hash:
-                stats["skipped"] += 1
-                continue
-
-            chunks = chunk_text(semantic_text, chunk_size=settings.rag_chunk_size, overlap=settings.rag_chunk_overlap)
-            if not chunks:
-                continue
-
-            vectors = await embed_texts_batch(chunks)
-            if len(vectors) != len(chunks):
-                stats["errors"] += 1
-                continue
-
-            title = mat.name
-            if existing:
-                existing.title = title
-                existing.semantic_text = semantic_text
-                existing.source_hash = source_hash
-                existing.status = "active"
-                existing.content_kind = "image" if mat.material_type == "image" else "file"
-                existing.semantic_quality = quality
-                resource_id = existing.id
-                db.query(RagChunk).filter_by(resource_id=resource_id).delete()
+            mat = db.query(Material).filter(Material.id == rag_res.source_id).first()
+            if not mat or mat.enabled != 1 or mat.deleted_at is not None or mat.storage_status != "ready":
+                rag_res.status = "disabled"
+                db.commit()
+                stats["disabled"] += 1
             else:
-                resource = RagResource(
-                    source_type="material",
-                    source_id=mat.id,
-                    title=title,
-                    semantic_text=semantic_text,
-                    source_hash=source_hash,
-                    content_kind="image" if mat.material_type == "image" else "file",
-                    visibility="coach_internal",
-                    safety_level="general",
-                    status="active",
-                    semantic_quality=quality,
-                )
-                db.add(resource)
-                db.flush()
-                resource_id = resource.id
+                stats["synced"] += 1
+        except Exception:
+            _log.exception("Failed to sync material rag_resource %s", rag_res.id)
+            db.rollback()
+            stats["errors"] += 1
 
-            points = []
-            for idx, (chunk_text_val, vector) in enumerate(zip(chunks, vectors)):
-                point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"rag:{resource_id}:{idx}"))
-                chunk_hash = compute_hash(chunk_text_val)
-                db.add(RagChunk(
-                    resource_id=resource_id,
-                    chunk_index=idx,
-                    chunk_text=chunk_text_val,
-                    chunk_hash=chunk_hash,
-                    vector_point_id=point_id,
-                    embedding_model=settings.rag_embedding_model,
-                    embedding_dimension=settings.rag_embedding_dimension,
-                    status="active",
-                ))
-                points.append({
-                    "id": point_id,
-                    "vector": vector,
-                    "payload": {
-                        "resource_id": resource_id,
-                        "source_type": "material",
-                        "source_id": mat.id,
-                        "status": "active",
-                        "content_kind": "image" if mat.material_type == "image" else "file",
-                        "safety_level": "general",
-                        "visibility": "coach_internal",
-                    },
-                })
+    # Phase 2: auto-index materials with rag_meta_json but no rag_resource
+    from ..services.material_rag_service import save_rag_meta_and_index, load_rag_meta
 
-            await upsert_chunks(points)
-            db.commit()
+    materials_with_meta = db.query(Material).filter(
+        Material.rag_meta_json != '',
+        Material.rag_meta_json.isnot(None),
+        Material.enabled == 1,
+        Material.storage_status == 'ready',
+    ).all()
+
+    existing_source_ids = {r.source_id for r in db.query(RagResource).filter(
+        RagResource.source_type == "material",
+    ).all()}
+
+    for mat in materials_with_meta:
+        if mat.id in existing_source_ids:
+            continue
+        try:
+            rag_meta = load_rag_meta(mat)
+            if not rag_meta.get("rag_enabled", True):
+                continue
+            await save_rag_meta_and_index(db, mat.id, rag_meta)
             stats["indexed"] += 1
         except Exception:
-            _log.exception("Failed to index material %s", mat.id)
+            _log.exception("Failed to auto-index material %s", mat.id)
             db.rollback()
             stats["errors"] += 1
 

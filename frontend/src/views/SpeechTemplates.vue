@@ -24,6 +24,7 @@
           <div v-for="l1 in sidebarTree" :key="l1.name" class="speech-cat-group">
             <div class="speech-cat-l1" @click="toggleNode(`l1-${l1.name}`)">
               <span class="speech-cat-arrow" :class="{ 'is-expanded': expandedState[`l1-${l1.name}`] }">&#9654;</span>
+              <span class="speech-cat-l1-icon" v-html="getCategoryIcon(l1.name)"></span>
               <span class="speech-cat-name">{{ l1.name }}</span>
             </div>
             <template v-if="expandedState[`l1-${l1.name}`]">
@@ -52,6 +53,7 @@
           <div v-if="uncategorizedScenes.length" class="speech-cat-group">
             <div class="speech-cat-l1" @click="toggleNode('uncategorized')">
               <span class="speech-cat-arrow" :class="{ 'is-expanded': expandedState['uncategorized'] }">&#9654;</span>
+              <span class="speech-cat-l1-icon" v-html="getCategoryIcon('未分类')"></span>
               <span class="speech-cat-name">未分类</span>
               <span class="speech-cat-count">{{ uncategorizedScenes.length }}</span>
             </div>
@@ -103,10 +105,11 @@
                 v-model="currentEditingTpl._editContent"
                 type="textarea"
                 :rows="10"
-                placeholder="话术内容（支持 {name} {rank} {detail} {activity} 占位符）"
+                :placeholder="isPointsScene ? '话术内容（支持 {name} {rank} {detail} {activity} 占位符）' : '请输入话术内容'"
               />
               <div class="speech-editor-card__footer">
-                <span class="speech-editor-card__hint">占位符: {name} {rank} {detail} {activity}</span>
+                <span v-if="isPointsScene" class="speech-editor-card__hint">占位符: {name} {rank} {detail} {activity}</span>
+                <span v-else></span>
                 <el-button
                   type="primary"
                   :loading="currentEditingTpl._saving"
@@ -328,11 +331,29 @@ const styleLabel = (style: string) => {
   return map[style] || style
 }
 
-function autoExpandForActiveScene() {
+const getCategoryIcon = (name: string): string => {
+  const svg = (paths: string) =>
+    `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`
+  if (name.includes('健康')) return svg('<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 0 0 0-7.78z"/>')
+  if (name.includes('社区')) return svg('<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>')
+  if (name.includes('服务') || name.includes('支持')) return svg('<path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/>')
+  if (name.includes('系统')) return svg('<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>')
+  return svg('<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>')
+}
+
+const isPointsScene = computed(() => {
   const scene = scenes.value.find(s => s.key === activeScene.value)
-  if (scene?.category_l1) expandedState[`l1-${scene.category_l1}`] = true
-  if (scene?.category_l2) expandedState[`l2-${scene.category_l2}`] = true
-  if (uncategorizedScenes.value.some(s => s.key === activeScene.value)) {
+  return scene?.category_l2 === '积分管理'
+})
+
+function expandAllNodes() {
+  for (const l1 of sidebarTree.value) {
+    expandedState[`l1-${l1.name}`] = true
+    for (const l2 of l1.children) {
+      expandedState[`l2-${l2.name}`] = true
+    }
+  }
+  if (uncategorizedScenes.value.length) {
     expandedState['uncategorized'] = true
   }
 }
@@ -362,7 +383,7 @@ const fetchData = async () => {
     if (tpls?.length && !tpls.some(t => t.style === activeStyle.value)) {
       activeStyle.value = tpls[0].style
     }
-    autoExpandForActiveScene()
+    expandAllNodes()
   } catch (e) {
     console.error(e)
     ElMessage.error('加载话术模板失败')
@@ -453,16 +474,16 @@ onMounted(fetchData)
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 20px;
+  margin-bottom: 28px;
 }
 .speech-header__left {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
 }
 .speech-header__icon {
-  width: 40px;
-  height: 40px;
+  width: 46px;
+  height: 46px;
   border-radius: 50%;
   background: #f0fdf4;
   display: flex;
@@ -474,15 +495,15 @@ html.dark .speech-header__icon {
   background: rgba(34, 197, 94, 0.15);
 }
 .speech-header h2 {
-  font-size: 22px;
+  font-size: 24px;
   font-weight: 600;
   color: var(--text-primary);
   margin: 0;
 }
 .speech-header__desc {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text-secondary);
-  margin: 4px 0 0;
+  margin: 6px 0 0;
 }
 .speech-header__actions {
   display: flex;
@@ -494,13 +515,14 @@ html.dark .speech-header__icon {
 }
 .speech-layout {
   display: flex;
-  gap: 20px;
+  gap: 24px;
+  align-items: stretch;
 }
 .speech-sidebar {
-  width: 260px;
+  width: 280px;
   flex-shrink: 0;
   border: 1px solid var(--border-color);
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--card-bg);
   overflow-y: auto;
   max-height: calc(100vh - 200px);
@@ -512,12 +534,12 @@ html.dark .speech-header__icon {
   border-bottom: none;
 }
 .speech-cat-l1 {
-  padding: 10px 12px;
+  padding: 14px 16px;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 14px;
+  gap: 8px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--text-primary);
   transition: background 0.15s;
@@ -529,16 +551,21 @@ html.dark .speech-header__icon {
 html.dark .speech-cat-l1:hover {
   background: rgba(255, 255, 255, 0.06);
 }
+.speech-cat-l1-icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
 .speech-cat-l2-wrap {
   border-top: 1px solid var(--border-color);
 }
 .speech-cat-l2 {
-  padding: 8px 12px 8px 24px;
+  padding: 10px 16px 10px 32px;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 13px;
+  gap: 8px;
+  font-size: 14px;
   font-weight: 500;
   color: var(--text-primary);
   transition: background 0.15s;
@@ -570,7 +597,7 @@ html.dark .speech-cat-l2:hover {
   font-size: 11px;
   color: var(--text-muted);
   background: var(--fill-color, #f0f0f0);
-  padding: 1px 6px;
+  padding: 2px 8px;
   border-radius: 10px;
   flex-shrink: 0;
 }
@@ -578,7 +605,7 @@ html.dark .speech-cat-count {
   background: rgba(255, 255, 255, 0.1);
 }
 .speech-scene-item {
-  padding: 8px 12px 8px 40px;
+  padding: 10px 16px 10px 48px;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -600,39 +627,44 @@ html.dark .speech-scene-item.is-active {
   background: rgba(34, 197, 94, 0.12);
 }
 .speech-scene-item__label {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   color: var(--text-primary);
 }
 .speech-scene-item__key {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
 }
 .speech-editor {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 .speech-editor-card {
   background: var(--card-bg);
-  border-radius: 8px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
   overflow: hidden;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 html.dark .speech-editor-card {
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 .speech-editor-card__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 24px;
+  padding: 20px 28px;
   border-bottom: 1px solid var(--border-color);
 }
 .speech-editor-card__title {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 18px;
+  gap: 10px;
+  font-size: 20px;
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -641,15 +673,15 @@ html.dark .speech-editor-card {
 }
 .speech-editor-card__styles {
   display: flex;
-  gap: 6px;
+  gap: 8px;
 }
 .speech-style-btn {
-  padding: 6px 14px;
-  border-radius: 6px;
+  padding: 8px 18px;
+  border-radius: 8px;
   border: 1px solid var(--border-color);
   background: transparent;
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: 14px;
   cursor: pointer;
   transition: all 0.15s;
 }
@@ -667,20 +699,30 @@ html.dark .speech-style-btn.is-active {
   background: rgba(34, 197, 94, 0.12);
 }
 .speech-editor-card__body {
-  padding: 20px 24px 24px;
+  padding: 24px 28px 28px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.speech-editor-card__body :deep(.el-textarea) {
+  flex: 1;
+}
+.speech-editor-card__body :deep(.el-textarea__inner) {
+  height: 100% !important;
+  min-height: 180px !important;
 }
 .speech-editor-card__content-label {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 14px;
+  gap: 8px;
+  font-size: 15px;
   font-weight: 500;
   color: var(--text-primary);
-  margin-bottom: 10px;
+  margin-bottom: 14px;
 }
 .speech-char-count {
   margin-left: auto;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 400;
   color: var(--text-muted);
 }
@@ -692,23 +734,23 @@ html.dark .speech-style-btn.is-active {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-top: 12px;
+  margin-top: 16px;
 }
 .speech-editor-card__hint {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-muted);
 }
 .speech-editor-card__empty {
-  padding: 48px 24px;
+  padding: 56px 28px;
   text-align: center;
   color: var(--text-secondary);
-  font-size: 14px;
+  font-size: 15px;
 }
 .speech-empty {
   text-align: center;
-  padding: 60px 20px;
+  padding: 72px 24px;
   color: var(--text-secondary);
-  font-size: 14px;
+  font-size: 15px;
 }
 .speech-import {
   display: flex;
@@ -758,7 +800,7 @@ html.dark .speech-style-btn.is-active {
   .speech-header {
     align-items: flex-start;
     flex-direction: column;
-    gap: 12px;
+    gap: 16px;
   }
   .speech-layout {
     flex-direction: column;
@@ -769,7 +811,7 @@ html.dark .speech-style-btn.is-active {
   }
   .speech-editor-card__header {
     flex-direction: column;
-    gap: 10px;
+    gap: 12px;
     align-items: flex-start;
   }
   .speech-import__summary {

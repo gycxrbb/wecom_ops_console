@@ -269,13 +269,24 @@ const handleLogin = async () => {
 
 /* 清除浏览器自动填充背景色 */
 :deep(.el-input__wrapper) {
-  transition: background-color 9999s ease-in-out 0s;
+  /* ... */
 }
 :deep(.el-input__inner:-webkit-autofill),
 :deep(.el-input__inner:-webkit-autofill:hover),
 :deep(.el-input__inner:-webkit-autofill:focus),
 :deep(.el-input__inner:-webkit-autofill:active) {
-  -webkit-text-fill-color: var(--el-input-text-color);
-  transition: background-color 9999s ease-in-out 0s;
+  -webkit-text-fill-color: var(--text-primary) !important;
+  transition: background-color 5000s ease-in-out 0s;
+}
+:global(html.dark) :deep(.el-input__wrapper) {
+  background-color: var(--bg-color);
+}
+:global(html.dark) :deep(.el-input__inner:-webkit-autofill),
+:global(html.dark) :deep(.el-input__inner:-webkit-autofill:hover),
+:global(html.dark) :deep(.el-input__inner:-webkit-autofill:focus),
+:global(html.dark) :deep(.el-input__inner:-webkit-autofill:active) {
+  -webkit-text-fill-color: var(--text-primary) !important;
+  -webkit-box-shadow: 0 0 0px 1000px var(--bg-color) inset !important;
+  transition: background-color 5000s ease-in-out 0s;
 }
 </style>

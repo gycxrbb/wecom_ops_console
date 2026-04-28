@@ -158,6 +158,7 @@
           @move="handleMove"
           @rename="handleRename"
           @toggle-select="toggleSelect"
+          @edit-rag="handleEditRag"
         />
       </div>
 
@@ -220,6 +221,16 @@
       @upload-original="handleUploadOriginal"
     />
 
+    <!-- RAG 标注弹窗 -->
+    <RagAnnotationDialog
+      v-model="ragDialogVisible"
+      :asset-id="ragDialogAssetId"
+      :asset-name="ragDialogAssetName"
+      :material-type="ragDialogMaterialType"
+      :initial-meta="ragDialogInitialMeta"
+      @saved="handleRagSaved"
+    />
+
     <!-- 粘贴上传命名弹窗 -->
     <el-dialog v-model="pasteNameVisible" title="为粘贴的资源命名" width="420px" destroy-on-close @close="cancelPasteName">
       <el-input v-model="pasteNameInput" placeholder="输入资源名称（不含扩展名）" @keyup.enter="confirmPasteName" autofocus />
@@ -245,6 +256,7 @@ import FolderSidebar from './components/FolderSidebar.vue'
 import AssetGrid from './components/AssetGrid.vue'
 import FolderDialog from './components/FolderDialog.vue'
 import CompressDialog from './components/CompressDialog.vue'
+import RagAnnotationDialog from './components/RagAnnotationDialog.vue'
 import { isCompressibleImage } from '#/utils/imageCompress'
 import type { Folder } from './composables/useFolders'
 
@@ -267,6 +279,13 @@ const LARGE_FILE_THRESHOLD = 20 * 1024 * 1024
 const compressDialogVisible = ref(false)
 const pendingLargeFile = ref<File | null>(null)
 const pendingFolderId = ref<number | null>(null)
+
+// RAG annotation dialog
+const ragDialogVisible = ref(false)
+const ragDialogAssetId = ref<number | null>(null)
+const ragDialogAssetName = ref('')
+const ragDialogMaterialType = ref('')
+const ragDialogInitialMeta = ref<Record<string, any>>({})
 
 const uploadButtonText = computed(() => {
   if (!uploading.value) return '上传素材'
@@ -463,14 +482,33 @@ const handleFileChange = async (uploadFile: any) => {
 
   uploading.value = true
   try {
-    await uploadAsset(file, folderId, true)
+    const result: any = await uploadAsset(file, folderId, true)
     await Promise.all([refreshCurrentAssets(), fetchFolders()])
     ElMessage.success('上传成功')
+    if (result?.id) {
+      ragDialogAssetId.value = result.id
+      ragDialogAssetName.value = result.name || file.name
+      ragDialogMaterialType.value = result.material_type || ''
+      ragDialogInitialMeta.value = result.rag_meta || {}
+      ragDialogVisible.value = true
+    }
   } catch {
     ElMessage.error('上传失败')
   } finally {
     uploading.value = false
   }
+}
+
+const handleRagSaved = async () => {
+  await refreshCurrentAssets()
+}
+
+const handleEditRag = (asset: any) => {
+  ragDialogAssetId.value = asset.id
+  ragDialogAssetName.value = asset.name
+  ragDialogMaterialType.value = asset.material_type || ''
+  ragDialogInitialMeta.value = asset.rag_meta || {}
+  ragDialogVisible.value = true
 }
 
 const handleCompressed = async (blob: Blob, originalFile: File) => {

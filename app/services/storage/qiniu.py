@@ -229,6 +229,8 @@ class QiniuStorageProvider(StorageProvider):
         url = f"https://rs.qiniuapi.com/delete/{entry}"
         token = self._auth_token(url)
         resp = httpx.post(url, headers={'Authorization': f'QBox {token}'}, timeout=30)
+        if resp.status_code == 612:
+            return
         resp.raise_for_status()
 
     def _auth_token(self, url: str, body: bytes = b'') -> str:

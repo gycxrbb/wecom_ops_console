@@ -33,6 +33,7 @@ class ContextBuildPlan(BaseModel):
         "body_comp_latest_30d", "points_engagement_14d", "service_scope",
         "habit_adherence_14d", "plan_progress_14d", "reminder_adherence_14d",
         "learning_engagement_30d", "ai_decision_labels",
+        "service_issues",
     ]
     expansion_modules: list[str] = []
 

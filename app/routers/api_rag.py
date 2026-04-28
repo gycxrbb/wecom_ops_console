@@ -1,9 +1,9 @@
-"""RAG admin endpoints — indexing and status."""
+"""RAG admin endpoints — indexing, status, and material CSV import."""
 from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from sqlalchemy.orm import Session
 
 from ..config import settings
@@ -68,3 +68,31 @@ async def rag_status(
         "qdrant_mode": settings.qdrant_mode,
         "qdrant_available": available,
     }
+
+
+@router.post("/import-material-csv")
+async def import_material_rag_csv(
+    request: Request,
+    file: UploadFile = File(...),
+    dry_run: bool = Form(False),
+    db: Session = Depends(get_db),
+):
+    """Import material RAG annotations from CSV. Validates, matches materials, indexes into Qdrant."""
+    user = get_current_user(request, db)
+    require_role(user, "admin", "coach")
+
+    filename = file.filename or ""
+    if filename and not filename.lower().endswith(".csv"):
+        raise HTTPException(400, "仅支持 CSV 文件")
+
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "CSV 文件为空")
+
+    from ..services.material_rag_import import import_material_rag_rows
+    from ..services.speech_template_import import decode_csv_bytes, parse_csv_text
+
+    csv_text = decode_csv_bytes(raw)
+    rows = parse_csv_text(csv_text)
+    stats = await import_material_rag_rows(db, rows, dry_run=dry_run)
+    return stats

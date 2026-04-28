@@ -464,3 +464,31 @@
   - 报告梳理了 L1 进程内缓存、L2 本地数据库快照 `crm_ai_profile_cache`、统一 cache key、TTL、请求链路、AI cache-only prepare、前端状态门禁、过期清理和多 worker 风险。
   - 报告明确 `crm_ai_profile_cache` 是 support snapshot，不是 CRM 用户档案 official truth；Redis 仍只是未来候选方向。
   - 本轮为文档任务，未改业务代码；focused validation 已确认报告关键章节、接口名、缓存状态与风险边界均存在。
+- 2026-04-27 已新增素材库-RAG接入规划与入库方案：
+  - 新文档 [docs/素材库-RAG接入规划与入库方案.md](</d:/惯能/群机器人定时推送/wecom_ops_console/docs/素材库-RAG接入规划与入库方案.md>) 已落盘，回答素材库是否全量入 RAG、图片/视频如何标注、如何导入、如何与话术管理-RAG分工。
+  - 文档明确素材库 `materials` 是 official asset truth，RAG 的 `rag_resources/rag_chunks/Qdrant` 只是 support index；素材不应全量自动入 RAG，而应精选 `approved + rag_enabled=yes + 语义达标` 的素材。
+  - 文档给出素材 CSV 字段模板，覆盖 `alt_text/transcript/usage_note/customer_sendable/copyright_status`，并建议后续新增 `scripts/import_materials_rag_csv.py`。
+  - 本轮为规划文档任务，未改业务代码；focused validation 已确认关键章节、当前代码真值、CSV 模板、入库策略和验收标准均存在。
+  - 已根据开发前复审补充公网地址口径：`material_url` 只是导入辅助字段，客户可访问地址必须落在 `materials.public_url`；`customer_sendable=yes` 的素材必须满足 `storage_status=ready + public_url`。
+  - 已补充前端/发送中心交付链路：`recommended_assets` 需要带 `material_id/public_url/preview_url/download_url/customer_sendable/visibility/safety_level`，发送中心优先用 `material_id` 回查素材库真值，避免信任前端传回的 URL。
+- 2026-04-27 已修复素材删除时七牛远端对象不存在导致的 500：
+  - 根因是七牛删除返回 `612` 后被 `httpx.raise_for_status()` 抛出，删除接口进入失败审计；审计错误文本又超过 `material_storage_records.error_message VARCHAR(255)`，触发 `DataError 1406`，把原始云存储错误放大成二次 500。
+  - 已将七牛 `612` 按“远端对象已不存在”的幂等删除成功处理，本地素材可以继续标记为 deleted。
+  - 已将 `MaterialStorageRecord.error_message` ORM 字段升级为 `Text`，并补充启动期 MySQL 幂等迁移，把旧库 `error_message` 改为 `TEXT`。
+  - 已沉淀 Bug #60 到 `bug.md`，沉淀经验 #121 到 `memory.md`。
+  - 本轮 focused validation：`py_compile` 通过；模拟七牛 612 删除通过；SQLite 临时库新建 `material_storage_records.error_message` 为 `TEXT`；当前真实库已确认 `material_storage_records.error_message=TEXT`。
+  - 本轮项目启动验证结果：后端 `python -m uvicorn app.main:app --host 0.0.0.0 --port 8011 --log-level info` 已确认 `Application startup complete`，随后已回收 8011；本轮未改前端代码，未执行前端启动。
+- 2026-04-27 已修复 CRM AI 用户阻碍上下文只传数量不传具体 description：
+  - 根因是 `service_issues` 模块把 `description` 放在 `issues[]` 列表里，前端能展示；但 AI 的 `build_context_text()` 默认跳过 list/dict，所以 prompt 只看到问题数、未解决数和摘要。
+  - 已新增 `issue_detail_summary` 标量字段，聚合最近 5 条阻碍的状态、名称、描述和方案；AI 默认上下文现在会出现“阻碍详情”。
+  - 已补充 profile L1/L2 cache 旧快照识别：如果 `service_issues` 有 `issues[]` 但缺少 `issue_detail_summary`，视为旧 schema 并自动失效重建。
+  - 已沉淀 Bug #61 到 `bug.md`，沉淀经验 #122 到 `memory.md`。
+  - 本轮 focused validation：`py_compile` 通过；构造 `service_issues` 卡片验证 `build_context_text()` 输出包含 `阻碍详情` 和具体 `描述`；旧缓存快照校验能识别缺字段。
+  - 本轮项目启动验证结果：后端 `python -m uvicorn app.main:app --host 0.0.0.0 --port 8012 --log-level info` 已确认 `Application startup complete`，随后已回收 8012；本轮未改前端代码，未执行前端启动。
+- 2026-04-27 已修复客户档案侧边栏切回不再秒开的缓存回归：
+  - 现场现象：用户从话术管理和客户档案之间来回切换时，客户档案详情重新等待；`logs/sse_debug.log` 显示同一个 `profile:892:hw7` 反复 `build start/build done`，每次约 8-11 秒。
+  - 根因是前端 `loadProfile()` 默认发送 `refresh: true`，导致后端每次 `force_refresh=True`，绕过 L1/L2 profile cache。
+  - 已移除普通加载路径的 `refresh: true`，仅保留 `window` 参数；后端 `refresh=true` 仍保留给显式强刷能力。
+  - 已沉淀 Bug #62 到 `bug.md`，沉淀经验 #123 到 `memory.md`。
+  - 本轮 focused validation：`py_compile` 通过；`vue-tsc --noEmit` 通过；`npm run build` 通过；代码检索确认普通 `loadProfile()` 不再携带 `refresh: true`。
+  - 本轮项目启动验证结果：后端 `python -m uvicorn app.main:app --host 0.0.0.0 --port 8013 --log-level info` 已确认 `Application startup complete`，随后已回收 8013；前端沙箱内仍复现既有 `esbuild spawn EPERM`，提权后 `npm.cmd run dev -- --host 0.0.0.0 --port 5178` 已确认 Vite ready in 912ms，随后已回收 5178。

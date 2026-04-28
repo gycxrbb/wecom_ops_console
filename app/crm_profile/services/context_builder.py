@@ -32,6 +32,7 @@ MODULE_LABELS = {
     "reminder_adherence_14d": "提醒依从",
     "learning_engagement_30d": "近30天学习",
     "ai_decision_labels": "AI决策标签",
+    "service_issues": "用户阻碍",
 }
 
 FIELD_LABELS = {
@@ -143,6 +144,12 @@ FIELD_LABELS = {
     "ai_decision_labels": {
         "label_count": "标签数",
         "label_summary": "标签摘要",
+    },
+    "service_issues": {
+        "issue_count": "问题数",
+        "unresolved_count": "未解决",
+        "issue_summary": "阻碍摘要",
+        "issue_detail_summary": "阻碍详情",
     },
 }
 

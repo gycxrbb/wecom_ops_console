@@ -98,7 +98,7 @@
         <el-table-column label="上传时间" width="170">
           <template #default="scope">{{ formatDate(scope.row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="240" fixed="right">
+        <el-table-column label="操作" width="320" fixed="right">
           <template #default="scope">
             <div class="file-action-group">
               <el-button link type="primary" :disabled="isUnavailable(scope.row)" @click="handleDownload(scope.row)">下载</el-button>
@@ -190,6 +190,10 @@
               <el-button :disabled="!previewAsset.public_url" @click="handleCopyUrl(previewAsset)">复制地址</el-button>
               <el-button :disabled="!previewAsset.public_url" @click="openPublicUrl(previewAsset)">打开地址</el-button>
             </div>
+            <div v-if="previewAsset.rag_meta?.summary" class="preview-rag-hint">
+              {{ previewAsset.rag_meta.summary }}
+            </div>
+            <el-button class="preview-rag-btn" size="small" @click="emit('edit-rag', previewAsset)">编辑 RAG 信息</el-button>
           </div>
         </div>
       </template>
@@ -215,7 +219,7 @@ const props = defineProps<{
   selectedIds?: number[]
 }>()
 
-const emit = defineEmits(['download', 'delete', 'move', 'rename', 'toggle-select'])
+const emit = defineEmits(['download', 'delete', 'move', 'rename', 'toggle-select', 'edit-rag'])
 
 const fileTableRef = ref<InstanceType<typeof import('element-plus')['ElTable']>>()
 
@@ -580,6 +584,18 @@ const isUnavailable = (item: Asset) => ['source_missing', 'deleted'].includes(it
   display: flex;
   gap: 10px;
   margin-top: 14px;
+}
+.preview-rag-hint {
+  margin-top: 12px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.preview-rag-btn {
+  margin-top: 12px;
+  width: 100%;
 }
 
 /* Move Dialog */

@@ -46,13 +46,13 @@
         <el-checkbox :model-value="selectedIndices?.has(i)" @click.stop @change="emit('toggle-select', i)" class="ai-msg-checkbox" />
         <div class="ai-msg-content-wrap">
           <AiCoachAssistantMessage v-if="msg.role === 'assistant'" :msg="msg" @copy="$emit('copy', $event)" @mark-medical-review="$emit('mark-medical-review', $event)" />
-          <AiCoachReferenceMessage v-else-if="msg.role === 'reference'" :msg="msg" />
+          <AiCoachReferenceMessage v-else-if="msg.role === 'reference'" :msg="msg" @send-to-center="emit('send-to-center', $event)" />
           <AiCoachUserMessage v-else :msg="msg" :user-avatar="userAvatar" :user-display-name="userDisplayName" :is-admin="isAdmin" />
         </div>
       </div>
       <template v-else>
         <AiCoachAssistantMessage v-if="msg.role === 'assistant'" :msg="msg" @copy="$emit('copy', $event)" @mark-medical-review="$emit('mark-medical-review', $event)" />
-        <AiCoachReferenceMessage v-else-if="msg.role === 'reference'" :msg="msg" />
+        <AiCoachReferenceMessage v-else-if="msg.role === 'reference'" :msg="msg" @send-to-center="emit('send-to-center', $event)" />
         <AiCoachUserMessage v-else :msg="msg" :user-avatar="userAvatar" :user-display-name="userDisplayName" :is-admin="isAdmin" />
       </template>
     </template>
@@ -88,6 +88,7 @@ const emit = defineEmits<{
   'quick-ask': [text: string]
   'dismiss-data-gap': [gap: string]
   'toggle-select': [index: number]
+  'send-to-center': [msg: AiChatMessage]
 }>()
 
 const messagesRef = ref<HTMLElement>()

@@ -52,7 +52,7 @@ class Settings(BaseSettings):
     deepseek_base_url: str = 'https://api.deepseek.com'
     deepseek_model: str = 'deepseek-v4-pro'
     crm_profile_cache_fresh_ttl_seconds: int = 1800
-    crm_profile_cache_stale_ttl_seconds: int = 86400
+    crm_profile_cache_stale_ttl_seconds: int = 7200
     crm_profile_cache_preload_wait_ms: int = 15000
     send_timeout_seconds: int = 30
     file_upload_timeout_seconds: int = 120

@@ -32,6 +32,7 @@ MATERIAL_COLUMN_SPECS = {
     "provider_etag": "VARCHAR(128) DEFAULT ''",
     "last_migrated_at": "DATETIME",
     "deleted_from_storage_at": "DATETIME",
+    "rag_meta_json": "TEXT",
 }
 
 
@@ -204,7 +205,7 @@ def _ensure_material_storage_schema(engine: Engine) -> None:
                     provider_etag VARCHAR(128) DEFAULT '',
                     file_size INTEGER DEFAULT 0,
                     mime_type VARCHAR(128) DEFAULT 'application/octet-stream',
-                    error_message VARCHAR(255) DEFAULT '',
+                    error_message TEXT,
                     extra_json TEXT,
                     created_at DATETIME,
                     updated_at DATETIME,
@@ -216,12 +217,33 @@ def _ensure_material_storage_schema(engine: Engine) -> None:
             )
         )
         inspector = inspect(conn)
+        _ensure_material_storage_error_message_text(conn)
         if not _has_named_index(inspector, "material_storage_records", "ix_material_storage_records_material_id"):
             conn.execute(text("CREATE INDEX ix_material_storage_records_material_id ON material_storage_records (material_id)"))
         if not _has_named_index(inspector, "material_storage_records", "ix_material_storage_records_provider"):
             conn.execute(text("CREATE INDEX ix_material_storage_records_provider ON material_storage_records (provider)"))
         if not _has_named_index(inspector, "material_storage_records", "ix_material_storage_records_created_at"):
             conn.execute(text("CREATE INDEX ix_material_storage_records_created_at ON material_storage_records (created_at)"))
+
+
+def _ensure_material_storage_error_message_text(conn) -> None:
+    inspector = inspect(conn)
+    columns = {column["name"]: column for column in inspector.get_columns("material_storage_records")}
+    column = columns.get("error_message")
+    if not column:
+        return
+
+    column_type = str(column.get("type", "")).upper()
+    if "TEXT" in column_type:
+        return
+
+    dialect = conn.dialect.name
+    if dialect == "mysql":
+        conn.execute(text("ALTER TABLE material_storage_records MODIFY COLUMN error_message TEXT"))
+    elif dialect == "sqlite":
+        return
+    else:
+        conn.execute(text("ALTER TABLE material_storage_records ALTER COLUMN error_message TYPE TEXT"))
 
 
 def ensure_user_profile_schema(engine: Engine) -> None:

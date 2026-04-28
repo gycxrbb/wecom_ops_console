@@ -887,3 +887,45 @@
 - **场景**: 项目使用 `Base.metadata.create_all` 创建新表，同时用 `ensure_*_schema()` 维护旧库补列；新增 ORM 字段后，如果只改模型和写入代码，旧库不会自动获得该列。
 - **经验内容**: 对已有表新增字段时，要同时更新启动期 schema guard，并在 focused validation 中检查旧表列集合。否则功能主流程可能已经成功，最后卡在审计/日志这类旁路写入上，表现为“业务能跑但日志持续 traceback”。
 - **验证状态**: 已验证
+
+## 经验 #119: 素材库接 RAG 不能全量向量化，必须先补语义和审核状态
+
+- **类别**: AI / 内容治理 / 架构
+- **场景**: 原素材库最初只是图片、视频、表情包、文件的存储地，后来要接入健康教练 AI 的 RAG 推荐。
+- **经验内容**: 素材库应继续作为 official asset truth，RAG 只做 support index。图片/视频不能只靠 URL、文件名和普通 tags 入向量库，必须先补 `summary / alt_text / transcript / usage_note / visibility / safety_level / customer_sendable / copyright_status`。正式推荐只应接入 `approved + rag_enabled=yes + storage_status=ready + semantic_quality 达标` 的素材，表情包也应限制在情绪支持类场景，避免污染专业问答。
+- **验证状态**: 待验证
+
+## 经验 #120: RAG 命中素材不等于前端可发送，公网地址必须回到素材库真值
+
+- **类别**: AI / 素材库 / 发送链路
+- **场景**: 素材库-RAG 计划把图片、视频推荐到 AI 对话前端，并支持教练预览、下载或进入发送中心。
+- **经验内容**: RAG 索引只能负责“找到素材语义”，不能承担素材交付真值。客户可访问地址必须落在 `materials.public_url`，`material_url` 只能作为 CSV 导入辅助字段。`customer_sendable=yes` 必须同时满足 `storage_status=ready` 和 `public_url` 非空；发送中心创建消息时应优先用 `material_id` 回查素材库，而不是信任前端传回的 URL。
+- **验证状态**: 待验证
+
+## 经验 #121: 外部存储删除要按幂等语义处理，审计错误字段不能只给 255 字符
+
+- **类别**: 存储 / 数据库 / 审计
+- **场景**: 本地素材库保存了云存储 object key，但远端对象可能已被人工清理、迁移脚本清理或云端生命周期策略删除。
+- **经验内容**: 删除类接口应允许“目标已经不存在”作为成功收敛状态，否则用户无法清理本地记录。审计表的 `error_message` 应使用 `TEXT` 或额外结构化字段保存云厂商错误，不能用 255 字符字段承载完整 HTTP 异常，否则真实业务异常会被审计落库异常二次覆盖。
+- **验证状态**: 已验证
+
+## 经验 #122: 给前端的列表详情不等于已经进入 AI 默认上下文
+
+- **类别**: AI / 上下文治理 / 缓存
+- **场景**: 客户档案模块返回结构化列表给前端，例如 `issues[]`、`records[]`、`events[]`，页面展示完整，但 AI prompt 只使用压缩后的文本上下文。
+- **经验内容**: 进入 AI 默认上下文的关键事实应提供稳定的标量摘要字段，例如 `issue_detail_summary`，不能只藏在 list/dict 内等待展开。修改上下文 schema 后还要处理 L1/L2 旧缓存，否则 AI 会继续命中旧快照，表现为“页面有、AI 不知道”。
+- **验证状态**: 已验证
+
+## 经验 #123: 强制刷新参数不能进入默认导航恢复路径
+
+- **类别**: 前端 / 缓存 / 性能
+- **场景**: 页面详情接口支持 `refresh=true` 这类强刷参数，同时侧边栏、路由恢复、sessionStorage 恢复会频繁调用同一个加载函数。
+- **经验内容**: 强刷参数必须只由明确的“刷新”按钮或调试入口传入，不能写进通用 `loadProfile()` 默认请求。否则每次普通导航都会绕过 L1/L2 缓存，日志看起来像缓存失效，用户体验就是模块来回切换不再秒开。
+- **验证状态**: 已验证
+
+## 经验 #124: 生产环境只能有一套 official Nginx 管公网入口
+
+- **类别**: 运维 / 环境配置 / 部署
+- **场景**: Ubuntu 系统 Nginx 和宝塔 Nginx 同时运行，项目从 `http://120.48.156.119:8080` 升级到 `https://gezelling.com`。
+- **经验内容**: 如果服务器同时存在 `/usr/sbin/nginx` 和 `/www/server/nginx/sbin/nginx`，`nginx -T` 看到配置、`nginx -t` 通过，并不代表当前公网入口真的由这套 Nginx 接管。必须用 `ps -ef | grep '[n]ginx'` 和 `ss -lntp | grep -E ':80|:443|:8080|:8000'` 看实际进程和端口归属。本次故障中，`80` 被宝塔 Nginx 占用，系统 Nginx 只监听 `8080`，`443` 未监听，导致 HTTPS `Connection refused`、HTTP 命中默认页。收口原则是明确一套 official Nginx 管 `80/443/8080`，当前项目以系统 Nginx `/usr/sbin/nginx` + `/etc/nginx/sites-enabled/wecom-ops.conf` 为 official；若改用宝塔 Nginx，必须整体迁移配置，不能两套同时抢入口端口。
+- **验证状态**: 已验证

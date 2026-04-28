@@ -11,7 +11,7 @@ from .context_builder import estimate_tokens, resolve_context_plan, validate_fie
 from .modules import basic_profile, safety_profile, goals_preferences
 from .modules import health_summary, body_comp, points_engagement, service_scope
 from .modules import habit_adherence, plan_progress, reminder_adherence
-from .modules import learning_engagement, ai_decision_labels
+from .modules import learning_engagement, ai_decision_labels, service_issues
 
 _log = logging.getLogger(__name__)
 
@@ -28,6 +28,7 @@ _LOADERS = [
     reminder_adherence,
     learning_engagement,
     ai_decision_labels,
+    service_issues,
 ]
 
 

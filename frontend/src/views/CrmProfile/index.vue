@@ -196,6 +196,11 @@
               <span class="stat-label"><el-icon class="stat-icon"><UserFilled /></el-icon>群组</span>
               <span class="stat-value"><strong>{{ servicePayload.group_count }}</strong> 组</span>
             </div>
+            <div class="stat-divider" v-if="selectedCustomer"></div>
+            <div class="crm-hero-stat" v-if="selectedCustomer">
+              <span class="stat-label"><el-icon class="stat-icon"><User /></el-icon>用户ID</span>
+              <span class="stat-value"><strong>{{ selectedCustomer.id }}</strong></span>
+            </div>
           </div>
         </section>
 
@@ -725,7 +730,7 @@
             </ProfileCard>
 
             <!-- AI Decision Labels -->
-            <ProfileCard title="AI决策标签" :card="getCard('ai_decision_labels')" class="crm-insights__wide">
+            <ProfileCard title="AI决策标签" :card="getCard('ai_decision_labels')">
               <template #title-icon>
                 <span class="crm-card-icon" style="color: #8b5cf6; background: rgba(139, 92, 246, 0.10);">
                   <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5A1.5 1.5 0 014.5 3H12l5 5-7 7-5-5V4.5z"/><circle cx="7" cy="7" r="1.5" fill="currentColor" stroke="none"/></svg>
@@ -742,6 +747,36 @@
               </template>
               <template #footer>
                 <span class="crm-footer-link" @click="openModuleDetail('ai_decision_labels')">
+                  查看详情
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 5l5 5-5 5"/></svg>
+                </span>
+              </template>
+            </ProfileCard>
+
+            <!-- Service Issues (用户阻碍) -->
+            <ProfileCard title="用户阻碍" :card="getCard('service_issues')">
+              <template #title-icon>
+                <span class="crm-card-icon" style="color: #ef4444; background: rgba(239, 68, 68, 0.10);">
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="10" r="8"/><path d="M10 6v4M10 13.5v.5"/></svg>
+                </span>
+              </template>
+              <template #default="{ payload }">
+                <div v-if="payload.issue_summary" class="crm-module-summary" style="margin-top: 0; margin-bottom: 10px;">{{ payload.issue_summary }}</div>
+                <div v-if="payload.issues?.length" class="crm-issues-list">
+                  <div v-for="issue in payload.issues" :key="issue.id" class="crm-issue-row">
+                    <div class="crm-issue-header">
+                      <span class="crm-issue-status-tag" :class="issue.status === 1 ? 'crm-issue-status-tag--resolved' : 'crm-issue-status-tag--open'">{{ issue.status_text }}</span>
+                      <span class="crm-issue-date">{{ issue.created_at }}</span>
+                    </div>
+                    <div v-if="issue.description" class="crm-issue-desc">{{ issue.description }}</div>
+                    <div v-if="issue.status === 1 && issue.solution" class="crm-issue-solution">
+                      <span class="crm-issue-solution-label">解决方案:</span> {{ issue.solution }}
+                    </div>
+                  </div>
+                </div>
+              </template>
+              <template #footer>
+                <span class="crm-footer-link" @click="openModuleDetail('service_issues')">
                   查看详情
                   <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 5l5 5-5 5"/></svg>
                 </span>
@@ -914,6 +949,7 @@ const MODULE_TITLES: Record<string, string> = {
   reminder_adherence_14d: '提醒依从详情',
   learning_engagement_30d: '学习吸收详情',
   ai_decision_labels: 'AI决策标签详情',
+  service_issues: '用户阻碍详情',
 }
 
 const openModuleDetail = (moduleKey: string) => {

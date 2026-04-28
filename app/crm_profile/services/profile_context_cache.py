@@ -16,7 +16,7 @@ from ...database import SessionLocal
 from ...sse_debug_log import get_sse_logger
 from ..models import CrmAiProfileCache
 from ..schemas.context import CustomerProfileContextV1
-from .cache import get as l1_get, put as l1_put, profile_cache_key, PROFILE_TTL
+from .cache import get as l1_get, put as l1_put, invalidate as l1_invalidate, profile_cache_key, PROFILE_TTL
 from .profile_loader import load_profile
 
 _log = logging.getLogger(__name__)
@@ -78,6 +78,17 @@ def _deserialize_context(raw: str) -> CustomerProfileContextV1:
     return CustomerProfileContextV1.model_validate_json(raw)
 
 
+def _has_required_context_fields(ctx: CustomerProfileContextV1) -> bool:
+    service_card = next((card for card in ctx.cards if card.key == "service_issues"), None)
+    if not service_card or service_card.status not in ("ok", "partial"):
+        return True
+    payload = service_card.payload or {}
+    issues = payload.get("issues") or []
+    if not issues:
+        return True
+    return bool(str(payload.get("issue_detail_summary") or "").strip())
+
+
 def _read_l2(cache_key: str, *, allow_stale: bool = True) -> ProfileCacheResult | None:
     db = SessionLocal()
     try:
@@ -97,6 +108,9 @@ def _read_l2(cache_key: str, *, allow_stale: bool = True) -> ProfileCacheResult 
             ctx = _deserialize_context(row.context_json)
         except Exception:
             _log.exception("Invalid cached profile context: %s", cache_key)
+            return None
+        if not _has_required_context_fields(ctx):
+            _sse.info("[PROFILE-CACHE] stale schema key=%s missing=service_issues.issue_detail_summary", cache_key)
             return None
 
         row.last_hit_at = now
@@ -158,15 +172,18 @@ def get_cached_profile_context(
     cache_key = profile_cache_key(customer_id, w)
     ctx = l1_get(cache_key)
     if ctx:
-        _sse.info("[PROFILE-CACHE] hit source=l1 key=%s", cache_key)
-        return ProfileCacheResult(
-            status="l1_fresh",
-            cache_key=cache_key,
-            health_window_days=w,
-            ready=True,
-            source="l1_fresh",
-            ctx=ctx,
-        )
+        if not _has_required_context_fields(ctx):
+            l1_invalidate(cache_key)
+        else:
+            _sse.info("[PROFILE-CACHE] hit source=l1 key=%s", cache_key)
+            return ProfileCacheResult(
+                status="l1_fresh",
+                cache_key=cache_key,
+                health_window_days=w,
+                ready=True,
+                source="l1_fresh",
+                ctx=ctx,
+            )
 
     l2 = _read_l2(cache_key, allow_stale=allow_stale)
     if l2 and l2.ctx:
@@ -283,6 +300,38 @@ def cleanup_expired_profile_cache() -> int:
         raise
     finally:
         db.close()
+
+
+def refresh_expiring_cache_entries() -> int:
+    """Rebuild L2 entries that have been hit recently but are past fresh TTL."""
+    now = datetime.utcnow()
+    fresh_ttl = max(60, int(settings.crm_profile_cache_fresh_ttl_seconds))
+    hit_cutoff = now - timedelta(hours=2)
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(CrmAiProfileCache)
+            .filter(CrmAiProfileCache.expires_at < now)
+            .filter(CrmAiProfileCache.stale_expires_at > now)
+            .filter(CrmAiProfileCache.last_hit_at.isnot(None))
+            .filter(CrmAiProfileCache.last_hit_at > hit_cutoff)
+            .all()
+        )
+    finally:
+        db.close()
+
+    refreshed = 0
+    for row in rows:
+        try:
+            ctx = load_profile(row.crm_customer_id, health_window_days=row.health_window_days)
+            l1_put(row.cache_key, ctx, min(PROFILE_TTL, settings.crm_profile_cache_fresh_ttl_seconds))
+            _write_l2(row.cache_key, row.crm_customer_id, row.health_window_days, ctx)
+            refreshed += 1
+        except Exception:
+            _log.warning("Background refresh failed for key=%s", row.cache_key)
+    if refreshed:
+        _sse.info("[PROFILE-CACHE] auto-refresh count=%s", refreshed)
+    return refreshed
 
 
 def schedule_profile_preload(customer_id: int, *, window_days: int) -> ProfileCacheResult:

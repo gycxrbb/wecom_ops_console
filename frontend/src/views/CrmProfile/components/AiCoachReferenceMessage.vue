@@ -21,6 +21,9 @@
           <a v-if="'asset' in msg && msg.asset.download_url" :href="msg.asset.download_url" target="_blank" class="ai-ref-action">
             <el-icon :size="12"><Download /></el-icon> 下载
           </a>
+          <button v-if="msg.messageType === 'rag_attachment'" class="ai-ref-action ai-ref-action--send" @click="handleSendToCenter">
+            <el-icon :size="12"><Promotion /></el-icon> 发到发送中心
+          </button>
         </div>
       </div>
     </div>
@@ -29,13 +32,17 @@
 
 <script setup lang="ts">
 import { ElMessage } from 'element-plus'
-import { CopyDocument, Document, View, Download } from '@element-plus/icons-vue'
+import { CopyDocument, Document, View, Download, Promotion } from '@element-plus/icons-vue'
 import type { AiChatMessage } from '../composables/useAiCoach'
 
 type RefMsg = Extract<AiChatMessage, { role: 'reference' }>
 
 const props = defineProps<{
   msg: RefMsg
+}>()
+
+const emit = defineEmits<{
+  (e: 'send-to-center', msg: RefMsg): void
 }>()
 
 const handleCopy = () => {
@@ -46,6 +53,10 @@ const handleCopy = () => {
   }).catch(() => {
     ElMessage.error('复制失败')
   })
+}
+
+const handleSendToCenter = () => {
+  emit('send-to-center', props.msg)
 }
 </script>
 
@@ -70,4 +81,5 @@ const handleCopy = () => {
 .ai-ref-card__actions { margin-top: 6px; display: flex; gap: 10px; }
 .ai-ref-action { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; color: #6366f1; cursor: pointer; text-decoration: none; background: none; border: none; padding: 0; }
 .ai-ref-action:hover { text-decoration: underline; }
+.ai-ref-action--send { color: #10b981; }
 </style>

@@ -20,6 +20,7 @@ export interface Asset {
   preview_url: string
   download_url: string
   created_at: string
+  rag_meta: Record<string, any>
 }
 
 const assets = ref<Asset[]>([])
@@ -74,7 +75,7 @@ export function useAssets() {
           clearTimeout(uploadTimeout)
         }
         // 确认上传，创建数据库记录
-        await request.post('/v1/assets/confirm-upload', {
+        const confirmRes: any = await request.post('/v1/assets/confirm-upload', {
           object_key: prepareRes.object_key,
           public_url: prepareRes.public_url,
           name: file.name,
@@ -83,7 +84,7 @@ export function useAssets() {
           mime_type: file.type || 'application/octet-stream',
         })
         if (!silent) ElMessage.success('上传成功')
-        return
+        return confirmRes
       }
     } catch {
       // 直传失败，回退到服务器中转
@@ -93,11 +94,12 @@ export function useAssets() {
     const formData = new FormData()
     formData.append('file', file)
     if (folderId != null) formData.append('folder_id', String(folderId))
-    await request.post('/v1/assets', formData, {
+    const serverRes: any = await request.post('/v1/assets', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
       timeout: 180_000,
     })
     if (!silent) ElMessage.success('上传成功')
+    return serverRes
   }
 
   const deleteAsset = async (id: number) => {
@@ -163,9 +165,13 @@ export function useAssets() {
     }
   }
 
+  const saveRagMeta = async (assetId: number, ragMeta: Record<string, any>) => {
+    return await request.patch(`/v1/assets/${assetId}/rag-meta`, ragMeta)
+  }
+
   return {
     assets, loading, imageAssets, fileAssets,
     fetchAssets, uploadAsset, deleteAsset, moveAsset, renameAsset, downloadAsset,
-    batchDeleteAssets, batchMoveAssets
+    batchDeleteAssets, batchMoveAssets, saveRagMeta
   }
 }

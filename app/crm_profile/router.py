@@ -283,13 +283,14 @@ def get_customer_profile(
     request: Request,
     db: Session = Depends(get_db),
     window: int = Query(7, ge=7, le=30),
+    refresh: bool = Query(False),
 ):
-    """Load full profile (7 modules) for a customer."""
+    """Load full profile for a customer. Pass refresh=true to force cache rebuild."""
     user = get_current_user(request, db)
     assert_can_view(user, customer_id)
 
     w = normalize_window_days(window)
-    result = ensure_profile_context(customer_id, window_days=w, allow_stale=True)
+    result = ensure_profile_context(customer_id, window_days=w, allow_stale=not refresh, force_refresh=refresh)
     return result.ctx
 
 

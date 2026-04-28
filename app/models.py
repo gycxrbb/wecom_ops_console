@@ -83,6 +83,7 @@ class Material(Base, TimestampMixin):
     folder_id: Mapped[int | None] = mapped_column(ForeignKey('asset_folders.id'), nullable=True)
     owner_id: Mapped[int | None] = mapped_column(ForeignKey('users.id'), nullable=True)
     enabled: Mapped[int] = mapped_column(Integer, default=1)
+    rag_meta_json: Mapped[str] = mapped_column(Text, default='')
     folder = relationship('AssetFolder')
     owner = relationship('User')
     storage_records: Mapped[list['MaterialStorageRecord']] = relationship(
@@ -113,7 +114,7 @@ class MaterialStorageRecord(Base, TimestampMixin):
     provider_etag: Mapped[str] = mapped_column(String(128), default='')
     file_size: Mapped[int] = mapped_column(Integer, default=0)
     mime_type: Mapped[str] = mapped_column(String(128), default='application/octet-stream')
-    error_message: Mapped[str] = mapped_column(String(255), default='')
+    error_message: Mapped[str] = mapped_column(Text, default='')
     extra_json: Mapped[str] = mapped_column(Text, default='{}')
     material: Mapped['Material'] = relationship('Material', back_populates='storage_records')
     operator = relationship('User')

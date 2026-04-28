@@ -595,3 +595,39 @@
 - **复现条件**: 使用已有旧库启动后端，进入 CRM 客户档案并发起 AI 对话，RAG 检索链路尝试写入检索日志。
 - **解决方案**: 在 `ensure_rag_schema()` 中检测 `rag_retrieval_logs.intent_json`，缺失时执行 `ALTER TABLE rag_retrieval_logs ADD COLUMN intent_json TEXT`；同时本地已手动执行一次 `ensure_rag_schema(engine)`，确认当前库已补齐字段。
 - **关联文件**: app/schema_migrations.py, app/models_rag.py, app/rag/audit.py
+
+## Bug #60: 七牛素材删除遇到远端对象不存在时被二次审计落库错误放大成 500
+
+- **日期**: 2026-04-27
+- **现象**: 删除素材 `/api/v1/assets/{id}` 时，七牛返回 `612`，后端进入失败审计分支；随后完整 `httpx.HTTPStatusError` 文本超过 `material_storage_records.error_message VARCHAR(255)`，审计记录写入又触发 `DataError (1406) Data too long for column 'error_message'`，最终接口返回 500，且真实根因被二次异常淹没。
+- **根因**: 云存储删除接口没有按幂等语义处理“远端对象已不存在”；同时存储审计表把错误详情限制为 255 字符，不适合保存云厂商 URL、状态码和诊断说明这类长错误。
+- **复现条件**: 数据库中仍有七牛素材记录，但七牛 bucket 内对应 object key 已被提前删除或不存在；调用素材删除接口。
+- **解决方案**: 七牛删除返回 `612` 时按幂等删除成功处理，让本地素材可继续标记删除；将 `MaterialStorageRecord.error_message` 从 `String(255)` 升级为 `Text`，并在启动迁移中对 MySQL 旧库执行 `ALTER TABLE material_storage_records MODIFY COLUMN error_message TEXT`。
+- **关联文件**: app/services/storage/qiniu.py, app/models.py, app/schema_migrations.py
+
+## Bug #61: CRM AI 用户阻碍上下文只传数量，未传具体 description
+
+- **日期**: 2026-04-27
+- **现象**: 客户档案页“用户阻碍”卡片能显示每条阻碍的 `description`，但向 AI 提问时，AI 只能知道存在阻碍以及阻碍条数，不知道具体阻碍内容。
+- **根因**: `service_issues` loader 已查询并返回 `issues[].description` 给前端；但 AI prompt 的 `build_context_text()` 默认跳过 list/dict，只序列化标量字段。`description` 位于 `issues` 列表内，且 `service_issues` 没有默认展开，所以 AI 上下文只保留了 `issue_count/unresolved_count/issue_summary`。此外 L1/L2 profile cache 可能继续命中旧快照，即使代码修复后也会短期沿用缺少详情摘要的旧上下文。
+- **复现条件**: 某客户存在 `service_issues.description`，进入客户档案并预热 AI 上下文后，询问 AI “这个客户具体有什么阻碍/怎么处理阻碍”。
+- **解决方案**: 在 `service_issues` 模块新增标量字段 `issue_detail_summary`，聚合最近 5 条阻碍的状态、名称、description 和 solution，使默认 AI 上下文可直接读取；`context_builder` 增加“阻碍详情”字段标签；profile L1/L2 cache 读取时检测旧快照缺少 `service_issues.issue_detail_summary` 则视为旧 schema，自动失效并重建。
+- **关联文件**: app/crm_profile/services/modules/service_issues.py, app/crm_profile/services/context_builder.py, app/crm_profile/services/profile_context_cache.py
+
+## Bug #63: RAG retriever phase 2 从 payload 内部取 score，导致素材永远无法被推荐
+
+- **日期**: 2026-04-27
+- **现象**: 素材库已上传视频并完整填写 RAG 标注（summary/transcript/usage_note/tags），rag_resource 和 rag_chunks 记录均正常，但 AI 教练对话永远不会推荐该素材。
+- **根因**: `app/rag/retriever.py` 第 146 行收集 phase 2 material source IDs 时，使用 `payload.get("score", 0)` 读取 score，但 `search()` 返回的 hit 结构是 `{"id", "score", "payload"}`，score 在顶层而非 payload 内部。因此 `payload.get("score", 0)` 始终返回 0，低于 `rag_min_score` 阈值，导致 `material_source_ids` 永远为空。
+- **复现条件**: 为任意素材填写 RAG 标注并在 AI 教练中提问相关问题，观察 recommended_assets 是否为空。
+- **解决方案**: 将 `payload.get("score", 0)` 改为 `hit.get("score", 0)`；同时在审计日志中增加 phase 2 material hits 记录，便于后续排查。
+- **关联文件**: app/rag/retriever.py
+
+## Bug #62: 客户档案页面加载默认携带 refresh=true，导致侧边栏切回时强制重建缓存
+
+- **日期**: 2026-04-27
+- **现象**: 用户在侧边栏从话术管理和客户档案之间来回切换时，客户档案不再秒开；`logs/sse_debug.log` 中同一个 `profile:{customer_id}:hw7` 多次出现 `build start/build done`，每次耗时约 8-11 秒。
+- **根因**: 前端 `loadProfile()` 请求 `/api/v1/crm-customers/{id}/profile` 时默认携带 `refresh: true`，使后端 `ensure_profile_context(... force_refresh=True)` 每次绕过 L1/L2 profile cache，直接重建 CRM 档案上下文。后端 `refresh=true` 本应只作为手动刷新能力，不应出现在普通侧边栏恢复路径。
+- **复现条件**: 已进入某客户档案详情页 -> 切到话术管理 -> 再从侧边栏切回客户档案；观察后端 SSE debug 日志或页面等待时间。
+- **解决方案**: 移除前端普通 `loadProfile()` 的默认 `refresh: true`，保留 `window` 参数；后端 `refresh` 查询参数仍保留给显式强刷场景。
+- **关联文件**: frontend/src/views/CrmProfile/composables/useCrmProfile.ts, app/crm_profile/router.py

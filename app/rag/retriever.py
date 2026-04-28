@@ -94,10 +94,17 @@ async def _do_retrieve(
     if intent["domain"] == "nutrition" and intent["negative_scenes"]:
         must_not["intervention_scene"] = intent["negative_scenes"]
 
-    # 5. Search Qdrant
+    # 5. Phase 1: Search scripts/knowledge cards for prompt injection
     raw_hits = await search(
         query_vector, top_k=settings.rag_top_k,
         filters=filters, must_not=must_not or None,
+    )
+
+    # 5b. Phase 2: Search materials for recommended_assets only
+    material_filters: dict[str, Any] = {"content_kind": ["image", "video", "meme", "file"]}
+    raw_material_hits = await search(
+        query_vector, top_k=6,
+        filters=material_filters, must_not=must_not or None,
     )
 
     latency_ms = int((time.time() - t0) * 1000)
@@ -113,7 +120,7 @@ async def _do_retrieve(
     # 6. Build enriched hit records with titles (for filtering & audit)
     db = SessionLocal()
     enriched_hits: list[dict] = []
-    material_hits: list[int] = []
+    material_source_ids: list[int] = []
     try:
         for hit in raw_hits[:settings.rag_rerank_top_n]:
             payload = hit.get("payload", {})
@@ -131,6 +138,13 @@ async def _do_retrieve(
                 "source_id": payload.get("source_id", 0),
                 "filter_reason": None,
             })
+
+        # Collect material IDs from phase 2 hits
+        for hit in raw_material_hits[:3]:
+            payload = hit.get("payload", {})
+            source_id = payload.get("source_id")
+            if source_id and hit.get("score", 0) >= settings.rag_min_score:
+                material_source_ids.append(source_id)
     finally:
         db.close()
 
@@ -170,14 +184,11 @@ async def _do_retrieve(
                 content_kind=hit["payload"].get("content_kind", "text"),
                 safety_level=hit["payload"].get("safety_level", "general"),
             ))
-
-            if hit["source_type"] == "material" and hit["source_id"]:
-                material_hits.append(hit["source_id"])
     finally:
         db.close()
 
-    # 10. Build recommended assets
-    recommended_assets = await _build_recommended_assets(material_hits[:3])
+    # 10. Build recommended assets from phase 2 material hits
+    recommended_assets = await _build_recommended_assets(material_source_ids)
 
     # 11. Build context text for prompt injection
     context_parts = []
@@ -186,6 +197,10 @@ async def _do_retrieve(
     context_text = "\n\n".join(context_parts) if context_parts else ""
 
     # 12. Audit — enriched hit_json with title and filter_reason
+    audit_material_hits = [
+        {"id": h.get("id"), "source_id": h.get("payload", {}).get("source_id"), "score": round(h.get("score", 0), 4)}
+        for h in raw_material_hits[:6]
+    ]
     audit_hits = [
         {
             "id": h["id"],
@@ -200,7 +215,7 @@ async def _do_retrieve(
         session_id=session_id, message_id=message_id,
         customer_id=customer_id, query_text=query_text[:500],
         filter_json=json.dumps({**filters, "must_not": must_not} if must_not else filters),
-        hit_json=json.dumps(audit_hits, ensure_ascii=False),
+        hit_json=json.dumps({"phase1": audit_hits, "material": audit_material_hits, "material_ids": material_source_ids}, ensure_ascii=False),
         latency_ms=latency_ms,
         intent_json=intent_json_str,
     )
@@ -226,16 +241,36 @@ async def _build_recommended_assets(material_ids: list[int]) -> list[RagRecommen
             Material.deleted_at.is_(None),
         ).all()
 
+        # Also fetch rag_resource for visibility/safety_level
+        rag_resources = {
+            r.source_id: r
+            for r in db.query(RagResource).filter(
+                RagResource.source_type == "material",
+                RagResource.source_id.in_(material_ids),
+            ).all()
+        }
+
         assets = []
         for mat in materials:
+            rag_res = rag_resources.get(mat.id)
+            resource_id = rag_res.id if rag_res else 0
+            visibility = rag_res.visibility if rag_res else "coach_internal"
+            safety_level = rag_res.safety_level if rag_res else "general"
+            summary = rag_res.semantic_text[:100] if rag_res and rag_res.semantic_text else ""
+
             assets.append(RagRecommendedAsset(
                 material_id=mat.id,
                 title=mat.name,
                 material_type=mat.material_type,
+                source_filename=mat.source_filename or mat.name,
                 preview_url=mat.public_url or mat.url or None,
                 download_url=mat.public_url or mat.url or None,
                 public_url=mat.public_url or None,
-                reason="与当前问题相关",
+                reason=summary or "与当前问题相关",
+                visibility=visibility,
+                safety_level=safety_level,
+                customer_sendable=visibility == "customer_visible",
+                resource_id=resource_id,
             ))
         return assets
     finally:

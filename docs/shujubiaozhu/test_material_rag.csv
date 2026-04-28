@@ -1,0 +1,5 @@
+source_type,title,summary,content_kind,status,rag_enabled,visibility,safety_level,copyright_status,customer_sendable,alt_text,usage_note,customer_goal,intervention_scene,question_type,tags,material_ref,file_name,file_hash
+material,血糖标准参考图,展示空腹和餐后血糖的正常范围及糖尿病诊断标准,image,approved,yes,coach_internal,general,owned,no,空腹血糖3.9-6.1为正常，餐后2小时低于7.8为正常，用于判断血糖控制情况,血糖异常时向客户解释标准范围,血糖管理,abnormal_intervention,data_monitoring,血糖|标准|参考图,materials.id=12,,
+material,血糖仪价值介绍视频,介绍雅培瞬感血糖仪的使用方法和价值,file,approved,yes,coach_internal,general,owned,no,介绍瞬感血糖仪的佩戴方式和使用场景,新客户首次使用血糖仪时推荐观看,设备使用,qa_support,,血糖仪|设备|教程,,雅培血糖仪的价值.mp4,00c83bfb429a303e
+material,饥饿感与血糖关系视频,解释饥饿感产生的原因以及血糖波动的关系,file,approved,yes,coach_internal,general,owned,no,饥饿感并不总是因为血糖低，可能是饮食结构不合理导致,客户反馈总是感到饥饿时发送解释,饮食管理,qa_support,meal_review,饥饿|血糖|饮食科普,materials.id=34,,
+material,表情包工作的小猪,可爱小猪工作表情包可用于鼓励客户坚持打卡,image,approved,yes,coach_internal,general,owned,yes,小猪努力工作的卡通形象,客户完成打卡或达成阶段性目标时发送鼓励,情绪支持,emotional_support,,表情包|鼓励,materials.id=10,,
