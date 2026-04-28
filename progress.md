@@ -492,3 +492,12 @@
   - 已沉淀 Bug #62 到 `bug.md`，沉淀经验 #123 到 `memory.md`。
   - 本轮 focused validation：`py_compile` 通过；`vue-tsc --noEmit` 通过；`npm run build` 通过；代码检索确认普通 `loadProfile()` 不再携带 `refresh: true`。
   - 本轮项目启动验证结果：后端 `python -m uvicorn app.main:app --host 0.0.0.0 --port 8013 --log-level info` 已确认 `Application startup complete`，随后已回收 8013；前端沙箱内仍复现既有 `esbuild spawn EPERM`，提权后 `npm.cmd run dev -- --host 0.0.0.0 --port 5178` 已确认 Vite ready in 912ms，随后已回收 5178。
+- 2026-04-28 已完成上线前 RAG 生产更新收口：
+  - 已补齐生产依赖：`requirements.txt` 新增 `qdrant-client==1.17.1`，避免 Docker 镜像漏装 Qdrant 客户端。
+  - 已补齐镜像上下文保护：`.dockerignore` 排除 `data/qdrant/` 与 `data/qdrant_storage/`，避免开发向量库进入镜像构建上下文。
+  - 已补齐部署口径：`deploy-guide.md` 新增 RAG/Qdrant 生产 `.env` 示例、先启动 Qdrant、检查 `6333/collections` 与 `/api/v1/health` 的部署步骤。
+  - 已收紧素材 RAG 入库门禁：`RagMetaUpdate` 归一 `customer_sendable -> customer_visible`、`medical_review -> doctor_review` 和中文目标标签；素材 UI 改为受控 code；后端保存和 CSV 入库要求摘要、说明/转写、使用场景、受控标签、版权状态、公网地址和安全等级，不再把可发客户素材静默降级。
+  - 已修正 `docs/上线前RAG向量库生产更新审阅报告.md` 的过期结论：healthcheck 已改 `/api/v1/health`，依赖/镜像排除/素材门禁已补齐；剩余服务器侧确认项是 `.env` 使用 `QDRANT_MODE=remote` 和 embedding key 可用。
+  - 启动验证期间发现并修复 `app/schema_migrations.py` import 级语法错误：`_CRM_AI_PHASE2_COLUMNS` 被误拼到 `_ensure_named_index(...)` 调用后，导致后端无法启动；已沉淀 Bug #64 和经验 #125。
+  - 本轮 focused validation：`python -m compileall -q app` 通过；`RagMetaUpdate` 兼容归一化测试通过；素材 CSV 行校验测试通过；`cd frontend; .\node_modules\.bin\vue-tsc.cmd --noEmit` 通过；`cd frontend; npm.cmd run build` 通过（仅既有 chunk size 警告）。
+  - 本轮项目启动验证结果：后端 `python -m uvicorn app.main:app --host 127.0.0.1 --port 8018 --log-level info` 已确认 `Application startup complete`，禁用本机代理后 `/api/v1/health` 返回 200；前端沙箱内仍复现既有 `esbuild spawn EPERM`，提权后 `npm.cmd run dev -- --host 127.0.0.1 --port 5181` 已确认 Vite ready，随后已回收 5181 监听进程。

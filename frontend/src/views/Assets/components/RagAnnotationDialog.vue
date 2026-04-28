@@ -20,8 +20,8 @@
         <el-input v-model="form.usage_note" type="textarea" :rows="2" placeholder="什么时候用这个素材" />
       </el-form-item>
       <el-form-item label="适用目标">
-        <el-select v-model="form.customer_goal" multiple filterable allow-create default-first-option placeholder="选择或输入">
-          <el-option v-for="g in goalOptions" :key="g" :label="g" :value="g" />
+        <el-select v-model="form.customer_goal" multiple filterable placeholder="选择目标">
+          <el-option v-for="g in goalOptions" :key="g.value" :label="g.label" :value="g.value" />
         </el-select>
       </el-form-item>
       <el-form-item label="干预场景">
@@ -44,7 +44,9 @@
         <el-form-item label="安全等级" class="rag-form-item--half">
           <el-radio-group v-model="form.safety_level">
             <el-radio value="general">通用</el-radio>
-            <el-radio value="medical_review">需医学审核</el-radio>
+            <el-radio value="nutrition_education">营养科普</el-radio>
+            <el-radio value="medical_sensitive">医疗敏感</el-radio>
+            <el-radio value="doctor_review">需医生审核</el-radio>
           </el-radio-group>
         </el-form-item>
       </div>
@@ -120,7 +122,16 @@ watch(() => props.modelValue, (val) => {
   }
 })
 
-const goalOptions = ['体重管理', '血糖管理', '饮食管理', '运动管理', '血压管理', '血脂管理', '情绪管理', '睡眠管理']
+const goalOptions = [
+  { value: 'weight_loss', label: '减脂减重' },
+  { value: 'glucose_control', label: '控糖' },
+  { value: 'habit_building', label: '习惯养成' },
+  { value: 'nutrition_education', label: '饮食营养教育' },
+  { value: 'exercise_adherence', label: '运动坚持' },
+  { value: 'emotion_support', label: '情绪支持' },
+  { value: 'device_usage', label: '设备使用' },
+  { value: 'maintenance', label: '长期维护' },
+]
 const sceneOptions = [
   { value: 'meal_checkin', label: '餐盘打卡' },
   { value: 'meal_review', label: '餐评' },
@@ -131,7 +142,7 @@ const sceneOptions = [
   { value: 'maintenance', label: '长期维护' },
   { value: 'abnormal_intervention', label: '异常干预' },
 ]
-const typeOptions = ['data_monitoring', 'diet_guidance', 'exercise_guidance', 'medication_adherence', 'lifestyle_change']
+const typeOptions = ['dining_out', 'carb_choose', 'low_calorie', 'late_night_snack', 'craving', 'hunger', 'food_safety', 'high_glucose', 'blood_fluctuation', 'data_monitoring', 'no_checkin', 'low_motivation', 'device_usage', 'plateau']
 
 const handleSkip = () => {
   emit('update:modelValue', false)

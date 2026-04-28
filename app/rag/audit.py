@@ -21,6 +21,8 @@ def write_retrieval_log(
     hit_json: str | None = None,
     latency_ms: int = 0,
     intent_json: str | None = None,
+    query_intent_json: str | None = None,
+    rerank_scores_json: str | None = None,
 ) -> None:
     db = SessionLocal()
     try:
@@ -33,6 +35,8 @@ def write_retrieval_log(
             hit_json=hit_json,
             latency_ms=latency_ms,
             intent_json=intent_json,
+            query_intent_json=query_intent_json,
+            rerank_scores_json=rerank_scores_json,
             created_at=datetime.utcnow(),
         ))
         db.commit()

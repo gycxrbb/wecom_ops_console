@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from pathlib import Path
 
 from sqlalchemy.orm import Session
 
@@ -12,9 +13,13 @@ from ..models import Material
 from ..models_rag import RagResource, RagChunk
 from ..rag.chunker import chunk_text, compute_hash
 from ..rag.embedding_client import embed_texts_batch
+from ..rag.vocabulary import resolve_code
 from ..rag.vector_store import upsert_chunks
 
 _log = logging.getLogger(__name__)
+
+_PUBLIC_BLOCKED_SAFETY_LEVELS = {"medical_sensitive", "doctor_review", "contraindicated"}
+_VIDEO_SUFFIXES = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v"}
 
 
 def load_rag_meta(material: Material) -> dict:
@@ -52,6 +57,69 @@ def _build_semantic_text(meta: dict, material: Material) -> str:
     return "\n".join(parts)
 
 
+def _normalize_tag_list(dimension: str, values) -> list[str]:
+    normalized: list[str] = []
+    if not values:
+        return normalized
+    if not isinstance(values, list):
+        values = [values]
+    for item in values:
+        code = resolve_code(dimension, str(item))
+        if code and code not in normalized:
+            normalized.append(code)
+    return normalized
+
+
+def _is_video_material(material: Material, meta: dict) -> bool:
+    content_kind = (meta.get("content_kind") or "").strip().lower()
+    if content_kind == "video":
+        return True
+    filename = material.source_filename or material.name or ""
+    return Path(filename).suffix.lower() in _VIDEO_SUFFIXES
+
+
+def _normalize_meta(meta: dict, material: Material) -> dict:
+    normalized = dict(meta or {})
+    normalized["visibility"] = resolve_code("visibility", normalized.get("visibility")) or "coach_internal"
+    normalized["safety_level"] = resolve_code("safety_level", normalized.get("safety_level")) or "general"
+    for dimension in ("customer_goal", "intervention_scene", "question_type"):
+        normalized[dimension] = _normalize_tag_list(dimension, normalized.get(dimension))
+    normalized["customer_sendable"] = normalized["visibility"] == "customer_visible"
+    if not normalized.get("content_kind"):
+        if material.material_type == "image":
+            normalized["content_kind"] = "image"
+        elif _is_video_material(material, normalized):
+            normalized["content_kind"] = "video"
+        else:
+            normalized["content_kind"] = "file"
+    return normalized
+
+
+def _validate_publishable_material(material: Material, meta: dict) -> list[str]:
+    errors: list[str] = []
+    if material.storage_status != "ready" or material.enabled != 1:
+        errors.append("素材未就绪或已停用")
+    if not (meta.get("summary") or "").strip():
+        errors.append("缺少摘要")
+    if not (meta.get("usage_note") or "").strip():
+        errors.append("缺少使用场景")
+    content_kind = (meta.get("content_kind") or "").strip()
+    if content_kind in {"image", "meme"} and not (meta.get("alt_text") or "").strip():
+        errors.append("图片/表情包素材缺少图片说明 alt_text")
+    if content_kind == "video" and not ((meta.get("transcript") or "").strip() or (meta.get("alt_text") or "").strip()):
+        errors.append("视频素材缺少转写文本或内容说明")
+    if (meta.get("copyright_status") or "unknown") == "unknown":
+        errors.append("版权状态不能为 unknown")
+    if not (meta.get("customer_goal") or meta.get("intervention_scene") or meta.get("question_type")):
+        errors.append("至少需要一个受控标签")
+    if meta.get("visibility") == "customer_visible":
+        if not (material.public_url or "").strip():
+            errors.append("可发客户素材必须已有 materials.public_url")
+        if meta.get("safety_level") in _PUBLIC_BLOCKED_SAFETY_LEVELS:
+            errors.append("医疗敏感/医生审核/禁忌素材不能标记为可发客户")
+    return errors
+
+
 def _compute_quality(meta: dict) -> str:
     has_summary = bool(meta.get("summary"))
     has_desc = bool(meta.get("alt_text") or meta.get("transcript"))
@@ -84,8 +152,7 @@ async def save_rag_meta_and_index(db: Session, material_id: int, rag_meta: dict)
     material = db.query(Material).filter(Material.id == material_id).first()
     if not material:
         return {"error": "material not found", "material_id": material_id}
-    if material.storage_status != "ready" or material.enabled != 1:
-        return {"error": "material not ready", "material_id": material_id}
+    rag_meta = _normalize_meta(rag_meta, material)
 
     material.rag_meta_json = json.dumps(rag_meta, ensure_ascii=False)
 
@@ -95,6 +162,16 @@ async def save_rag_meta_and_index(db: Session, material_id: int, rag_meta: dict)
             existing.status = "disabled"
             db.commit()
         return {"material_id": material_id, "rag_resource_id": None, "action": "disabled"}
+
+    validation_errors = _validate_publishable_material(material, rag_meta)
+    if validation_errors:
+        db.commit()
+        return {
+            "error": "material_rag_validation_failed",
+            "message": "；".join(validation_errors),
+            "material_id": material_id,
+            "validation_errors": validation_errors,
+        }
 
     semantic_text = _build_semantic_text(rag_meta, material)
     if not semantic_text.strip():

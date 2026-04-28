@@ -353,3 +353,20 @@ def seed_all(db: Session):
     if db.query(SopDocument).count() > 0 and db.query(ExternalDocResource).count() == 0:
         from .external_doc_migration import migrate_sop_documents
         migrate_sop_documents(db)
+
+    # --- Seed rag_tags from vocabulary ---
+    try:
+        from ..models_rag import RagTag
+        from ..rag.vocabulary import VOCABULARY
+        seeded_dims = {d for (d,) in db.query(RagTag.dimension).distinct().all() if d}
+        for dimension, entries in VOCABULARY.items():
+            if dimension in seeded_dims:
+                continue
+            for code, name, desc, sort_order in entries:
+                db.add(RagTag(
+                    dimension=dimension, code=code, name=name,
+                    description=desc or "", sort_order=sort_order, enabled=1,
+                ))
+            db.commit()
+    except Exception:
+        db.rollback()

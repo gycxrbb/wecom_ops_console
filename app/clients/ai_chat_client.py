@@ -44,7 +44,21 @@ class ChatStreamChunk:
     finish_reason: str | None = None
 
 
-def _resolve_config(*, model_override: str | None = None) -> dict:
+def _resolve_config(*, model_override: str | None = None, provider: str | None = None) -> dict:
+    if provider == 'aihubmix':
+        return {
+            'base_url': settings.ai_base_url.rstrip('/'),
+            'api_key': settings.ai_api_key,
+            'model': model_override or settings.ai_model,
+            'provider': 'aihubmix',
+        }
+    if provider == 'deepseek':
+        return {
+            'base_url': settings.deepseek_base_url.rstrip('/'),
+            'api_key': settings.deepseek_api_key,
+            'model': model_override or settings.deepseek_model,
+            'provider': 'deepseek',
+        }
     if settings.ai_provider == 'deepseek' and settings.deepseek_api_key:
         return {
             'base_url': settings.deepseek_base_url.rstrip('/'),
@@ -80,8 +94,9 @@ async def chat_completion(
     temperature: float = 0.7,
     max_tokens: int = 16384,
     model: str | None = None,
+    provider: str | None = None,
 ) -> tuple[str, dict]:
-    cfg = _resolve_config(model_override=model)
+    cfg = _resolve_config(model_override=model, provider=provider)
     if not cfg['api_key'] or cfg['api_key'] == 'your-api-key-here':
         raise RuntimeError('AI 服务未配置，请设置 API KEY')
 
@@ -118,8 +133,9 @@ async def chat_completion_stream(
     temperature: float = 0.7,
     max_tokens: int = 16384,
     model: str | None = None,
+    provider: str | None = None,
 ) -> AsyncIterator[ChatStreamChunk]:
-    cfg = _resolve_config(model_override=model)
+    cfg = _resolve_config(model_override=model, provider=provider)
     if not cfg['api_key'] or cfg['api_key'] == 'your-api-key-here':
         raise RuntimeError('AI 服务未配置，请设置 API KEY')
 

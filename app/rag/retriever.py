@@ -11,7 +11,7 @@ from ..database import SessionLocal
 from ..models import Material
 from ..models_rag import RagResource
 from .embedding_client import embed_texts
-from .intent_rules import recognize_intent
+from .query_compiler import compile_query, QueryIntent
 from .schemas import RagBundle, RagSource, RagRecommendedAsset
 from .vector_store import search, is_available
 from .audit import write_retrieval_log
@@ -68,12 +68,19 @@ async def _do_retrieve(
 ) -> RagBundle:
     t0 = time.time()
 
-    # 1. Intent recognition
-    intent = recognize_intent(message, scene_key)
-    intent_json_str = json.dumps(intent, ensure_ascii=False)
+    # 1. Query compilation — structured intent extraction
+    query_intent = compile_query(message, scene_key)
+    intent_json_str = json.dumps({"domain": query_intent.domain, "negative_scenes": query_intent.negative_scenes}, ensure_ascii=False)
+    qi_json_str = json.dumps({
+        "domain": query_intent.domain,
+        "customer_goals": query_intent.customer_goals,
+        "intervention_scenes": query_intent.intervention_scenes,
+        "question_types": query_intent.question_types,
+        "max_safety_level": query_intent.max_safety_level,
+    }, ensure_ascii=False)
 
-    # 2. Build query
-    query_text = f"{scene_key} {message}"
+    # 2. Build query from compiled intent
+    query_text = query_intent.query_text
 
     # 3. Embed query
     vectors = await embed_texts([query_text])
@@ -81,18 +88,27 @@ async def _do_retrieve(
         return RagBundle(rag_status="unavailable")
     query_vector = vectors[0]
 
-    # 4. Build Qdrant filters
+    # 4. Build Qdrant filters from query intent
     filters: dict[str, Any] = {"content_kind": ["script", "text", "knowledge_card"]}
-    must_not: dict[str, Any] = {}
+    must_not: dict[str, Any] = {"semantic_quality": ["weak", "stale"]}
 
-    # Scene-based positive filter using _SCENE_MAP
-    mapped_scene = _SCENE_MAP.get(scene_key)
-    if mapped_scene:
-        filters["intervention_scene"] = [mapped_scene]
+    # Scene-based positive filter
+    if query_intent.intervention_scenes:
+        filters["intervention_scene"] = query_intent.intervention_scenes
+    else:
+        mapped_scene = _SCENE_MAP.get(scene_key)
+        if mapped_scene:
+            filters["intervention_scene"] = [mapped_scene]
 
     # Domain exclusion: when nutrition intent detected, exclude points_operation scenes
-    if intent["domain"] == "nutrition" and intent["negative_scenes"]:
-        must_not["intervention_scene"] = intent["negative_scenes"]
+    if query_intent.domain == "nutrition" and query_intent.negative_scenes:
+        must_not["intervention_scene"] = query_intent.negative_scenes
+
+    # Safety level cap
+    if query_intent.max_safety_level:
+        _SAFETY_ORDER = ["general", "nutrition_education", "medical_sensitive", "doctor_review", "contraindicated"]
+        max_idx = _SAFETY_ORDER.index(query_intent.max_safety_level) if query_intent.max_safety_level in _SAFETY_ORDER else 4
+        filters["safety_level"] = _SAFETY_ORDER[:max_idx + 1]
 
     # 5. Phase 1: Search scripts/knowledge cards for prompt injection
     raw_hits = await search(
@@ -136,6 +152,7 @@ async def _do_retrieve(
                 "resource_id": resource_id or 0,
                 "source_type": payload.get("source_type", ""),
                 "source_id": payload.get("source_id", 0),
+                "semantic_text": resource.semantic_text[:500] if resource and resource.semantic_text else "",
                 "filter_reason": None,
             })
 
@@ -147,6 +164,13 @@ async def _do_retrieve(
                 material_source_ids.append(source_id)
     finally:
         db.close()
+
+    # 6b. Rerank if enabled
+    if settings.rag_rerank_enabled and enriched_hits:
+        from .reranker import rerank_hits
+        enriched_hits = await rerank_hits(
+            query_vector, enriched_hits, top_n=settings.rag_rerank_top_n,
+        )
 
     # 7. Apply score gates
     top_score = enriched_hits[0]["score"] if enriched_hits else 0.0
@@ -218,6 +242,11 @@ async def _do_retrieve(
         hit_json=json.dumps({"phase1": audit_hits, "material": audit_material_hits, "material_ids": material_source_ids}, ensure_ascii=False),
         latency_ms=latency_ms,
         intent_json=intent_json_str,
+        query_intent_json=qi_json_str,
+        rerank_scores_json=json.dumps([
+            {"id": h["id"], "score": h.get("score"), "rerank_score": h.get("rerank_score"), "filter_reason": h["filter_reason"]}
+            for h in enriched_hits
+        ], ensure_ascii=False) if settings.rag_rerank_enabled else None,
     )
 
     return RagBundle(

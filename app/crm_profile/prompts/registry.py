@@ -19,7 +19,15 @@ VALID_SCENES = {
     "long_term_maintenance": "长期维护",
 }
 
-_PROMPT_VERSION = "v1.0"
+VALID_STYLES = {
+    "coach_brief": "教练简报",
+    "customer_reply": "客户话术",
+    "handoff_note": "交接备注",
+    "bullet_list": "要点列表",
+    "detailed_report": "详细报告",
+}
+
+_PROMPT_VERSION = "v2.0"
 
 
 def _read_md(rel_path: str) -> str:
@@ -46,6 +54,21 @@ def get_visible_thinking_core() -> str:
     return _read_md("base/visible_thinking_core.md")
 
 
+@lru_cache(maxsize=1)
+def get_context_header() -> str:
+    return _read_md("base/context_header.md")
+
+
+@lru_cache(maxsize=1)
+def get_rag_header() -> str:
+    return _read_md("base/rag_header.md")
+
+
+@lru_cache(maxsize=1)
+def get_scene_hint_header() -> str:
+    return _read_md("base/scene_hint_header.md")
+
+
 @lru_cache(maxsize=8)
 def get_scene_prompt(scene_key: str) -> str:
     if scene_key not in VALID_SCENES:
@@ -54,8 +77,20 @@ def get_scene_prompt(scene_key: str) -> str:
     return _read_md(f"scenes/{scene_key}.md")
 
 
+@lru_cache(maxsize=8)
+def get_style_prompt(style_key: str) -> str:
+    if style_key not in VALID_STYLES:
+        _log.warning("Unknown style key: %s, falling back to coach_brief", style_key)
+        style_key = "coach_brief"
+    return _read_md(f"styles/{style_key}.md")
+
+
 def get_scene_label(scene_key: str) -> str:
     return VALID_SCENES.get(scene_key, scene_key)
+
+
+def get_style_label(style_key: str) -> str:
+    return VALID_STYLES.get(style_key, style_key)
 
 
 def get_version() -> str:

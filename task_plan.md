@@ -181,3 +181,22 @@
 - 业务侧应先做高质量 P0 试点集，而不是全量搬运散落文档。
 - P0 目标建议为 100 条话术、50 条知识卡片、30 个图片素材、10 个视频素材、50 条评估问题。
 - 图片/视频必须补摘要、图片说明或转写文本，否则无法形成可检索语义。
+
+---
+
+## 2026-04-28 临时任务锚点：上线前 RAG 生产更新收口
+
+### 目标
+- 基于 `docs/上线前RAG向量库生产更新审阅报告.md` 和当前代码真值，补齐 RAG 上线前仍能直接落地的生产 blocker 与入库门禁。
+
+### 阶段
+- [x] Phase 1: 恢复审阅报告、RAG 代码、生产 compose、部署文档与素材标注入口现状
+- [x] Phase 2: 确认原 healthcheck blocker 已由 `/api/v1/health` 解除，剩余重点转为依赖、镜像上下文、部署 env 与素材门禁
+- [x] Phase 3: 补齐 `qdrant-client` 依赖、`.dockerignore` 向量库排除、部署文档 RAG env、素材 RAG 保存/CSV 入库硬门禁
+- [x] Phase 4: 跑 focused validation 与后端/前端启动验证
+- [x] Phase 5: 回写进度、bug/memory 与最终上线状态
+
+### 当前判断
+- RAG 仍是 support index / support knowledge，不是素材、话术、客户档案的 official truth。
+- 当前不建议全量素材自动入 RAG；应先用 approved 小样本和固定评估问题做上线验收。
+- 生产服务器 `.env` 必须使用 `QDRANT_MODE=remote`，否则会绕过 compose 中的 Qdrant 服务。

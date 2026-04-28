@@ -956,6 +956,8 @@ async def update_asset_rag_meta(asset_id: int, request: Request, db: Session = D
     rag_data = RagMetaUpdate(**body)
     from ..services.material_rag_service import save_rag_meta_and_index
     result = await save_rag_meta_and_index(db, asset_id, rag_data.model_dump())
+    if result.get("error"):
+        raise HTTPException(400, result.get("message") or result.get("error"))
     return result
 
 

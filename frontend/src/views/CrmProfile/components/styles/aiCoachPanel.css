@@ -614,6 +614,72 @@
   color: #d1d5db;
 }
 
+/* ==================== Attachment Strip ==================== */
+.ai-attachment-strip {
+  max-width: 680px;
+  width: 100%;
+  display: flex;
+  gap: 8px;
+  padding: 6px 0;
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+.ai-attachment-thumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 4px 8px 4px 4px;
+  flex-shrink: 0;
+  position: relative;
+}
+.ai-att-img {
+  width: 32px;
+  height: 32px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: #e2e8f0;
+}
+.ai-att-file-icon {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #ede9fe;
+  border-radius: 4px;
+  color: #7c3aed;
+}
+.ai-att-name {
+  font-size: 12px;
+  color: #475569;
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ai-att-remove {
+  font-size: 12px;
+  color: #94a3b8;
+  cursor: pointer;
+  margin-left: 2px;
+}
+.ai-att-remove:hover {
+  color: #ef4444;
+}
+.ai-attachment-uploading {
+  max-width: 680px;
+  width: 100%;
+  font-size: 12px;
+  color: #6366f1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 0;
+}
+
 /* ==================== Select Mode ==================== */
 .ai-select-action-bar {
   display: flex;

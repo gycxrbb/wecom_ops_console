@@ -85,4 +85,6 @@ class RagRetrievalLog(Base):
     hit_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     latency_ms: Mapped[int] = mapped_column(Integer, default=0)
     intent_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    query_intent_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rerank_scores_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

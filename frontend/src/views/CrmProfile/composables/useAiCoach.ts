@@ -12,6 +12,13 @@ export type RagSource = {
   safety_level: string
 }
 
+export type AiAttachment = {
+  attachment_id: string
+  filename: string
+  mime_type: string
+  file_size: number
+}
+
 export type RagRecommendedAsset = {
   material_id: number
   title: string
@@ -28,7 +35,7 @@ export type RagRecommendedAsset = {
 }
 
 export type AiChatMessage =
-  | { role: 'user'; messageType: 'user'; content: string }
+  | { role: 'user'; messageType: 'user'; content: string; attachments?: AiAttachment[] }
   | {
       role: 'assistant'; messageType: 'assistant_answer'; content: string
       messageId?: string
@@ -91,6 +98,7 @@ type StreamPayload = {
   delta?: string
   message?: string
   stage?: string
+  status?: string
   token_usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
   requires_medical_review?: boolean
   safety_notes?: string[]
@@ -339,12 +347,21 @@ export function useAiCoach() {
   const sendChat = async (
     customerId: number,
     message: string,
-    options?: { entryScene?: string; selectedExpansions?: string[]; healthWindowDays?: number },
+    options?: {
+      entryScene?: string
+      selectedExpansions?: string[]
+      healthWindowDays?: number
+      attachmentIds?: string[]
+      attachments?: AiAttachment[]
+    },
   ) => {
     loading.value = true
     error.value = ''
     const messageText = message.trim()
-    chatHistory.value.push({ role: 'user', messageType: 'user', content: messageText })
+    chatHistory.value.push({
+      role: 'user', messageType: 'user', content: messageText,
+      attachments: options?.attachments,
+    })
 
     const nextSessionId = sessionId.value || createSessionId()
     sessionId.value = nextSessionId
@@ -376,6 +393,7 @@ export function useAiCoach() {
       entry_scene: options?.entryScene || 'customer_profile',
       selected_expansions: selectedExpansions.value.length ? selectedExpansions.value : undefined,
       health_window_days: normalizeHealthWindowDays(options?.healthWindowDays),
+      attachment_ids: options?.attachmentIds?.length ? options.attachmentIds : undefined,
     }
 
     let answerCompleted = false
@@ -393,6 +411,11 @@ export function useAiCoach() {
 
         if (event === 'loading') {
           assistantMessage.loadingStage = payload.stage as 'prepare' | 'model_call'
+          return
+        }
+
+        if (event === 'analyzing') {
+          assistantMessage.loadingStage = 'prepare'
           return
         }
 
@@ -538,9 +561,26 @@ export function useAiCoach() {
     restoredSessionMeta.value = null
   }
 
+  const uploadAttachment = async (customerId: number, file: File): Promise<AiAttachment> => {
+    const formData = new FormData()
+    formData.append('file', file)
+    const token = localStorage.getItem('access_token')
+    const res = await fetch(`/api/v1/crm-customers/${customerId}/ai/upload-attachment`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: 'include',
+      body: formData,
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      throw new Error(data.detail || `上传失败 (${res.status})`)
+    }
+    return res.json()
+  }
+
   return {
     loading, chatHistory, error, tokenDisplay, sessionId, sendChat, clearSession,
-    markMedicalReview,
+    markMedicalReview, uploadAttachment,
     scenes, currentScene, outputStyle, profileNote, profileNoteSaving, configLoaded,
     sessionHistory, sessionHistoryLoading, loadSessionHistory, openHistorySession,
     loadAiConfig, saveProfileNote, restoredSessionMeta,

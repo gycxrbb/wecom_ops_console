@@ -13,6 +13,8 @@ frontend/dist/
 *.db
 data/uploads/*
 !data/uploads/.gitkeep
+data/qdrant/
+data/qdrant_storage/
 *.log
 *.tmp
 *.bak

@@ -394,6 +394,9 @@ def ensure_plan_schema(engine: Engine) -> None:
     # CRM AI Phase 2: add audit trail columns
     _ensure_crm_ai_phase2_columns(engine)
 
+    # CRM AI attachments: ensure indexes (table created by ORM create_all)
+    ensure_crm_ai_attachment_indexes(engine)
+
 
 def ensure_crm_ai_indexes(engine: Engine) -> None:
     """Ensure indexes exist on CRM AI audit tables (tables created by ORM create_all)."""
@@ -416,6 +419,22 @@ def ensure_crm_ai_indexes(engine: Engine) -> None:
         for table_name, idx_name, columns, unique in table_indexes:
             if table_name in existing_tables:
                 _ensure_named_index(conn, table_name, idx_name, columns, unique=unique)
+
+
+def ensure_crm_ai_attachment_indexes(engine: Engine) -> None:
+    """Ensure indexes on crm_ai_attachments table (table created by ORM create_all)."""
+    inspector = inspect(engine)
+    if "crm_ai_attachments" not in inspector.get_table_names():
+        return
+    idx_checks = [
+        ("crm_ai_attachments", "ix_crm_ai_att_att_id", ("attachment_id",), True),
+        ("crm_ai_attachments", "ix_crm_ai_att_customer", ("crm_customer_id",), False),
+        ("crm_ai_attachments", "ix_crm_ai_att_session", ("session_id",), False),
+        ("crm_ai_attachments", "ix_crm_ai_att_status", ("processing_status",), False),
+    ]
+    with engine.begin() as conn:
+        for table_name, idx_name, columns, unique in idx_checks:
+            _ensure_named_index(conn, table_name, idx_name, columns, unique=unique)
 
 
 _CRM_AI_PHASE2_COLUMNS = {
@@ -492,6 +511,12 @@ def ensure_rag_schema(engine: Engine) -> None:
         if "intent_json" not in existing_columns:
             with engine.begin() as conn:
                 conn.execute(text("ALTER TABLE rag_retrieval_logs ADD COLUMN intent_json TEXT"))
+        if "query_intent_json" not in existing_columns:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE rag_retrieval_logs ADD COLUMN query_intent_json TEXT"))
+        if "rerank_scores_json" not in existing_columns:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE rag_retrieval_logs ADD COLUMN rerank_scores_json TEXT"))
 
     rag_indexes = [
         ("idx_rag_tags_dimension", "rag_tags", ("dimension",), False),

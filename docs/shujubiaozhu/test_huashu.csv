@@ -1,25 +1,25 @@
-source_id,source_type,source_location,owner,title,clean_content,summary,status,customer_goal,intervention_scene,content_kind,visibility,safety_level,question_type,tone,reviewer,review_note
-rag_speech_001,speech_template,内部饮食话术整理,内容运营,减脂控糖主食分级选择指导话术,"主食可以按优先级分级选择：
+title,clean_content,summary,status,customer_goal,intervention_scene,content_kind,visibility,safety_level,question_type,tags,usage_note,tone,reviewer,review_note
+减脂控糖主食分级选择指导话术,"主食可以按优先级分级选择：
 1. 优先优选：红薯、紫薯、玉米、南瓜、山药。升糖慢、饱腹感强、膳食纤维充足，减脂控糖吃这类主食最稳妥。
 2. 日常常吃：糙米饭、杂粮饭、纯燕麦。对比精制白米更抗饿，血糖更平稳，不容易囤积脂肪。
 3. 少量食用：白米饭、白面条、馒头。精制碳水升糖快、容易饿，吃多容易发胖。
 4. 偶尔解馋：饺子、包子、烧麦。油盐和碳水叠加，热量偏高，容易水肿，不建议常吃。
-5. 尽量不吃：蛋糕、饼干、油条、甜面包、薯片等高油高糖精加工食物，热量容易超标。",标准化饮食指导话术，给客户清晰的主食分级方案，适合日常饮食提醒、餐评指导、饮食习惯纠正使用。,approved,weight_loss|glucose_control,habit_education|meal_review,script,customer_sendable,nutrition_education,carb_choose,专业温和,主管,可直接发客户，注意结合客户实际主食量调整
-rag_speech_002,speech_template,内部饮食话术整理,内容运营,低卡放心食材参考指导话术,"分享一些减脂控糖可以放心吃的低负担食材：
+5. 尽量不吃：蛋糕、饼干、油条、甜面包、薯片等高油高糖精加工食物，热量容易超标。",标准化饮食指导话术，给客户清晰的主食分级方案，适合日常饮食提醒、餐评指导、饮食习惯纠正使用。,approved,weight_loss|glucose_control,habit_education|meal_review,script,customer_visible,nutrition_education,carb_choose,主食|分级|减脂,客户问主食吃什么时发送，适合餐评和习惯教育场景,专业温和,主管,可直接发客户，注意结合客户实际主食量调整
+低卡放心食材参考指导话术,"分享一些减脂控糖可以放心吃的低负担食材：
 魔芋9大卡/100g、番茄15大卡/100g、黄瓜16大卡/100g、蒸南瓜21大卡/100g、圣女果25大卡/100g；
 各类绿叶蔬菜平均20~30大卡/100g，建议少油少盐清淡烹饪。
 蒸地瓜、蒸土豆、煮玉米、豆腐都是温和优质碳水与植物蛋白；
-鸡胸肉、去皮鸡腿肉是优质蛋白首选，清淡做法更利于体重和血糖稳定管理。",低卡食材科普+饮食建议话术，用于客户嘴馋、食材选择疑问时安抚与专业指导。,approved,weight_loss|glucose_control,obstacle_breaking|habit_education,script,customer_sendable,nutrition_education,low_calorie,温柔安抚,主管,可直接发客户，避免承诺具体减重效果
-rag_speech_003,speech_template,内部饮食话术整理,内容运营,出差外食外卖场景点餐指导话术,"出差和在外用餐，可以参考这套简单好执行的选择方式：
+鸡胸肉、去皮鸡腿肉是优质蛋白首选，清淡做法更利于体重和血糖稳定管理。",低卡食材科普+饮食建议话术，用于客户嘴馋、食材选择疑问时安抚与专业指导。,approved,weight_loss|glucose_control,obstacle_breaking|habit_education,script,customer_visible,nutrition_education,low_calorie,低卡|食材|减脂,客户嘴馋或问低热量食物时发送,温柔安抚,主管,可直接发客户，避免承诺具体减重效果
+出差外食外卖场景点餐指导话术,"出差和在外用餐，可以参考这套简单好执行的选择方式：
 便利店优先选：全麦饭团、水煮蛋、即食鸡胸肉、黄瓜、小番茄；避开照烧蛋黄饭团、油炸丸子。
 中式快餐选：去皮清蒸肉品、卤蛋、清炒时蔬、半份主食；避开红烧、糖醋、浓汁重油菜品。
 酒店早餐优选：燕麦、全麦面包、水煮蛋、纯牛奶、生菜；避开油条、培根、甜面包。
-外卖可以直接选轻食、减脂餐，下单备注少油少盐、酱料分开，更好控制热量与血糖。",外食、出差、外卖专属落地话术，解决无法自制三餐的饮食困惑，可直接复制发给客户。,approved,weight_loss|glucose_control,meal_review|qa_support,script,customer_sendable,nutrition_education,dining_out,实用落地,主管,可直接发客户，适合出差和外卖场景
-rag_speech_004,speech_template,内部饮食话术整理,内容运营,三文鱼食用方式科普答疑话术,"从营养和食品安全综合来看，日常吃三文鱼，熟吃会更稳妥安全。
+外卖可以直接选轻食、减脂餐，下单备注少油少盐、酱料分开，更好控制热量与血糖。",外食、出差、外卖专属落地话术，解决无法自制三餐的饮食困惑，可直接复制发给客户。,approved,weight_loss|glucose_control,meal_review|qa_support,script,customer_visible,nutrition_education,dining_out,外食|外卖|出差,客户出差或外卖点餐时发送,实用落地,主管,可直接发客户，适合出差和外卖场景
+三文鱼食用方式科普答疑话术,"从营养和食品安全综合来看，日常吃三文鱼，熟吃会更稳妥安全。
 生吃可以更好保留Omega-3不饱和脂肪酸和维生素，口感更鲜嫩，但对食材生食检疫标准要求极高，存在一定卫生风险。
-日常长期饮食以安全为先，优先选择熟吃；偶尔想吃生食，一定要选择正规生食级食材更安心。",食材食用答疑标准话术，解答客户海鲜吃法疑问，兼顾营养与食品安全科普。,approved,habit_building|weight_loss,qa_support,script,customer_sendable,nutrition_education,food_safety,客观专业,主管,可直接发客户，提醒选择正规食材
-rag_speech_005,speech_template,内部健康跟进话术,内容运营,血糖波动与血管健康科普跟进话术,"可以把血管想象成一根有弹性的橡皮筋。
+日常长期饮食以安全为先，优先选择熟吃；偶尔想吃生食，一定要选择正规生食级食材更安心。",食材食用答疑标准话术，解答客户海鲜吃法疑问，兼顾营养与食品安全科普。,approved,habit_building|weight_loss,qa_support,script,customer_visible,nutrition_education,food_safety,食材安全|海鲜|科普,客户问某种食材能不能吃时发送,客观专业,主管,可直接发客户，提醒选择正规食材
+血糖波动与血管健康科普跟进话术,"可以把血管想象成一根有弹性的橡皮筋。
 长期血糖偏高或是忽高忽低，多余糖分就会通过糖化反应附着在血管内壁，让血管变得粗糙。
 血管内壁受损后会引发慢性炎症，坏胆固醇容易沉积附着，慢慢形成血管斑块。
 比起单纯空腹血糖高，饭后血糖过山车式的波动，对血管伤害会更大。
-目前血糖控制稳步变好，搭配抗炎饮食，能够帮助减少血糖波动带来的健康风险，一起坚持越来越好。",代谢、血糖异常人群跟进话术，通俗科普血糖波动风险，肯定客户成果，兼具科普与鼓励。,approved,glucose_control|habit_building,period_review|qa_support,script,coach_internal,medical_sensitive,blood_fluctuation,鼓励共情,主管,仅作健康科普，禁止诊断与疗效承诺；建议教练人工确认后再外发
+目前血糖控制稳步变好，搭配抗炎饮食，能够帮助减少血糖波动带来的健康风险，一起坚持越来越好。",代谢、血糖异常人群跟进话术，通俗科普血糖波动风险，肯定客户成果，兼具科普与鼓励。,approved,glucose_control|habit_building,period_review|qa_support,script,coach_internal,medical_sensitive,blood_fluctuation,血糖|血管|科普,血糖波动或周期复盘时教练内部参考,鼓励共情,主管,仅作健康科普，禁止诊断与疗效承诺；建议教练人工确认后再外发

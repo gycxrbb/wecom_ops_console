@@ -87,6 +87,8 @@ DATABASE_URL=mysql+pymysql://wecom_ops:【MySQL密码】@127.0.0.1:3306/wecom_op
 REDIS_URL=redis://127.0.0.1:6379/0
 
 CRM_ADMIN_AUTH_ENABLED=true
+CRM_PROFILE_ENABLED=true  # 是否启用 CRM 个人资料功能
+AI_COACH_ENABLED=true # 是否启用 AI 教练功能
 CRM_ADMIN_DB_HOST=【CRM地址】
 CRM_ADMIN_DB_PORT=3306
 CRM_ADMIN_DB_USER=【CRM用户名】
@@ -100,14 +102,47 @@ QINIU_SECRET_KEY=【SK】
 QINIU_BUCKET=【bucket】
 QINIU_REGION=z2
 QINIU_PUBLIC_DOMAIN=【CDN域名】
-QINIU_PREFIX=materials/
+QINIU_PREFIX=qiwei/
 QINIU_USE_HTTPS=true
+QINIU_SIGNED_URL_EXPIRE_SECONDS=3600
+DEFAULT_TIMEZONE=Asia/Shanghai  # 上海时区
 
-DEFAULT_TIMEZONE=Asia/Shanghai
+# AI 润色服务配置 (OpenAI 兼容 API)
+AI_API_KEY=【密钥】
+AI_BASE_URL=https://aihubmix.com/v1
+AI_MODEL=gpt-4o-mini
+
+# AI Provider 切换 (aihubmix | deepseek)
+AI_PROVIDER=deepseek
+
+# DeepSeek 配置 (当 AI_PROVIDER=deepseek 时生效)
+DEEPSEEK_API_KEY=【密钥】
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-v4-pro
+
+
+
+# 发送超时处理机制
 SEND_TIMEOUT_SECONDS=30
+FILE_UPLOAD_TIMEOUT_SECONDS=120
 SEND_MAX_RETRIES=3
-SEND_RETRY_DELAY_SECONDS=1.0
+SEND_RETRY_DELAY_SECONDS=2.0
+FILE_SEND_MAX_RETRIES=3
+FILE_SEND_RETRY_DELAY_SECONDS=3.0
+
+RAG_ENABLED=true
+QDRANT_MODE=remote
+QDRANT_HOST=127.0.0.1
+QDRANT_PORT=6333
+QDRANT_COLLECTION=wecom_health_rag
+RAG_EMBEDDING_BASE_URL=https://aihubmix.com/v1
+RAG_EMBEDDING_MODEL=text-embedding-3-large
+RAG_EMBEDDING_DIMENSION=1024
+# RAG_EMBEDDING_API_KEY 可留空复用 AI_API_KEY；如供应商单独分配 embedding key，再单独填写。
+
 ```
+
+生产环境已在 `docker-compose.prod.yml` 中声明独立 Qdrant 服务。RAG 上线时不要使用 `QDRANT_MODE=local`，否则应用容器会绕开 Qdrant 服务并使用本地文件向量库，不适合多 worker 生产运行。
 
 ### 3.3 数据库准备
 
@@ -125,6 +160,8 @@ SEND_RETRY_DELAY_SECONDS=1.0
 
 ```bash
 cd /www/wwwroot/wecom-ops-console
+docker compose -f docker-compose.prod.yml up -d qdrant
+curl http://127.0.0.1:6333/collections
 docker compose -f docker-compose.prod.yml build
 docker compose -f docker-compose.prod.yml up -d
 ```
@@ -132,6 +169,7 @@ docker compose -f docker-compose.prod.yml up -d
 查看日志确认启动成功：
 ```bash
 docker logs wecom-ops-console
+curl http://127.0.0.1:8000/api/v1/health
 ```
 
 ---

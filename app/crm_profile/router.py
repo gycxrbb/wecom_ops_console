@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import logging
 
-from fastapi import APIRouter, Body, Depends, Query, Request
+from fastapi import APIRouter, Body, Depends, File, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -557,6 +557,7 @@ _ai_coach_enabled = settings.ai_coach_enabled or (bool(settings.ai_api_key) and 
 
 if _ai_coach_enabled:
     from .services.ai_coach import ask_ai_coach, stream_ai_coach_answer, stream_ai_coach_thinking
+    from .services.ai_attachment import upload_attachment as _upload_attachment
     from .services.audit import mark_medical_review as _mark_medical_review
 
     def _sse(event: str, payload: dict) -> str:
@@ -622,6 +623,7 @@ if _ai_coach_enabled:
                 output_style=body.output_style,
                 selected_expansions=body.selected_expansions,
                 health_window_days=body.health_window_days,
+                attachment_ids=body.attachment_ids,
             ):
                 _sse_log.info("[SSE-ROUTE] chat-stream writing SSE event=%s at %.3fs", event.event, _time.time() - _t)
                 yield _sse(event.event, event.data)
@@ -659,6 +661,7 @@ if _ai_coach_enabled:
                 output_style=body.output_style,
                 selected_expansions=body.selected_expansions,
                 health_window_days=body.health_window_days,
+                attachment_ids=body.attachment_ids,
             ):
                 _sse_log.info("[SSE-ROUTE] thinking-stream writing SSE event=%s at %.3fs", event.event, _time.time() - _t)
                 yield _sse(event.event, event.data)
@@ -669,6 +672,28 @@ if _ai_coach_enabled:
             media_type="text/event-stream",
             headers=_STREAM_HEADERS,
         )
+
+    @router.post("/{customer_id}/ai/upload-attachment")
+    async def ai_upload_attachment(
+        customer_id: int,
+        file: UploadFile = File(...),
+        request: Request = None,
+        db: Session = Depends(get_db),
+    ):
+        user = get_current_user(request, db)
+        require_permission(user, 'crm_profile')
+        assert_can_view(user, customer_id)
+        try:
+            att = await _upload_attachment(file, customer_id, user.id)
+            return {
+                "attachment_id": att.attachment_id,
+                "filename": att.original_filename,
+                "mime_type": att.mime_type,
+                "file_size": att.file_size,
+            }
+        except ValueError as e:
+            from fastapi.responses import JSONResponse
+            return JSONResponse(status_code=400, content={"detail": str(e)})
 
     @router.patch("/{customer_id}/ai/messages/{message_id}/review")
     def patch_medical_review(

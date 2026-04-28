@@ -59,6 +59,12 @@ def _build_semantic_text_speech(
             else:
                 parts.append(f"{label}: {values}")
 
+    usage_note = meta.get("usage_note")
+    if usage_note:
+        parts.append(f"使用场景: {usage_note}")
+    tags = meta.get("tags")
+    if tags and isinstance(tags, list):
+        parts.append(f"标签: {', '.join(tags)}")
     if template.scene_key:
         parts.append(f"场景: {template.scene_key}")
     if template.style:
@@ -217,8 +223,8 @@ async def index_speech_templates(db: Session) -> dict:
 
 
 async def index_materials(db: Session) -> dict:
-    """Sync material RAG resources — disable orphans, auto-index materials with rag_meta_json."""
-    stats = {"synced": 0, "disabled": 0, "indexed": 0, "errors": 0}
+    """Sync material RAG resources — disable orphans, detect stale, auto-index materials with rag_meta_json."""
+    stats = {"synced": 0, "disabled": 0, "stale": 0, "indexed": 0, "errors": 0}
 
     # Phase 1: disable orphan rag_resources
     rag_resources = db.query(RagResource).filter(
@@ -239,6 +245,30 @@ async def index_materials(db: Session) -> dict:
             _log.exception("Failed to sync material rag_resource %s", rag_res.id)
             db.rollback()
             stats["errors"] += 1
+
+    # Phase 1b: detect stale resources (source hash mismatch)
+    from ..services.material_rag_service import load_rag_meta
+    from ..services.material_rag_service import _build_semantic_text as _build_mat_semantic
+    for rag_res in db.query(RagResource).filter(
+        RagResource.source_type == "material",
+        RagResource.status == "active",
+    ).all():
+        try:
+            mat = db.query(Material).filter(Material.id == rag_res.source_id).first()
+            if not mat or not mat.rag_meta_json:
+                continue
+            rag_meta = load_rag_meta(mat)
+            current_text = _build_mat_semantic(rag_meta, mat)
+            if current_text:
+                current_hash = compute_hash(current_text)
+                if current_hash != rag_res.source_hash:
+                    rag_res.semantic_quality = "stale"
+                    stats["stale"] += 1
+        except Exception:
+            pass
+    if stats["stale"]:
+        db.commit()
+        _log.info("Marked %s stale material RAG resources", stats["stale"])
 
     # Phase 2: auto-index materials with rag_meta_json but no rag_resource
     from ..services.material_rag_service import save_rag_meta_and_index, load_rag_meta

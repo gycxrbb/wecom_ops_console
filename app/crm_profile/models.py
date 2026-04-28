@@ -87,6 +87,30 @@ class CustomerAiProfileNote(Base):
     created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now())
 
 
+class CrmAiAttachment(Base):
+    """AI chat attachment — uploaded image/PDF for Vision analysis."""
+    __tablename__ = "crm_ai_attachments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    attachment_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    session_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    message_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    crm_customer_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    uploaded_by: Mapped[int] = mapped_column(Integer, nullable=False)
+    original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    mime_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    file_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    storage_provider: Mapped[str] = mapped_column(String(16), nullable=False)
+    storage_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    storage_local_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    page_count: Mapped[int] = mapped_column(Integer, default=1)
+    vision_description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    vision_model: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    vision_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    processing_status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
+    created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now())
+
+
 class CrmAiProfileCache(Base):
     """Shared cached CustomerProfileContextV1 snapshot for AI prepare paths."""
     __tablename__ = "crm_ai_profile_cache"

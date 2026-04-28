@@ -228,8 +228,9 @@ _PREPARE_TTL = 15.0
 
 
 def _prepare_cache_key(customer_id: int, message: str, session_id: str | None,
-                       scene_key: str, output_style: str, health_window_days: int) -> tuple:
-    return (customer_id, message, session_id or "", scene_key, output_style, health_window_days)
+                       scene_key: str, output_style: str, health_window_days: int,
+                       attachment_ids: tuple[str, ...] | None = None) -> tuple:
+    return (customer_id, message, session_id or "", scene_key, output_style, health_window_days, attachment_ids or ())
 
 
 async def _prepare_ai_turn_cached(
@@ -242,10 +243,11 @@ async def _prepare_ai_turn_cached(
     health_window_days: int = 7,
     prompt_mode: Literal["answer", "thinking"],
     selected_expansions: list[str] | None = None,
+    attachment_ids: tuple[str, ...] | None = None,
 ) -> PreparedAiTurn:
     """Prepare with turn-level cache. First call writes, second call reads within TTL."""
     window_days = normalize_window_days(health_window_days)
-    key = _prepare_cache_key(customer_id, message, session_id, scene_key, output_style, window_days)
+    key = _prepare_cache_key(customer_id, message, session_id, scene_key, output_style, window_days, attachment_ids)
     now = time.time()
     hit = _PREPARE_CACHE.get(key)
     if hit and now - hit[0] < _PREPARE_TTL:
@@ -564,9 +566,17 @@ async def stream_ai_coach_answer(
     output_style: str = "coach_brief",
     selected_expansions: list[str] | None = None,
     health_window_days: int = 7,
+    attachment_ids: list[str] | None = None,
 ) -> AsyncIterator[AiStreamEvent]:
     t_start = time.time()
     _sse.info("[SSE-TIMING] === answer-stream request arrived ===")
+
+    # --- Stage 1: Vision analysis for attachments ---
+    effective_message = message
+    att_tuple = tuple(attachment_ids) if attachment_ids else None
+    if attachment_ids:
+        yield AiStreamEvent(event="analyzing", data={"status": "analyzing_attachments"})
+        effective_message = await _resolve_attachment_descriptions(customer_id, attachment_ids, message)
 
     yield AiStreamEvent(event="loading", data={"stage": "prepare"})
 
@@ -574,13 +584,14 @@ async def stream_ai_coach_answer(
     try:
         prepared = await _prepare_ai_turn_cached(
             customer_id,
-            message,
+            effective_message,
             session_id=session_id,
             scene_key=scene_key,
             output_style=output_style,
             health_window_days=health_window_days,
             prompt_mode="answer",
             selected_expansions=selected_expansions,
+            attachment_ids=att_tuple,
         )
     except ProfileCacheNotReady as exc:
         _sse.info("[SSE-TIMING] answer profile cache unready key=%s", exc.result.cache_key)
@@ -739,9 +750,16 @@ async def stream_ai_coach_thinking(
     output_style: str = "coach_brief",
     selected_expansions: list[str] | None = None,
     health_window_days: int = 7,
+    attachment_ids: list[str] | None = None,
 ) -> AsyncIterator[AiStreamEvent]:
     t_start = time.time()
     _sse.info("[SSE-TIMING] === thinking-stream request arrived (provider=%s) ===", settings.ai_provider)
+
+    # Resolve attachment descriptions (reuses cached Vision results)
+    effective_message = message
+    att_tuple = tuple(attachment_ids) if attachment_ids else None
+    if attachment_ids:
+        effective_message = await _resolve_attachment_descriptions(customer_id, attachment_ids, message)
 
     yield AiStreamEvent(event="loading", data={"stage": "prepare"})
 
@@ -750,13 +768,14 @@ async def stream_ai_coach_thinking(
     try:
         prepared = await _prepare_ai_turn_cached(
             customer_id,
-            message,
+            effective_message,
             session_id=session_id,
             scene_key=scene_key,
             output_style=output_style,
             health_window_days=health_window_days,
             prompt_mode="thinking",
             selected_expansions=selected_expansions,
+            attachment_ids=att_tuple,
         )
     except ProfileCacheNotReady as exc:
         _sse.info("[SSE-TIMING] thinking profile cache unready key=%s", exc.result.cache_key)
@@ -797,3 +816,26 @@ async def stream_ai_coach_thinking(
     except Exception as exc:
         _log.error("Thinking stream failed: %s", exc, exc_info=True)
         yield AiStreamEvent(event="error", data={"message": str(exc) or "AI 思考流异常"})
+
+
+async def _resolve_attachment_descriptions(
+    customer_id: int,
+    attachment_ids: list[str],
+    original_message: str,
+) -> str:
+    """Load attachments, run Vision analysis if needed, build enhanced user message."""
+    from .ai_attachment import load_attachments
+    from .vision_analyzer import analyze_attachment, build_user_message_with_attachments
+
+    with SessionLocal() as db:
+        attachments = load_attachments(db, attachment_ids, customer_id)
+
+    if not attachments:
+        return original_message
+
+    descriptions: list[tuple[str, str]] = []
+    for att in attachments:
+        desc = await analyze_attachment(att)
+        descriptions.append((att.original_filename, desc))
+
+    return build_user_message_with_attachments(original_message, descriptions)

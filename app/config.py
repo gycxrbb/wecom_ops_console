@@ -66,6 +66,11 @@ class Settings(BaseSettings):
     cors_allowed_origins: str = ''  # 逗号分隔，留空则只允许同源
     crm_profile_enabled: bool = False
     ai_coach_enabled: bool = False
+    # Vision analysis (GPT-4o-mini on aihubmix)
+    vision_model: str = 'gpt-4o-mini'
+    vision_max_image_size_mb: int = 10
+    vision_max_pdf_size_mb: int = 20
+    vision_max_pdf_pages: int = 10
     # RAG
     rag_enabled: bool = False
     qdrant_mode: str = "local"  # "local" = 本地文件, "remote" = 远程服务器

@@ -631,3 +631,12 @@
 - **复现条件**: 已进入某客户档案详情页 -> 切到话术管理 -> 再从侧边栏切回客户档案；观察后端 SSE debug 日志或页面等待时间。
 - **解决方案**: 移除前端普通 `loadProfile()` 的默认 `refresh: true`，保留 `window` 参数；后端 `refresh` 查询参数仍保留给显式强刷场景。
 - **关联文件**: frontend/src/views/CrmProfile/composables/useCrmProfile.ts, app/crm_profile/router.py
+
+## Bug #64: schema_migrations 并行改动把 Phase2 字段字典误并入索引函数，导致后端无法启动
+
+- **日期**: 2026-04-28
+- **现象**: 后端启动验证时，`uvicorn app.main:app` 在 import `app.schema_migrations` 阶段直接失败，报 `SyntaxError: cannot assign to function call here`。
+- **根因**: `ensure_crm_ai_attachment_indexes()` 新增索引循环时，把原本的 `_CRM_AI_PHASE2_COLUMNS = {...}` 字典头误拼到 `_ensure_named_index(...)` 调用同一行，形成 `函数调用 = {` 的非法语法。
+- **复现条件**: 启动后端或执行 `python -m py_compile app\schema_migrations.py app\main.py`。
+- **解决方案**: 恢复 `_ensure_named_index(...)` 为普通调用，并将 `_CRM_AI_PHASE2_COLUMNS = { ... }` 放回模块级常量定义；重新执行编译与启动验证。
+- **关联文件**: app/schema_migrations.py

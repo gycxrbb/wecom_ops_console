@@ -236,11 +236,28 @@
             <div v-if="cacheStatusText" class="ai-cache-status" :class="{ 'is-blocking': cacheSendBlocked }">
               {{ cacheStatusText }}
             </div>
+            <!-- Attachment preview strip -->
+            <div v-if="pendingAttachments.length" class="ai-attachment-strip">
+              <div v-for="(att, idx) in pendingAttachments" :key="att.attachment_id" class="ai-attachment-thumb">
+                <img v-if="att.mime_type.startsWith('image/')" :src="getAttachmentPreviewUrl(att)" class="ai-att-img" />
+                <div v-else class="ai-att-file-icon">
+                  <el-icon :size="20"><Document /></el-icon>
+                </div>
+                <span class="ai-att-name">{{ att.filename }}</span>
+                <el-icon class="ai-att-remove" @click="removeAttachment(idx)"><Close /></el-icon>
+              </div>
+            </div>
+            <div v-if="uploadingAttachment" class="ai-attachment-uploading">
+              <el-icon class="is-loading"><Loading /></el-icon> 上传中...
+            </div>
+            <input ref="fileInputRef" type="file" accept="image/jpeg,image/png,image/webp,application/pdf"
+              style="display:none" @change="onFileSelected" />
             <div class="ai-input-card">
               <el-input v-model="input" type="textarea" :autosize="{ minRows: 1, maxRows: 8 }" placeholder="输入本次问题，例如：基于她最近一周血糖..." :disabled="loading || !!disabledReason || cacheSendBlocked" @keydown.enter.exact.prevent="send" class="ai-chat-input" />
               <div class="ai-input-toolbar">
+                <el-icon class="ai-magic-icon" title="上传附件" @click="triggerFileInput"><Paperclip /></el-icon>
                 <el-icon class="ai-magic-icon" title="使用结构化提示词" @click="askQuick('请帮我总结核心跟进点')"><MagicStick /></el-icon>
-                <el-button type="primary" class="ai-send-btn" :class="{ 'is-active': input.trim() }" :loading="loading" circle size="small" @click="send" :disabled="!input.trim() || !!disabledReason || cacheSendBlocked">
+                <el-button type="primary" class="ai-send-btn" :class="{ 'is-active': input.trim() }" :loading="loading" circle size="small" @click="send" :disabled="(!input.trim() && !pendingAttachments.length) || !!disabledReason || cacheSendBlocked">
                   <el-icon :size="16"><Promotion /></el-icon>
                 </el-button>
               </div>
@@ -268,13 +285,15 @@ import {
   Document,
   Setting,
   FullScreen,
-  Select
+  Select,
+  Paperclip,
+  Loading,
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '#/stores/user'
 import request from '#/utils/request'
 import { useAiCoach } from '../composables/useAiCoach'
-import type { AiChatMessage } from '../composables/useAiCoach'
+import type { AiChatMessage, AiAttachment } from '../composables/useAiCoach'
 import type { AiProfileCacheStatus } from '../composables/useCrmProfile'
 import AiSessionHistoryList from './AiSessionHistoryList.vue'
 import AiCoachMessageList from './AiCoachMessageList.vue'
@@ -365,9 +384,50 @@ const {
   sessionHistory, sessionHistoryLoading, loadSessionHistory, openHistorySession,
   loadAiConfig, saveProfileNote, restoredSessionMeta,
   expansionOptions, selectedExpansions,
+  uploadAttachment,
 } = useAiCoach()
 
 const input = ref('')
+const pendingAttachments = ref<AiAttachment[]>([])
+const uploadingAttachment = ref(false)
+const fileInputRef = ref<HTMLInputElement>()
+
+const triggerFileInput = () => {
+  if (uploadingAttachment.value || loading.value) return
+  fileInputRef.value?.click()
+}
+
+const onFileSelected = async (e: Event) => {
+  const target = e.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (!file || !props.customerId) return
+  target.value = ''
+
+  if (pendingAttachments.value.length >= 3) {
+    ElMessage.warning('最多同时上传 3 个附件')
+    return
+  }
+
+  uploadingAttachment.value = true
+  try {
+    const att = await uploadAttachment(props.customerId, file)
+    pendingAttachments.value.push(att)
+  } catch (err: any) {
+    ElMessage.error(err?.message || '附件上传失败')
+  } finally {
+    uploadingAttachment.value = false
+  }
+}
+
+const removeAttachment = (idx: number) => {
+  pendingAttachments.value.splice(idx, 1)
+}
+
+const getAttachmentPreviewUrl = (att: AiAttachment): string => {
+  // For newly uploaded attachments, we can't preview server-side images
+  // Return a placeholder — real preview would need the storage URL
+  return ''
+}
 const messageListRef = ref<InstanceType<typeof AiCoachMessageList>>()
 const sidebarTab = ref<'history' | 'context' | 'notes' | null>(null)
 const sidebarExpanded = ref(true)
@@ -656,14 +716,21 @@ const loadContextPreview = async () => {
 
 const send = async () => {
   const msg = input.value.trim()
-  if (!msg || !props.customerId) return
+  if ((!msg && !pendingAttachments.value.length) || !props.customerId) return
   if (cacheSendBlocked.value) {
     ElMessage.warning('客户档案正在准备，稍后再问')
     return
   }
   input.value = ''
   visibleDataGaps.value = []
-  await sendChat(props.customerId, msg, { healthWindowDays: props.healthWindowDays })
+  const attachmentIds = pendingAttachments.value.map(a => a.attachment_id)
+  const attachments = [...pendingAttachments.value]
+  pendingAttachments.value = []
+  await sendChat(props.customerId, msg || '请分析上传的附件', {
+    healthWindowDays: props.healthWindowDays,
+    attachmentIds,
+    attachments,
+  })
   await nextTick()
   forceScrollBottom()
 }

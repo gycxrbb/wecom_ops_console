@@ -96,3 +96,31 @@ async def import_material_rag_csv(
     rows = parse_csv_text(csv_text)
     stats = await import_material_rag_rows(db, rows, dry_run=dry_run)
     return stats
+
+
+@router.get("/tags")
+async def list_tags(
+    request: Request,
+    db: Session = Depends(get_db),
+    dimension: str | None = None,
+):
+    """List all RAG vocabulary tags, optionally filtered by dimension."""
+    user = get_current_user(request, db)
+    require_role(user, "admin", "coach")
+
+    from ..rag.tag_service import get_tags_by_dimension
+    return {"tags": get_tags_by_dimension(db, dimension)}
+
+
+@router.post("/tags/refresh")
+async def refresh_tags(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Refresh tags from vocabulary definitions. Admin only."""
+    user = get_current_user(request, db)
+    require_role(user, "admin")
+
+    from ..rag.tag_service import refresh_tags_from_vocabulary
+    stats = refresh_tags_from_vocabulary(db)
+    return {"status": "ok", "stats": stats}

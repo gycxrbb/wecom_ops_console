@@ -135,6 +135,14 @@ class AiChatRequest(BaseModel):
     selected_expansions: list[str] | None = None
     output_style: str = "coach_brief"
     health_window_days: int = 7
+    attachment_ids: list[str] | None = None
+
+
+class AiAttachmentUploadResponse(BaseModel):
+    attachment_id: str
+    filename: str
+    mime_type: str
+    file_size: int
 
 
 class AiChatResponse(BaseModel):

@@ -11,6 +11,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from .. import models
+from ..rag.vocabulary import resolve_code, resolve_tag_values
 from .crm_speech_templates import invalidate_cache
 
 
@@ -113,24 +114,30 @@ def build_content(row: dict[str, str]) -> str:
 def _build_metadata_json(row: dict[str, str]) -> str:
     """Serialize CSV annotation fields into JSON for RAG indexing."""
     meta: dict[str, Any] = {}
-    customer_goal = split_tag_values(row.get("customer_goal"))
+    customer_goal = resolve_tag_values("customer_goal", row.get("customer_goal"))
     if customer_goal:
         meta["customer_goal"] = customer_goal
-    intervention_scene = split_tag_values(row.get("intervention_scene"))
+    intervention_scene = resolve_tag_values("intervention_scene", row.get("intervention_scene"))
     if intervention_scene:
         meta["intervention_scene"] = intervention_scene
-    question_type = split_tag_values(row.get("question_type"))
+    question_type = resolve_tag_values("question_type", row.get("question_type"))
     if question_type:
         meta["question_type"] = question_type
-    safety_level = normalize_code(row.get("safety_level"))
+    safety_level = resolve_code("safety_level", normalize_code(row.get("safety_level")))
     if safety_level:
         meta["safety_level"] = safety_level
-    visibility = normalize_code(row.get("visibility"))
+    visibility = resolve_code("visibility", normalize_code(row.get("visibility")))
     if visibility:
         meta["visibility"] = visibility
     summary = (row.get("summary") or "").strip()
     if summary:
         meta["summary"] = summary
+    tags = split_tag_values(row.get("tags"))
+    if tags:
+        meta["tags"] = tags
+    usage_note = (row.get("usage_note") or "").strip()
+    if usage_note:
+        meta["usage_note"] = usage_note
     return json.dumps(meta, ensure_ascii=False) if meta else ""
 
 

@@ -6,14 +6,16 @@
 
 ## 1. 总控结论
 
-这次代码可以继续推进到服务器，但不建议“直接 git pull 后立刻当作 RAG 正式生产能力启用”。当前系统主应用可以启动，RAG 技术链路也已基本接上，但生产环境至少要先处理四个 blocker：
+这次代码可以继续推进到服务器，但不建议“直接 git pull 后立刻当作 RAG 正式全量能力启用”。当前系统主应用可以启动，RAG 技术链路也已基本接上；本轮已把原先几个上线 blocker 收口为“已补齐/仍需服务器配置确认”的状态：
 
-1. `requirements.txt` 缺少 `qdrant-client`，本地 `.venv` 有这个包，生产 Docker 镜像没有。
-2. 生产 `docker-compose.prod.yml` 已加独立 Qdrant 服务，但本地 `.env` 当前是 `QDRANT_MODE=local`，会绕开独立 Qdrant 容器。
-3. 生产 healthcheck 使用 `/api/v1/bootstrap`，该接口未登录返回 `401`，会导致容器健康检查失败。
-4. 素材 RAG 入库仍需要收紧审核和字段口径，尤其是 `visibility=customer_visible/customer_sendable` 口径不一致。
+1. `requirements.txt` 已补 `qdrant-client==1.17.1`，生产 Docker 镜像不再漏装 Qdrant 客户端。
+2. `docker-compose.prod.yml` 已使用无需登录的 `/api/v1/health` 做 healthcheck，原 `/api/v1/bootstrap` 401 风险已解除。
+3. `.dockerignore` 已排除 `data/qdrant/` 与 `data/qdrant_storage/`，避免把开发机向量库打进镜像上下文。
+4. 素材 RAG 保存和 CSV 入库已收紧字段口径：`customer_sendable` 会归一为 `customer_visible`，但可发客户素材必须有 `materials.public_url`，且医疗敏感/需医生审核/禁忌内容不能标记为可发客户。
 
-当前阶段判断: RAG 处于 P0 技术闭环和小样本验证阶段，方向没有偏离蓝图，但还不是“全量素材/全量话术可放心生产召回”的阶段。
+仍需服务器侧确认：生产 `.env` 必须使用 `QDRANT_MODE=remote` 并确认 `AI_API_KEY` 或 `RAG_EMBEDDING_API_KEY` 可用于 embedding。
+
+当前阶段判断: RAG 处于 P0 技术闭环和小样本验证阶段，方向没有偏离蓝图；依赖、healthcheck 和素材入库门禁已补齐，但仍不是“全量素材/全量话术可放心生产召回”的阶段。
 
 ## 2. 项目负责人视角
 
@@ -28,7 +30,7 @@
 ### 半能做什么
 
 1. 话术入 RAG 已可用，但依赖 CSV/metadata 标签质量。
-2. 素材可入 RAG，但当前 UI 保存路径会立即索引，缺少审核状态、版权、公网地址的硬门禁。
+2. 素材可入 RAG，当前 UI 保存路径已经有版权、公网地址、说明文本、安全等级硬门禁；但素材业务审核流仍是轻量门禁，还不是完整的主管审批流程。
 3. RAG 检索已支持 `intervention_scene` 强过滤，但标签字典还没有完全 official 化。
 4. Qdrant 可用性是降级设计，不会拖垮 AI 主回答，但如果生产依赖缺失，会表现为 RAG 不可用。
 
@@ -50,7 +52,7 @@
 qdrant-client==1.17.1
 ```
 
-本地验证显示 `.venv` 中安装了 `qdrant-client 1.17.1`，但 `requirements.txt` 没有它。生产 Dockerfile 只安装 `requirements.txt`，所以服务器镜像会缺包。
+`requirements.txt` 已声明 `qdrant-client 1.17.1`。生产 Dockerfile 只安装 `requirements.txt`，因此后续镜像构建会带上 Qdrant 客户端。
 
 2. 生产 `.env` 建议使用独立 Qdrant 服务:
 
@@ -67,14 +69,14 @@ RAG_EMBEDDING_DIMENSION=1024
 
 `RAG_EMBEDDING_API_KEY` 可以留空复用 `AI_API_KEY`，但服务器 `.env` 必须确认 `AI_API_KEY` 可用于 embedding。
 
-3. 修正生产 healthcheck。当前:
+3. 生产 healthcheck 已修正。当前:
 
 ```yaml
 healthcheck:
-  test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/bootstrap')"]
+  test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health')"]
 ```
 
-`/api/v1/bootstrap` 需要登录，本地启动验证未登录返回 `401`。建议新增无需鉴权的 `/healthz`，或先把 healthcheck 改成访问 `/` 并接受 `200`。
+`/api/v1/health` 无需鉴权，会执行轻量 DB `SELECT 1`，适合 Docker healthcheck / 监控使用。
 
 4. 首次上线前先备份 MySQL 和 `data/`:
 
@@ -88,9 +90,9 @@ MySQL: wecom_ops
 
 ### P1 建议
 
-1. `Dockerfile` 或 `.dockerignore` 排除本地向量库目录，避免把开发机 `data/qdrant` 打进镜像上下文。
+1. `.dockerignore` 已排除本地向量库目录；后续仍要避免把向量库文件提交或打包进镜像。
 2. `docker-compose.prod.yml` 里的 `deploy.resources` 在普通 Docker Compose 场景不一定生效，Qdrant 资源限制不要只依赖这里。
-3. 上线部署文档要补 RAG 配置段，当前 `deploy-guide.md` 还没有把 Qdrant/RAG env 写进生产 `.env` 示例。
+3. 上线部署文档已补 RAG 配置段；服务器实际 `.env` 仍需人工确认密钥和 `QDRANT_MODE=remote`。
 
 ## 4. RAG 与生产环境是否“排斥”
 
@@ -182,11 +184,11 @@ CSV -> speech_templates.metadata_json -> resource_indexer.index_speech_templates
 
 当前风险点:
 
-1. `RagAnnotationDialog.vue` 保存后会直接调用 `save_rag_meta_and_index()`，后端没有强制检查审核状态、版权状态、图片 alt text、可发客户公网地址。
-2. `material_rag_import.py` 会校验更多字段，但 `customer_sendable=yes` 且没有公网地址时是降级 visibility，不是硬失败。
-3. `visibility` 口径不一致:
-   - 前端 UI 用 `customer_visible`
-   - 部分文档和 CSV 示例用 `customer_sendable`
+1. `RagAnnotationDialog.vue` 保存后会调用 `save_rag_meta_and_index()`，后端已强制检查版权状态、图片 alt text / 视频说明、使用场景、受控标签、可发客户公网地址和安全等级。
+2. `material_rag_import.py` 对 `customer_sendable=yes` 且没有公网地址的素材已改为硬失败，不再静默降级。
+3. `visibility` 口径已统一：
+   - 正式 code 只保留 `coach_internal / customer_visible`
+   - CSV 里的 `customer_sendable` 仅作为兼容别名映射到 `customer_visible`
    - `retriever.py` 只有 `visibility == "customer_visible"` 才返回 `customer_sendable=true`
 
 上线前建议统一为:
@@ -212,12 +214,12 @@ P0 素材入库最低门槛:
 ## 7. 上线前操作清单
 
 1. 先改依赖和生产 env:
-   - `requirements.txt` 加 `qdrant-client==1.17.1`
+   - `requirements.txt` 已加 `qdrant-client==1.17.1`
    - 服务器 `.env` 加 RAG/Qdrant 配置
    - 生产使用 `QDRANT_MODE=remote`
 
-2. 修正健康检查:
-   - 新增 `/healthz`，或临时改 healthcheck 到 `/`
+2. 健康检查:
+   - 当前生产 healthcheck 已使用 `/api/v1/health`
    - 不再用需要登录的 `/api/v1/bootstrap`
 
 3. 首次部署:
@@ -236,19 +238,21 @@ P0 素材入库最低门槛:
    - 随机 5 条话术问题能召回正确来源
    - 随机 5 条素材问题能召回正确素材
    - `coach_internal` 不允许一键发送客户
-   - `medical_review/medical_sensitive` 不允许直接变成客户话术
+   - `doctor_review/medical_sensitive/contraindicated` 不允许直接变成客户话术
 
 ## 8. 验证结果
 
 本地 focused validation:
 
-1. 后端语法检查: `.\.venv\Scripts\python.exe -m compileall -q app` 通过。
-2. 本地依赖检查: `.venv` 有 `qdrant-client 1.17.1`，但 `requirements.txt` 未声明。
-3. 后端启动检查: `uvicorn app.main:app --host 127.0.0.1 --port 8004` 启动成功，根路径 `/` 返回 `200`。
-4. `/api/v1/bootstrap` 未登录返回 `401`，这是鉴权预期，但会导致当前 Docker healthcheck 失败。
-5. 前端生产构建: `npm.cmd run build` 通过。
-6. 前端 dev/preview 短启动: 本机出现 `Error: spawn EPERM`，未能启动 Vite server。由于生产构建已通过，且后端已能返回 `frontend/dist/index.html`，这不是生产镜像构建的直接阻断项，但需要作为本地环境/Node 启动问题记录。
-7. 前端构建有大 chunk 警告，属于性能优化项，不阻断本次上线。
+1. 后端语法检查: `python -m compileall -q app` 通过。
+2. 本地依赖检查: `.venv` 有 `qdrant-client 1.17.1`，`requirements.txt` 已声明 `qdrant-client==1.17.1`。
+3. RAG 入库门禁轻量验证: `RagMetaUpdate` 能把 `customer_sendable -> customer_visible`、`medical_review -> doctor_review`、中文目标/场景标签归一为受控 code；素材 CSV 行校验能识别图片缺少 `alt_text`。
+4. 后端启动检查: `uvicorn app.main:app --host 127.0.0.1 --port 8018` 启动成功，禁用本机代理后 `/api/v1/health` 返回 `200`。
+5. `/api/v1/bootstrap` 未登录返回 `401` 是鉴权预期；生产 healthcheck 已改用 `/api/v1/health`，不再受影响。
+6. 前端 TypeScript 检查: `cd frontend; .\node_modules\.bin\vue-tsc.cmd --noEmit` 通过。
+7. 前端生产构建: `cd frontend; npm.cmd run build` 通过。
+8. 前端 dev 短启动: 沙箱内仍出现既有 `Error: spawn EPERM`；提权后 `npm.cmd run dev -- --host 127.0.0.1 --port 5181` 已确认 Vite ready，并已回收监听进程。
+9. 前端构建有大 chunk 警告，属于性能优化项，不阻断本次上线。
 
 ## 9. 代码组织风险
 

@@ -929,3 +929,10 @@
 - **场景**: Ubuntu 系统 Nginx 和宝塔 Nginx 同时运行，项目从 `http://120.48.156.119:8080` 升级到 `https://gezelling.com`。
 - **经验内容**: 如果服务器同时存在 `/usr/sbin/nginx` 和 `/www/server/nginx/sbin/nginx`，`nginx -T` 看到配置、`nginx -t` 通过，并不代表当前公网入口真的由这套 Nginx 接管。必须用 `ps -ef | grep '[n]ginx'` 和 `ss -lntp | grep -E ':80|:443|:8080|:8000'` 看实际进程和端口归属。本次故障中，`80` 被宝塔 Nginx 占用，系统 Nginx 只监听 `8080`，`443` 未监听，导致 HTTPS `Connection refused`、HTTP 命中默认页。收口原则是明确一套 official Nginx 管 `80/443/8080`，当前项目以系统 Nginx `/usr/sbin/nginx` + `/etc/nginx/sites-enabled/wecom-ops.conf` 为 official；若改用宝塔 Nginx，必须整体迁移配置，不能两套同时抢入口端口。
 - **验证状态**: 已验证
+
+## 经验 #125: 启动迁移文件新增函数时要复跑 import 级启动验证
+
+- **类别**: 数据库 / 启动迁移 / 多线程收口
+- **场景**: 多条线同时修改 `schema_migrations.py`，一条线新增索引函数，另一条线维护旧库补列常量。
+- **经验内容**: 启动迁移文件是应用 import 级关键路径，不能只验证局部函数。新增函数、移动常量或合并 diff 后，至少要跑 `python -m py_compile app\schema_migrations.py app\main.py` 和一次 `uvicorn app.main:app` 短启动；否则一个缩进或拼接错误会让整个后端在 import 阶段失败。
+- **验证状态**: 已验证

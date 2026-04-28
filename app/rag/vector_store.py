@@ -79,6 +79,23 @@ async def ensure_collection() -> bool:
                 ),
             )
             _log.info("Created Qdrant collection: %s", settings.qdrant_collection)
+        # Create payload indexes for filter performance
+        try:
+            from qdrant_client.models import PayloadSchemaType
+            for field in [
+                "status", "source_type", "content_kind", "visibility", "safety_level",
+                "semantic_quality", "customer_goal", "intervention_scene", "question_type",
+            ]:
+                try:
+                    client.create_payload_index(
+                        collection_name=settings.qdrant_collection,
+                        field_name=field,
+                        field_schema=PayloadSchemaType.KEYWORD,
+                    )
+                except Exception:
+                    pass
+        except Exception:
+            pass
         _collection_ready = True
         return True
     except Exception as exc:

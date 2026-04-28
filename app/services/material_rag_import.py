@@ -13,6 +13,7 @@ from ..models_rag import RagResource, RagChunk
 from ..rag.chunker import chunk_text, compute_hash
 from ..rag.embedding_client import embed_texts_batch
 from ..rag.vector_store import upsert_chunks
+from ..rag.vocabulary import resolve_code, get_valid_codes, resolve_tag_values
 from .speech_template_import import decode_csv_bytes, split_tag_values, normalize_code, parse_csv_text
 
 _log = logging.getLogger(__name__)
@@ -49,6 +50,18 @@ def _validate_row(row: dict[str, str], line_no: int) -> tuple[list[str], str | N
     content_kind = normalize_code(row.get("content_kind"))
     if content_kind in ("image", "meme") and not (row.get("alt_text") or "").strip():
         errors.append(f"第 {line_no} 行图片类型缺少 alt_text")
+    if content_kind == "video" and not ((row.get("transcript") or "").strip() or (row.get("alt_text") or "").strip()):
+        errors.append(f"第 {line_no} 行视频类型缺少 transcript 或 alt_text")
+
+    # Vocabulary validation
+    if content_kind and content_kind not in get_valid_codes("content_kind"):
+        errors.append(f"第 {line_no} 行 content_kind 无效: {content_kind}")
+    vis_raw = row.get("visibility") or ""
+    if vis_raw and not resolve_code("visibility", normalize_code(vis_raw)):
+        errors.append(f"第 {line_no} 行 visibility 无效: {vis_raw}")
+    sl_raw = row.get("safety_level") or ""
+    if sl_raw and not resolve_code("safety_level", normalize_code(sl_raw)):
+        errors.append(f"第 {line_no} 行 safety_level 无效: {sl_raw}")
 
     return errors, None
 
@@ -110,7 +123,7 @@ def _build_semantic_text(row: dict[str, str]) -> str:
         parts.append(f"使用场景: {usage}")
 
     for key, label in _LABELS.items():
-        vals = split_tag_values(row.get(key))
+        vals = resolve_tag_values(key, row.get(key))
         if vals:
             parts.append(f"{label}: {', '.join(vals)}")
 
@@ -142,11 +155,11 @@ def _build_payload(row: dict[str, str], resource_id: int, material_id: int, cont
         "source_id": material_id, "status": "active", "content_kind": content_kind,
     }
     for key in ("customer_goal", "intervention_scene", "question_type"):
-        vals = split_tag_values(row.get(key))
+        vals = resolve_tag_values(key, row.get(key))
         if vals:
             payload[key] = vals
-    payload["visibility"] = normalize_code(row.get("visibility")) or "coach_internal"
-    payload["safety_level"] = normalize_code(row.get("safety_level")) or "general"
+    payload["visibility"] = resolve_code("visibility", normalize_code(row.get("visibility"))) or "coach_internal"
+    payload["safety_level"] = resolve_code("safety_level", normalize_code(row.get("safety_level"))) or "general"
     payload["semantic_quality"] = _compute_quality(row)
     return payload
 
@@ -178,8 +191,8 @@ async def import_material_rag_rows(
 
             title = (row.get("title") or "").strip()
             content_kind = normalize_code(row.get("content_kind")) or "file"
-            visibility = normalize_code(row.get("visibility")) or "coach_internal"
-            safety_level = normalize_code(row.get("safety_level")) or "general"
+            visibility = resolve_code("visibility", normalize_code(row.get("visibility"))) or "coach_internal"
+            safety_level = resolve_code("safety_level", normalize_code(row.get("safety_level"))) or "general"
             quality = _compute_quality(row)
 
             # Match to material
@@ -204,11 +217,19 @@ async def import_material_rag_rows(
 
             # Customer-sendable downgrade check
             customer_sendable = normalize_code(row.get("customer_sendable")) in ("yes", "true", "1")
-            if customer_sendable:
-                has_public = bool((row.get("public_url") or "").strip()) or bool((material.public_url or "").strip())
-                if not has_public:
-                    visibility = "coach_internal"
-                    customer_sendable = False
+            has_public = bool((row.get("public_url") or "").strip()) or bool((material.public_url or "").strip())
+            if customer_sendable and visibility != "customer_visible":
+                stats["errors"].append(f"第 {index} 行 customer_sendable=yes 但 visibility 不是 customer_visible")
+                stats["skipped"] += 1
+                continue
+            if visibility == "customer_visible" and not has_public:
+                stats["errors"].append(f"第 {index} 行 customer_visible 素材缺少 materials.public_url")
+                stats["skipped"] += 1
+                continue
+            if visibility == "customer_visible" and safety_level in {"medical_sensitive", "doctor_review", "contraindicated"}:
+                stats["errors"].append(f"第 {index} 行医疗敏感/医生审核/禁忌素材不能设为 customer_visible")
+                stats["skipped"] += 1
+                continue
 
             # Build semantic text
             semantic_text = _build_semantic_text(row)
