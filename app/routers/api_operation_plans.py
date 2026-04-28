@@ -91,11 +91,14 @@ def get_user_or_401(request: Request, db: Session) -> models.User:
     return get_current_user(request, db)
 
 
-def ensure_plan_access(user: models.User, plan: models.Plan) -> None:
+def _has_plan_perm(user: models.User) -> bool:
     if user.role == 'admin':
-        return
-    perms = json_loads(user.permissions_json, {})
-    if perms.get('plan'):
+        return True
+    return bool(json_loads(user.permissions_json, {}).get('plan'))
+
+
+def ensure_plan_access(user: models.User, plan: models.Plan) -> None:
+    if _has_plan_perm(user):
         return
     if plan.owner_id != user.id:
         raise HTTPException(403, '不能操作其他人的运营计划')
@@ -481,8 +484,7 @@ def create_campaign_from_preset(request: Request, db: Session = Depends(get_db))
 def list_plans(request: Request, db: Session = Depends(get_db)):
     user = get_user_or_401(request, db)
     query = db.query(models.Plan)
-    perms = json_loads(user.permissions_json, {})
-    if user.role != 'admin' and not perms.get('plan'):
+    if not _has_plan_perm(user):
         query = query.filter(models.Plan.owner_id == user.id)
     plans = query.order_by(models.Plan.updated_at.desc(), models.Plan.id.desc()).all()
     return [serialize_plan(plan) for plan in plans]

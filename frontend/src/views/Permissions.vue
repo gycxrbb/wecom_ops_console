@@ -41,14 +41,23 @@
         <div class="member-card__body">
           <div v-for="group in permissionGroups" :key="group.name" class="perm-group">
             <div class="perm-group__label">{{ group.name }}</div>
-            <div class="perm-group__items">
+            <template v-for="perm in group.permissions" :key="perm.key">
+              <div v-if="perm.key === 'crm_profile'" class="perm-crm-profile">
+                <el-radio-group
+                  :model-value="member.permissions[perm.key] || false"
+                  @change="(val: string | boolean) => togglePerm(member, perm.key, val)"
+                >
+                  <el-radio :value="false">无权限</el-radio>
+                  <el-radio value="own">仅看自己的客户</el-radio>
+                  <el-radio value="all">查看全部客户</el-radio>
+                </el-radio-group>
+              </div>
               <el-checkbox
-                v-for="perm in group.permissions"
-                :key="perm.key"
-                :model-value="member.permissions[perm.key]"
+                v-else
+                :model-value="!!member.permissions[perm.key]"
                 @change="(val: boolean) => togglePerm(member, perm.key, val)"
               >{{ perm.label }}</el-checkbox>
-            </div>
+            </template>
           </div>
         </div>
       </div>
@@ -69,7 +78,7 @@ interface Member {
   avatar_url: string
   auth_source: string
   role: string
-  permissions: Record<string, boolean>
+  permissions: Record<string, boolean | string>
   _saving?: boolean
 }
 
@@ -119,7 +128,7 @@ const fetchMembers = async () => {
   }
 }
 
-const togglePerm = (member: Member, key: string, val: boolean) => {
+const togglePerm = (member: Member, key: string, val: boolean | string) => {
   member.permissions = { ...member.permissions, [key]: val }
 }
 
@@ -231,6 +240,18 @@ onMounted(() => {
   gap: 4px 16px;
 }
 .perm-group__items :deep(.el-checkbox) {
+  height: 28px;
+}
+.perm-crm-profile {
+  width: 100%;
+  margin: 4px 0 8px;
+}
+.perm-crm-profile :deep(.el-radio-group) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+.perm-crm-profile :deep(.el-radio) {
   height: 28px;
 }
 

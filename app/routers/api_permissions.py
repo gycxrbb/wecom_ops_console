@@ -92,9 +92,24 @@ async def update_member_permissions(user_id: int, request: Request, db: Session 
 
     body = await request.json()
     perms = body.get('permissions', {})
-    # 只保留合法 key
-    cleaned = {k: bool(v) for k, v in perms.items() if k in ALL_PERMISSIONS}
+    # 只保留合法 key；crm_profile 支持 string 值（own/all）
+    cleaned = {}
+    for k, v in perms.items():
+        if k not in ALL_PERMISSIONS:
+            continue
+        if k == 'crm_profile':
+            cleaned[k] = v if v in ('own', 'all') else False
+        else:
+            cleaned[k] = bool(v)
     target.permissions_json = json_dumps(cleaned)
+    db.add(models.AuditLog(
+        user_id=target.id,
+        action='update_permissions',
+        target_type='user',
+        target_id=target.id,
+        detail=json_dumps({'changed_by': user.id, 'permissions': cleaned}),
+        ip=request.client.host if request.client else '',
+    ))
     db.commit()
     return {
         'id': target.id,

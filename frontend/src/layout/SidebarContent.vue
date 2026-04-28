@@ -51,7 +51,7 @@
         <el-icon><UserFilled /></el-icon>
         <span>客户档案</span>
       </el-menu-item>
-      <el-menu-item index="/speech-templates" v-if="userStore.user?.role === 'admin'">
+      <el-menu-item index="/speech-templates" v-if="moduleVisible('speech_template')">
         <el-icon><ChatLineSquare /></el-icon>
         <span>话术管理</span>
       </el-menu-item>

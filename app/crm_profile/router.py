@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..database import get_db
 from ..route_helper import UnifiedResponseRoute
-from ..security import get_current_user
+from ..security import get_current_user, require_permission
 from ..sse_debug_log import get_sse_logger
 from .services.cache import get as cache_get, put as cache_put, FILTER_OPTIONS_TTL
 from .services.profile_context_cache import ensure_profile_context, get_profile_cache_status, normalize_window_days
@@ -68,7 +68,8 @@ def get_filter_options(
     db: Session = Depends(get_db),
 ):
     """Return available filter options: coaches, groups, channels."""
-    get_current_user(request, db)
+    user = get_current_user(request, db)
+    require_permission(user, 'crm_profile')
     from ..clients.crm_db import get_connection, return_connection
 
     cached = cache_get("filter_options")
@@ -102,6 +103,7 @@ def list_customers(
     in the same response, avoiding an extra round trip.
     """
     user = get_current_user(request, db)
+    require_permission(user, 'crm_profile')
     from ..clients.crm_db import get_connection, return_connection
 
     list_cache_key = f"list:{user.id}:{page}:{page_size}:{q}:{coach_id}:{group_id}:{channel_id}:{include_filters}"
@@ -232,6 +234,7 @@ def search_customers(
 ):
     """Fuzzy search customers by name. Admin sees all; coach sees only assigned."""
     user = get_current_user(request, db)
+    require_permission(user, 'crm_profile')
     from ..clients.crm_db import get_connection, return_connection
 
     conn = get_connection()
@@ -287,6 +290,7 @@ def get_customer_profile(
 ):
     """Load full profile for a customer. Pass refresh=true to force cache rebuild."""
     user = get_current_user(request, db)
+    require_permission(user, 'crm_profile')
     assert_can_view(user, customer_id)
 
     w = normalize_window_days(window)
@@ -304,6 +308,7 @@ def preload_ai_context(
     """Background-warm AI profile cache. Fire-and-forget from frontend."""
     from .services.ai_context_preload import preload_ai_context as _preload
     user = get_current_user(request, db)
+    require_permission(user, 'crm_profile')
     assert_can_view(user, customer_id)
     result = _preload(customer_id, window_days=body.health_window_days, wait_ms=body.wait_ms)
     return AiPreloadResponse(customer_id=customer_id, **result)
@@ -318,6 +323,7 @@ def get_ai_cache_status(
 ):
     """Return AI profile cache readiness without building CRM profile."""
     user = get_current_user(request, db)
+    require_permission(user, 'crm_profile')
     assert_can_view(user, customer_id)
     result = get_profile_cache_status(
         customer_id,
@@ -334,6 +340,7 @@ def get_safety_snapshots(
 ):
     """Return available safety-profile snapshots from customer_info history."""
     user = get_current_user(request, db)
+    require_permission(user, 'crm_profile')
     assert_can_view(user, customer_id)
 
     from ..clients.crm_db import get_connection, return_connection
@@ -355,6 +362,7 @@ def get_safety_snapshot_detail(
 ):
     """Return one safety-profile snapshot for the selected archive date."""
     user = get_current_user(request, db)
+    require_permission(user, 'crm_profile')
     assert_can_view(user, customer_id)
 
     from fastapi import HTTPException
@@ -397,6 +405,7 @@ def get_ai_config(
 ):
     """Return AI config: available scenes, profile note, prompt version."""
     user = get_current_user(request, db)
+    require_permission(user, 'crm_profile')
     assert_can_view(user, customer_id)
 
     from .prompts.registry import VALID_SCENES, get_version
@@ -421,6 +430,7 @@ def get_profile_note(
 ):
     """Get customer AI profile note."""
     user = get_current_user(request, db)
+    require_permission(user, 'crm_profile')
     assert_can_view(user, customer_id)
     note = db.query(CustomerAiProfileNote).filter_by(crm_customer_id=customer_id).first()
     if not note:
@@ -437,6 +447,7 @@ def save_profile_note(
 ):
     """Create or update customer AI profile note."""
     user = get_current_user(request, db)
+    require_permission(user, 'crm_profile')
     assert_can_view(user, customer_id)
 
     _MAX_NOTE_LEN = 1500
@@ -478,6 +489,7 @@ def get_ai_context_preview(
 ):
     """Return the assembled context text that AI would see for this customer."""
     user = get_current_user(request, db)
+    require_permission(user, 'crm_profile')
     assert_can_view(user, customer_id)
 
     ctx = ensure_profile_context(
@@ -506,6 +518,7 @@ def list_ai_sessions(
 ):
     """Return recent AI conversation sessions for the customer."""
     user = get_current_user(request, db)
+    require_permission(user, 'crm_profile')
     assert_can_view(user, customer_id)
     return {
         "customer_id": customer_id,
@@ -522,6 +535,7 @@ def get_ai_session_detail(
 ):
     """Return one stored AI conversation with chronological messages."""
     user = get_current_user(request, db)
+    require_permission(user, 'crm_profile')
     assert_can_view(user, customer_id)
     detail = audit_service.load_session_detail(customer_id, session_id)
     if not detail:
@@ -563,6 +577,7 @@ if _ai_coach_enabled:
     ):
         """Ask AI coach a question about a customer."""
         user = get_current_user(request, db)
+        require_permission(user, 'crm_profile')
         assert_can_view(user, customer_id)
         result = await ask_ai_coach(
             customer_id,
@@ -590,6 +605,7 @@ if _ai_coach_enabled:
         _t = _time.time()
         _sse_log.info("[SSE-ROUTE] chat-stream endpoint entered for customer %s", customer_id)
         user = get_current_user(request, db)
+        require_permission(user, 'crm_profile')
         assert_can_view(user, customer_id)
 
         async def event_stream():
@@ -629,6 +645,7 @@ if _ai_coach_enabled:
         _t = _time.time()
         _sse_log.info("[SSE-ROUTE] thinking-stream endpoint entered for customer %s", customer_id)
         user = get_current_user(request, db)
+        require_permission(user, 'crm_profile')
         assert_can_view(user, customer_id)
 
         async def event_stream():
@@ -662,6 +679,7 @@ if _ai_coach_enabled:
     ):
         """Mark an AI message as requiring medical review."""
         user = get_current_user(request, db)
+        require_permission(user, 'crm_profile')
         assert_can_view(user, customer_id)
         found = _mark_medical_review(message_id)
         if not found:

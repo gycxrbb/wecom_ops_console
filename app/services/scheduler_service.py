@@ -155,6 +155,7 @@ async def execute_job(job_id: int):
             return
         logger.info(f'Executing job {job_id} ({job.title}) at {now.isoformat()}')
         await perform_job_send(db, job, run_mode='scheduled')
+        db.expire(job)
         if job.schedule_type == 'once':
             job.enabled = False
             job.status = 'completed'

@@ -7,20 +7,31 @@ from fastapi import HTTPException
 
 from ...clients.crm_db import get_connection, return_connection
 from ... import models
+from ...security import json_loads
 
 _log = logging.getLogger(__name__)
 
 _MAX_VISIBLE = 50_000
 
 
+def _crm_scope(user: models.User) -> str:
+    """Return 'all' or 'own' for CRM data visibility."""
+    if user.role == "admin":
+        return "all"
+    perms = json_loads(user.permissions_json, {})
+    if perms.get("crm_profile") == "all":
+        return "all"
+    return "own"
+
+
 def resolve_visible_customers(user: models.User) -> set[int]:
     """Return set of customer IDs the user can view.
 
-    * admin  -> empty set (means *no filter*, i.e. can see all)
-    * coach  -> query CRM; union of staff + group assignments
+    * admin / crm_profile=all -> empty set (means *no filter*, i.e. can see all)
+    * coach with crm_profile=own -> query CRM; union of staff + group assignments
     * no crm_admin_id -> empty set (coach without CRM link sees nothing)
     """
-    if user.role == "admin":
+    if _crm_scope(user) == "all":
         return set()
 
     crm_admin_id = user.crm_admin_id
@@ -62,7 +73,7 @@ def resolve_visible_customers(user: models.User) -> set[int]:
 
 def assert_can_view(user: models.User, customer_id: int) -> None:
     """Raise 403 if the user is not allowed to view *customer_id*."""
-    if user.role == "admin":
+    if _crm_scope(user) == "all":
         return
     visible = resolve_visible_customers(user)
     if not visible:

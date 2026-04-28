@@ -168,6 +168,7 @@ def require_role(user: models.User, *roles: str):
 ALL_PERMISSIONS = [
     'send', 'schedule', 'group', 'template',
     'plan', 'asset', 'log', 'approval', 'sop',
+    'speech_template', 'crm_profile',
 ]
 
 PERMISSION_LABELS = {
@@ -180,11 +181,14 @@ PERMISSION_LABELS = {
     'log': '发送记录',
     'approval': '审批操作',
     'sop': '飞书文档',
+    'speech_template': '话术管理',
+    'crm_profile': '客户档案',
 }
 
 PERMISSION_GROUPS = {
     '核心业务': ['send', 'schedule'],
-    '数据管理': ['group', 'template', 'plan', 'asset', 'sop'],
+    '数据管理': ['group', 'template', 'plan', 'asset', 'sop', 'speech_template'],
+    '客户运营': ['crm_profile'],
     '系统设置': ['log', 'approval'],
 }
 

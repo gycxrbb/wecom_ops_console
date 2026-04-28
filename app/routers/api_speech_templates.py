@@ -9,7 +9,7 @@ from .. import models
 from ..database import get_db
 from ..models import SpeechCategory, SpeechTemplate
 from ..route_helper import UnifiedResponseRoute
-from ..security import get_current_user, require_role
+from ..security import get_current_user, require_role, require_permission
 from ..services.crm_speech_templates import (
     SCENE_LABELS,
     STYLES,
@@ -110,7 +110,7 @@ def update_template(
     db: Session = Depends(get_db),
 ):
     user = get_current_user(request, db)
-    require_role(user, 'admin', 'coach')
+    require_permission(user, 'speech_template')
     row = db.query(SpeechTemplate).get(template_id)
     if not row:
         raise HTTPException(404, '模板不存在')
@@ -139,7 +139,7 @@ def create_template(
     db: Session = Depends(get_db),
 ):
     user = get_current_user(request, db)
-    require_role(user, 'admin', 'coach')
+    require_permission(user, 'speech_template')
     if req.style not in STYLES:
         raise HTTPException(400, f'不支持的 style: {req.style}')
     existing = (
@@ -181,7 +181,7 @@ async def import_templates_csv(
     db: Session = Depends(get_db),
 ):
     user = get_current_user(request, db)
-    require_role(user, 'admin', 'coach')
+    require_permission(user, 'speech_template')
     filename = file.filename or ''
     if filename and not filename.lower().endswith('.csv'):
         raise HTTPException(400, '仅支持 CSV 文件')

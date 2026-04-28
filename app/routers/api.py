@@ -537,6 +537,7 @@ async def perform_job_send(db: Session, schedule: models.Schedule, run_mode: str
                 last_error = str(exc)[:200]
             # 同一 webhook 限 20条/分钟，由 WeComService._check_rate_limit 按 group_key 控制
             await asyncio.sleep(1.0)
+        db.expire(schedule)
         schedule.last_error = last_error
         schedule.last_sent_at = datetime.now(ZoneInfo('Asia/Shanghai')).replace(tzinfo=None)
         db.commit()
@@ -562,6 +563,7 @@ async def perform_job_send(db: Session, schedule: models.Schedule, run_mode: str
         schedule=schedule,
         run_mode=run_mode,
     )
+    db.expire(schedule)
     schedule.last_error = ''
     schedule.last_sent_at = datetime.now(ZoneInfo('Asia/Shanghai')).replace(tzinfo=None)
     db.commit()
