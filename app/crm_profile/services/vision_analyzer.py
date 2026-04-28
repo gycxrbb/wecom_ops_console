@@ -7,10 +7,7 @@ from __future__ import annotations
 
 import base64
 import logging
-from io import BytesIO
 from pathlib import Path
-
-from sqlalchemy.orm import Session
 
 from ...clients.ai_chat_client import chat_completion
 from ...config import settings
@@ -130,11 +127,11 @@ async def _analyze_pdf(attachment: CrmAiAttachment) -> str:
             _log.warning("Vision failed on PDF page %d: %s", page_idx + 1, e)
             page_descriptions.append(f"[第{page_idx + 1}页 — 识别失败]")
 
+    total_pages = len(doc)
+    attachment.page_count = total_pages
     doc.close()
 
-    attachment.page_count = len(doc) if hasattr(doc, '__len__') else max_pages
-    total = len(doc) if hasattr(doc, '__len__') else max_pages
-    header = f"PDF文档共{total}页，已分析{max_pages}页"
+    header = f"PDF文档共{total_pages}页，已分析{max_pages}页"
     return f"{header}\n\n" + "\n\n".join(page_descriptions)
 
 

@@ -209,7 +209,7 @@ class AiChatResult:
 
 @dataclass
 class AiStreamEvent:
-    event: Literal["meta", "delta", "done", "error", "loading", "rag"]
+    event: Literal["meta", "delta", "done", "error", "loading", "rag", "analyzing"]
     data: dict[str, Any] = field(default_factory=dict)
 
 
@@ -454,11 +454,16 @@ async def ask_ai_coach(
     selected_expansions: list[str] | None = None,
     output_style: str = "coach_brief",
     health_window_days: int = 7,
+    attachment_ids: list[str] | None = None,
 ) -> AiChatResult:
     """Non-streaming fallback entry for AI coach."""
+    effective_message = message
+    if attachment_ids:
+        effective_message = await _resolve_attachment_descriptions(customer_id, attachment_ids, message)
+
     prepared = _prepare_ai_turn(
         customer_id,
-        message,
+        effective_message,
         session_id=session_id,
         scene_key=scene_key,
         output_style=output_style,

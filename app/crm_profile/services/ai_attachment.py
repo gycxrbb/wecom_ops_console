@@ -27,15 +27,6 @@ def _validate_upload(file: UploadFile) -> None:
     if not file.content_type or file.content_type not in ALLOWED_MIME_TYPES:
         raise ValueError(f"不支持的文件类型: {file.content_type}，仅支持 jpg/png/webp/pdf")
 
-    content_type = file.content_type
-    filename = file.filename or ""
-    if content_type == "application/pdf":
-        max_size = settings.vision_max_pdf_size_mb * 1024 * 1024
-    else:
-        max_size = settings.vision_max_image_size_mb * 1024 * 1024
-
-    # Size check is done after read, but we validate type here
-
 
 async def upload_attachment(
     file: UploadFile,

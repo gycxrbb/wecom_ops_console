@@ -591,6 +591,7 @@ if _ai_coach_enabled:
             selected_expansions=body.selected_expansions,
             output_style=body.output_style,
             health_window_days=body.health_window_days,
+            attachment_ids=body.attachment_ids,
         )
         return result
 
