@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 import json
 import logging
+from collections import defaultdict
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
@@ -448,6 +449,10 @@ async def _send_to_single_group(
                     wait = 30 if attempt == 1 else 15
                     logger.warning('触发限流(45009)，等待 %ds 后重试 (attempt %d/%d)', wait, attempt, max_retries)
                     await asyncio.sleep(wait)
+                elif '限流等待超过' in error_str or '条/分钟' in error_str:
+                    wait = 35
+                    logger.warning('本地限流保护触发，等待 %ds 后重试 (attempt %d/%d)', wait, attempt, max_retries)
+                    await asyncio.sleep(wait)
                 elif attempt < max_retries:
                     await asyncio.sleep(retry_delay)
 
@@ -472,17 +477,20 @@ async def _send_to_single_group(
         db.close()
 
 
+_send_semaphore = asyncio.Semaphore(10)
+
 async def do_send_to_groups(db: Session, groups: list[models.Group], msg_type: str, content_json: dict, variables_json: dict, user: models.User, schedule: models.Schedule | None = None, run_mode: str = 'immediate'):
     is_file_type = msg_type in {'file', 'image', 'emotion', 'voice'}
     max_retries = settings.file_send_max_retries if is_file_type else settings.send_max_retries
     retry_delay = settings.file_send_retry_delay_seconds if is_file_type else settings.send_retry_delay_seconds
     cached_media_id: dict[int, str] = {}
 
-    # 多群并发发送，不同群之间互不影响可并行；每个群使用独立 session 避免 SQLite 锁冲突
-    tasks = [
-        _send_to_single_group(group, msg_type, content_json, variables_json, user, schedule, max_retries, retry_delay, cached_media_id)
-        for group in groups
-    ]
+    async def _throttled_send(group):
+        async with _send_semaphore:
+            return await _send_to_single_group(group, msg_type, content_json, variables_json, user, schedule, max_retries, retry_delay, cached_media_id)
+
+    # 多群并发发送，通过 Semaphore 限制同时最多 10 个并发；每个群使用独立 session 避免锁冲突
+    tasks = [_throttled_send(group) for group in groups]
     results = await asyncio.gather(*tasks)
     return list(results)
 
@@ -500,12 +508,22 @@ async def perform_job_send(db: Session, schedule: models.Schedule, run_mode: str
         global_group_ids = json_loads(schedule.group_ids_json, [])
         all_results = []
         last_error = ''
+        group_send_count: dict[int, int] = defaultdict(int)
         for idx, item in enumerate(batch_items):
             item_group_ids = item.get('group_ids') or global_group_ids
             if not item_group_ids:
                 last_error = f'队列项 {item.get("msg_type")} 缺少目标群'
                 continue
             groups = db.query(models.Group).filter(models.Group.id.in_(item_group_ids), models.Group.enabled == 1).all()
+
+            # 预检：若同一群即将超过 18 条，提前等待一个完整窗口（留 2 条安全余量）
+            for g in groups:
+                if group_send_count[g.id] >= 18:
+                    logger.info('群 %s 已发 %d 条，提前等待限流窗口', g.name, group_send_count[g.id])
+                    await asyncio.sleep(30)
+                    group_send_count.clear()
+                    break
+
             try:
                 results = await do_send_to_groups(
                     db, groups, item.get('msg_type', 'markdown'),
@@ -513,10 +531,11 @@ async def perform_job_send(db: Session, schedule: models.Schedule, run_mode: str
                     user, schedule=schedule, run_mode=run_mode,
                 )
                 all_results.extend(results or [])
+                for g in groups:
+                    group_send_count[g.id] += 1
             except Exception as exc:
                 last_error = str(exc)[:200]
             # 同一 webhook 限 20条/分钟，由 WeComService._check_rate_limit 按 group_key 控制
-            # 队列项通常发到不同群，只需短暂间隔避免并发过载
             await asyncio.sleep(1.0)
         schedule.last_error = last_error
         schedule.last_sent_at = datetime.now(ZoneInfo('Asia/Shanghai')).replace(tzinfo=None)

@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 RATE_LIMIT = 20
 RATE_WINDOW_SECONDS = 60
+MAX_RATE_WAIT_SECONDS = 120
 _timestamps: dict[str, deque] = defaultdict(deque)
 _locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
@@ -108,14 +109,25 @@ class WeComService:
     @staticmethod
     async def _check_rate_limit(group_key: str):
         lock = _locks[group_key]
-        async with lock:
-            bucket = _timestamps[group_key]
-            now = asyncio.get_running_loop().time()
-            while bucket and now - bucket[0] > RATE_WINDOW_SECONDS:
-                bucket.popleft()
-            if len(bucket) >= RATE_LIMIT:
-                raise RuntimeError('该群机器人触发了 20 条/分钟 的保护限制，请稍后重试。')
-            bucket.append(now)
+        while True:
+            async with lock:
+                bucket = _timestamps[group_key]
+                now = asyncio.get_running_loop().time()
+                while bucket and now - bucket[0] > RATE_WINDOW_SECONDS:
+                    bucket.popleft()
+                if len(bucket) < RATE_LIMIT:
+                    bucket.append(now)
+                    return
+                wait_seconds = bucket[0] + RATE_WINDOW_SECONDS - now + 1.0
+            if wait_seconds > MAX_RATE_WAIT_SECONDS:
+                raise RuntimeError(
+                    f'该群机器人限流等待超过 {MAX_RATE_WAIT_SECONDS}s 上限，放弃发送。'
+                )
+            logger.warning(
+                '群 %s 触达 %d 条/分钟限制，等待 %.1fs 后继续',
+                group_key, RATE_LIMIT, wait_seconds,
+            )
+            await asyncio.sleep(wait_seconds)
 
     @classmethod
     def build_payload(cls, msg_type: str, content: dict):
