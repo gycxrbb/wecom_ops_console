@@ -57,6 +57,11 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(_crm_profile_cache_refresh_loop())
 
     yield
+    try:
+        from .clients.ai_chat_client import _close_client
+        await _close_client()
+    except Exception:
+        pass
     schedule_service.shutdown()
 
 
@@ -65,7 +70,10 @@ async def _ai_warmup():
     try:
         from .clients.ai_chat_client import _get_client
         client = await _get_client()
-        url = settings.ai_base_url or 'https://aihubmix.com/v1'
+        if settings.ai_provider == 'deepseek' and settings.deepseek_api_key:
+            url = settings.deepseek_base_url
+        else:
+            url = settings.ai_base_url or 'https://aihubmix.com/v1'
         await client.head(url, timeout=3.0)
         _log.info('AI client warmup done')
     except Exception:

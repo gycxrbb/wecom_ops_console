@@ -936,3 +936,10 @@
 - **场景**: 多条线同时修改 `schema_migrations.py`，一条线新增索引函数，另一条线维护旧库补列常量。
 - **经验内容**: 启动迁移文件是应用 import 级关键路径，不能只验证局部函数。新增函数、移动常量或合并 diff 后，至少要跑 `python -m py_compile app\schema_migrations.py app\main.py` 和一次 `uvicorn app.main:app` 短启动；否则一个缩进或拼接错误会让整个后端在 import 阶段失败。
 - **验证状态**: 已验证
+
+## 经验 #126: AI 流式客户端启用 HTTP/2 后必须保留协议降级兜底
+
+- **类别**: AI / 网络 / 稳定性
+- **场景**: OpenAI-compatible 上游通过 `httpx.AsyncClient(http2=True)` 做流式输出，业务链路对首包稳定性敏感。
+- **经验内容**: HTTP/2 能改善并发和复用，但公司出口代理、CDN 或上游网关可能在响应头前直接断开，表现为 `RemoteProtocolError: Server disconnected without sending a response`。客户端应在“尚未向前端输出任何 chunk”时关闭当前连接池并用 HTTP/1.1 重试一次；一旦已经输出 chunk，则不能透明重放，必须暴露真实失败。启动预热和 keepalive 也要按当前 provider 选择 base url，否则预热了 support provider，却没有预热 live provider。
+- **验证状态**: 已验证

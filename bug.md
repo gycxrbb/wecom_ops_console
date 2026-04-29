@@ -640,3 +640,12 @@
 - **复现条件**: 启动后端或执行 `python -m py_compile app\schema_migrations.py app\main.py`。
 - **解决方案**: 恢复 `_ensure_named_index(...)` 为普通调用，并将 `_CRM_AI_PHASE2_COLUMNS = { ... }` 放回模块级常量定义；重新执行编译与启动验证。
 - **关联文件**: app/schema_migrations.py
+
+## Bug #65: DeepSeek 流式请求在 HTTP/2/长连接异常时首包前断开
+
+- **日期**: 2026-04-29
+- **现象**: CRM AI 教练 answer stream 调用上游时，`httpx` 在 `client.stream('POST', ...)` 等待响应头阶段抛出 `RemoteProtocolError: Server disconnected without sending a response`，前端收到 `AI 服务异常`；同时 local Qdrant payload index warning 干扰排障但不是根因。
+- **根因**: AI 客户端启用了 HTTP/2 和长连接池，但上游或中间网关可能在 HTTP/2 握手、复用连接或响应头返回前直接关闭连接；原实现只把该协议级断连统一包装为 `AI 服务异常`，没有关闭坏连接并降级重试。启动预热还固定打到 `AI_BASE_URL`，在 `AI_PROVIDER=deepseek` 时没有真正预热 DeepSeek 连接。
+- **复现条件**: `.env` 使用 `AI_PROVIDER=deepseek` 并发起 `/ai/chat-stream`；当 DeepSeek/出口代理在响应头前断开 HTTP/2 或复用连接时稳定出现该 traceback。
+- **解决方案**: AI 客户端按 HTTP/2 开关维护连接池；非流式和流式请求遇到首包前 `RemoteProtocolError` 时关闭当前客户端并用 HTTP/1.1 重试一次；启动预热按当前 provider 选择 DeepSeek 或 aihubmix base url；local Qdrant 模式跳过 payload index 创建，避免无效 warning。
+- **关联文件**: app/clients/ai_chat_client.py, app/main.py, app/rag/vector_store.py

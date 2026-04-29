@@ -2,6 +2,7 @@
 cd /www/wwwroot/wecom-ops-console 
 git remote set-url origin https://ghproxy.cn/https://github.com/gycxrbb/wecom_ops_console.git 
 git pull
+git update-ref -d refs/remotes/origin/master && git fetch && git pull
 git remote set-url origin https://github.com/gycxrbb/wecom_ops_console.git 
 
 
