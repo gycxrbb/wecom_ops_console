@@ -124,3 +124,77 @@ async def refresh_tags(
     from ..rag.tag_service import refresh_tags_from_vocabulary
     stats = refresh_tags_from_vocabulary(db)
     return {"status": "ok", "stats": stats}
+
+
+@router.post("/tags")
+async def create_tag(
+    request: Request,
+    body: dict,
+    db: Session = Depends(get_db),
+):
+    """Create a new RAG tag. Admin only."""
+    user = get_current_user(request, db)
+    require_role(user, "admin")
+
+    from ..schemas.tag import TagCreate
+    from ..rag.tag_service import create_tag as svc_create
+
+    data = TagCreate(**body)
+    try:
+        tag = svc_create(
+            db,
+            dimension=data.dimension,
+            code=data.code,
+            name=data.name,
+            description=data.description,
+            sort_order=data.sort_order,
+            aliases=data.aliases,
+        )
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+
+    return {"status": "ok", "tag": {"id": tag.id, "dimension": tag.dimension, "code": tag.code, "name": tag.name}}
+
+
+@router.put("/tags/{tag_id}")
+async def update_tag(
+    tag_id: int,
+    request: Request,
+    body: dict,
+    db: Session = Depends(get_db),
+):
+    """Update an existing RAG tag. Admin only."""
+    user = get_current_user(request, db)
+    require_role(user, "admin")
+
+    from ..schemas.tag import TagUpdate
+    from ..rag.tag_service import update_tag as svc_update
+
+    data = TagUpdate(**body)
+    kwargs = {k: v for k, v in data.model_dump().items() if v is not None}
+    try:
+        tag = svc_update(db, tag_id, **kwargs)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+    return {"status": "ok", "tag": {"id": tag.id, "dimension": tag.dimension, "code": tag.code, "name": tag.name}}
+
+
+@router.delete("/tags/{tag_id}")
+async def delete_tag(
+    tag_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Soft-delete a RAG tag (set enabled=0). Admin only."""
+    user = get_current_user(request, db)
+    require_role(user, "admin")
+
+    from ..rag.tag_service import disable_tag
+
+    try:
+        disable_tag(db, tag_id)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+    return {"status": "ok"}

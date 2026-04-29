@@ -24,6 +24,20 @@ _log = logging.getLogger(__name__)
 _sse = get_sse_logger()
 
 
+def _classify_ai_error(exc: Exception) -> str:
+    """Map AI exception to a frontend-friendly error code."""
+    msg = str(exc)
+    if "超时" in msg:
+        return "timeout"
+    if "连接失败" in msg or "连接中断" in msg or "断开" in msg:
+        return "connection"
+    if "服务返回错误" in msg:
+        return "upstream"
+    if "未配置" in msg or "API KEY" in msg:
+        return "not_configured"
+    return "unknown"
+
+
 def _normalize_text(text: str) -> str:
     return "".join(str(text or "").strip().lower().split())
 
@@ -725,6 +739,12 @@ async def stream_ai_coach_answer(
             requires_medical_review=requires_review,
             safety_result=safety_result,
         )
+        # Extract cache metrics from provider usage response
+        cached_tokens = usage.get("prompt_cache_hit_tokens") or 0
+        if not cached_tokens:
+            details = usage.get("prompt_tokens_details") or {}
+            cached_tokens = details.get("cached_tokens", 0)
+
         yield AiStreamEvent(
             event="done",
             data={
@@ -734,6 +754,7 @@ async def stream_ai_coach_answer(
                     "prompt_tokens": usage.get("prompt_tokens", 0),
                     "completion_tokens": usage.get("completion_tokens", 0),
                     "total_tokens": usage.get("total_tokens", 0),
+                    "cached_tokens": cached_tokens,
                 },
                 "requires_medical_review": requires_review,
                 "safety_notes": safety_notes,
@@ -743,7 +764,10 @@ async def stream_ai_coach_answer(
         )
     except Exception as exc:
         _log.error("Answer stream failed: %s", exc, exc_info=True)
-        yield AiStreamEvent(event="error", data={"message": str(exc) or "AI 服务异常"})
+        yield AiStreamEvent(event="error", data={
+            "message": str(exc) or "AI 服务异常",
+            "code": _classify_ai_error(exc),
+        })
 
 
 async def stream_ai_coach_thinking(
@@ -820,7 +844,10 @@ async def stream_ai_coach_thinking(
         yield AiStreamEvent(event="done", data={"session_id": prepared.session_id})
     except Exception as exc:
         _log.error("Thinking stream failed: %s", exc, exc_info=True)
-        yield AiStreamEvent(event="error", data={"message": str(exc) or "AI 思考流异常"})
+        yield AiStreamEvent(event="error", data={
+            "message": str(exc) or "AI 思考流异常",
+            "code": _classify_ai_error(exc),
+        })
 
 
 async def _resolve_attachment_descriptions(

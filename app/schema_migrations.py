@@ -422,10 +422,17 @@ def ensure_crm_ai_indexes(engine: Engine) -> None:
 
 
 def ensure_crm_ai_attachment_indexes(engine: Engine) -> None:
-    """Ensure indexes on crm_ai_attachments table (table created by ORM create_all)."""
+    """Ensure indexes and columns on crm_ai_attachments table."""
     inspector = inspect(engine)
     if "crm_ai_attachments" not in inspector.get_table_names():
         return
+
+    # Add missing columns for evolving schema
+    existing_cols = {c["name"] for c in inspector.get_columns("crm_ai_attachments")}
+    if "storage_public_url" not in existing_cols:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE crm_ai_attachments ADD COLUMN storage_public_url TEXT"))
+
     idx_checks = [
         ("crm_ai_attachments", "ix_crm_ai_att_att_id", ("attachment_id",), True),
         ("crm_ai_attachments", "ix_crm_ai_att_customer", ("crm_customer_id",), False),
@@ -517,6 +524,12 @@ def ensure_rag_schema(engine: Engine) -> None:
         if "rerank_scores_json" not in existing_columns:
             with engine.begin() as conn:
                 conn.execute(text("ALTER TABLE rag_retrieval_logs ADD COLUMN rerank_scores_json TEXT"))
+
+    if "rag_tags" in existing_tables:
+        existing_columns = {c["name"] for c in inspector.get_columns("rag_tags")}
+        if "aliases" not in existing_columns:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE rag_tags ADD COLUMN aliases TEXT"))
 
     rag_indexes = [
         ("idx_rag_tags_dimension", "rag_tags", ("dimension",), False),

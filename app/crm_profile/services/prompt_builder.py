@@ -110,19 +110,25 @@ def assemble_prompt(
     context_header += "\n\n" + context_text
     used_layers.append("customer_context")
 
-    # Layer 4.5: RAG knowledge context (optional, externalized header)
+    messages = [
+        {"role": "system", "content": system_text},
+        {"role": "system", "content": context_header},
+    ]
+
+    # Layer 4.5~5.5: dynamic context (RAG, profile note, scene hint)
+    # Separated into independent messages for better prompt-cache hit rates.
+    dynamic_parts: list[str] = []
+
     if rag_context_text:
         rag_hdr = get_rag_header()
-        context_header += "\n\n" + rag_hdr + "\n\n" + rag_context_text
+        dynamic_parts.append(rag_hdr + "\n\n" + rag_context_text)
         used_layers.append("rag_context")
 
-    # Layer 5: coach profile note
     note_text = build_profile_note_text(profile_note)
     if note_text:
-        context_header += "\n\n" + note_text
+        dynamic_parts.append(note_text)
         used_layers.append("profile_note")
 
-    # Layer 5.5: preferred scene hint (from profile_note)
     if profile_note and getattr(profile_note, "preferred_scene_hint", None):
         scene_hint_tpl = get_scene_hint_header()
         if scene_hint_tpl:
@@ -130,14 +136,13 @@ def assemble_prompt(
             scene_hint_text = _render_template(
                 scene_hint_tpl, scene_label=scene_label
             )
-            context_header += "\n\n" + scene_hint_text
+            dynamic_parts.append(scene_hint_text)
             used_layers.append("scene_hint")
 
-    messages = [
-        {"role": "system", "content": system_text},
-        {"role": "system", "content": context_header},
-        {"role": "user", "content": f"{user_message}\n\n{style_hint}"},
-    ]
+    if dynamic_parts:
+        messages.append({"role": "system", "content": "\n\n".join(dynamic_parts)})
+
+    messages.append({"role": "user", "content": f"{user_message}\n\n{style_hint}"})
 
     return PromptAssembly(
         messages=messages,
@@ -179,14 +184,22 @@ def assemble_visible_thinking_prompt(
     context_header = context_header + thinking_hint + context_text
     used_layers.append("customer_context")
 
+    messages = [
+        {"role": "system", "content": system_text},
+        {"role": "system", "content": context_header},
+    ]
+
+    # Dynamic context — separated for prompt-cache friendliness.
+    dynamic_parts: list[str] = []
+
     if rag_context_text:
         rag_hdr = get_rag_header()
-        context_header += "\n\n" + rag_hdr + "\n\n" + rag_context_text
+        dynamic_parts.append(rag_hdr + "\n\n" + rag_context_text)
         used_layers.append("rag_context")
 
     note_text = build_profile_note_text(profile_note)
     if note_text:
-        context_header += "\n\n" + note_text
+        dynamic_parts.append(note_text)
         used_layers.append("profile_note")
 
     if profile_note and getattr(profile_note, "preferred_scene_hint", None):
@@ -196,21 +209,20 @@ def assemble_visible_thinking_prompt(
             scene_hint_text = _render_template(
                 scene_hint_tpl, scene_label=scene_label
             )
-            context_header += "\n\n" + scene_hint_text
+            dynamic_parts.append(scene_hint_text)
             used_layers.append("scene_hint")
 
-    messages = [
-        {"role": "system", "content": system_text},
-        {"role": "system", "content": context_header},
-        {
-            "role": "user",
-            "content": (
-                f"{user_message}\n\n"
-                "请输出给界面展示的简短思考摘要。"
-                "重点写：你正在看什么信息、有哪些风险边界、准备如何组织正式回复。"
-            ),
-        },
-    ]
+    if dynamic_parts:
+        messages.append({"role": "system", "content": "\n\n".join(dynamic_parts)})
+
+    messages.append({
+        "role": "user",
+        "content": (
+            f"{user_message}\n\n"
+            "请输出给界面展示的简短思考摘要。"
+            "重点写：你正在看什么信息、有哪些风险边界、准备如何组织正式回复。"
+        ),
+    })
 
     return PromptAssembly(
         messages=messages,

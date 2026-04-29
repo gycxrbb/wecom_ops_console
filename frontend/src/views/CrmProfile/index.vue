@@ -1020,6 +1020,7 @@ watch(
 onMounted(async () => {
   await restoreFromUrl()
   if (!selectedCustomer.value) {
+    loadFilterOptions()
     loadList(1, true)
   }
 })

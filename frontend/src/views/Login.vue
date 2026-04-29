@@ -36,6 +36,9 @@
             </template>
           </el-input>
         </el-form-item>
+        <el-form-item>
+          <el-checkbox v-model="rememberMe" style="margin-bottom:4px;">记住登录状态（7天）</el-checkbox>
+        </el-form-item>
         <div v-if="lockoutSeconds > 0" class="login-lockout">
           <el-icon :size="16" style="margin-right:6px;"><Warning /></el-icon>
           账号已被临时锁定，请 <strong>{{ lockoutSeconds }}</strong> 秒后重试
@@ -122,11 +125,27 @@ const form = reactive({
   username: '',
   password: ''
 })
+const rememberMe = ref(localStorage.getItem('remember_me') === '1')
 
 const rules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }]
 }
+
+// RSA 公钥缓存：服务重启前不变，避免每次登录多一次 RTT
+let cachedPublicKey: string | null = null
+const fetchPublicKey = async (): Promise<string | null> => {
+  if (cachedPublicKey) return cachedPublicKey
+  try {
+    const keyRes: any = await request.get('/v1/auth/public-key')
+    cachedPublicKey = keyRes?.public_key || null
+  } catch {
+    cachedPublicKey = null
+  }
+  return cachedPublicKey
+}
+// 页面加载时预取公钥，与用户输入并行
+fetchPublicKey()
 
 const handleLogin = async () => {
   if (!formRef.value) return
@@ -138,13 +157,10 @@ const handleLogin = async () => {
   }
   loading.value = true
   try {
-    // 1. 获取后端 RSA 公钥
-    const keyRes: any = await request.get('/v1/auth/public-key')
-    const publicKey = keyRes?.public_key
+    const publicKey = await fetchPublicKey()
 
     let finalPassword = form.password
     if (publicKey) {
-      // 2. 使用公钥加密密码
       const encryptor = new JSEncrypt()
       encryptor.setPublicKey(publicKey)
       const encrypted = encryptor.encrypt(form.password)
@@ -154,9 +170,10 @@ const handleLogin = async () => {
     }
 
     // 3. 提交加密后的密码
-    const res: any = await request.post('/v1/auth/login', { username: form.username, password: finalPassword })
+    const res: any = await request.post('/v1/auth/login', { username: form.username, password: finalPassword, remember_me: rememberMe.value })
     localStorage.setItem('access_token', res.access_token)
     localStorage.setItem('refresh_token', res.refresh_token)
+    localStorage.setItem('remember_me', rememberMe.value ? '1' : '0')
     ElMessage.success('登录成功')
     await userStore.fetchUser()
     router.push('/')

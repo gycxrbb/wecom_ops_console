@@ -4,7 +4,7 @@ import hashlib
 import json
 import logging
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -68,9 +68,14 @@ async def api_login(request: Request, db: Session = Depends(get_db)):
         }}
 
     rate_limiter.reset(client_ip, username or '')
-    
-    access_token = create_access_token(data={"sub": str(user.id)})
-    refresh_token = create_refresh_token(data={"sub": str(user.id)})
+
+    remember_me = bool(body.get('remember_me'))
+    if remember_me:
+        access_token = create_access_token(data={"sub": str(user.id)}, expires_delta=timedelta(days=7))
+        refresh_token = create_refresh_token(data={"sub": str(user.id)}, expires_delta=timedelta(days=14))
+    else:
+        access_token = create_access_token(data={"sub": str(user.id)})
+        refresh_token = create_refresh_token(data={"sub": str(user.id)})
     
     return {
         'code': 0,
@@ -88,6 +93,25 @@ async def api_login(request: Request, db: Session = Depends(get_db)):
             }
         }
     }
+
+@router.post('/auth/refresh')
+async def api_refresh_token(request: Request, db: Session = Depends(get_db)):
+    body = parse_body(await request.json())
+    token = body.get('refresh_token', '')
+    if not token:
+        return {'code': 40100, 'message': '缺少 refresh_token', 'data': {}}
+    try:
+        payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
+        if payload.get('type') != 'refresh':
+            return {'code': 40100, 'message': 'token 类型错误', 'data': {}}
+        user_id = payload.get('sub')
+    except Exception:
+        return {'code': 40100, 'message': 'refresh_token 无效或已过期', 'data': {}}
+    user = db.query(models.User).filter(models.User.id == int(user_id), models.User.status == 1).first()
+    if not user:
+        return {'code': 40100, 'message': '用户不存在或已禁用', 'data': {}}
+    new_access_token = create_access_token(data={"sub": str(user.id)})
+    return {'code': 0, 'message': 'ok', 'data': {'access_token': new_access_token}}
 
 @router.get('/auth/me')
 def api_get_me(request: Request, db: Session = Depends(get_db)):

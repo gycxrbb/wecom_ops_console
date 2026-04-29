@@ -1,7 +1,18 @@
-"""Controlled vocabulary for RAG — single source of truth for all tag dimensions."""
+"""Controlled vocabulary for RAG — seed data + facade over DB tag cache.
+
+Runtime: all lookups delegate to tag_cache (loaded from DB).
+Fallback: when cache not loaded (tests, offline), uses hardcoded VOCABULARY dict.
+"""
 from __future__ import annotations
 
+import re
 from typing import Any
+
+from . import tag_cache
+
+# ---------------------------------------------------------------------------
+# Seed data — used by seed.py and tag_service.refresh_tags_from_vocabulary()
+# ---------------------------------------------------------------------------
 
 # Each entry: (code, chinese_label, description, sort_order)
 VOCABULARY: dict[str, list[tuple[str, str, str | None, int]]] = {
@@ -118,75 +129,97 @@ TAG_ALIASES: dict[str, dict[str, str]] = {
     },
 }
 
-# Reverse map: dimension -> {chinese_label: code}
-_CHINESE_MAP: dict[str, dict[str, str]] = {}
-_CODE_MAP: dict[str, dict[str, tuple[str, str, int]]] = {}
+# ---------------------------------------------------------------------------
+# Fallback maps — built from VOCABULARY, used when tag_cache not loaded
+# ---------------------------------------------------------------------------
+
+_FALLBACK_CHINESE_MAP: dict[str, dict[str, str]] = {}
+_FALLBACK_CODE_MAP: dict[str, dict[str, tuple[str, str, int]]] = {}
 
 
-def _build_maps() -> None:
+def _build_fallback_maps() -> None:
     for dim, entries in VOCABULARY.items():
-        _CHINESE_MAP[dim] = {}
-        _CODE_MAP[dim] = {}
+        _FALLBACK_CHINESE_MAP[dim] = {}
+        _FALLBACK_CODE_MAP[dim] = {}
         for code, label, desc, sort in entries:
-            _CHINESE_MAP[dim][label] = code
-            _CODE_MAP[dim][code] = (label, desc or "", sort)
+            _FALLBACK_CHINESE_MAP[dim][label] = code
+            _FALLBACK_CODE_MAP[dim][code] = (label, desc or "", sort)
 
 
-_build_maps()
+_build_fallback_maps()
 
 
-def get_valid_codes(dimension: str) -> set[str]:
-    return set(_CODE_MAP.get(dimension, {}).keys())
-
-
-def validate_code(dimension: str, value: str | None) -> str | None:
+def _fallback_validate_code(dimension: str, value: str | None) -> str | None:
     if not value:
         return None
     v = value.strip().lower().replace("-", "_").replace(" ", "_")
-    if v in _CODE_MAP.get(dimension, {}):
-        return v
-    return None
+    return v if v in _FALLBACK_CODE_MAP.get(dimension, {}) else None
+
+
+def _fallback_resolve_code(dimension: str, raw: str | None) -> str | None:
+    if not raw:
+        return None
+    code = _fallback_validate_code(dimension, raw)
+    if code:
+        return code
+    chinese_code = _FALLBACK_CHINESE_MAP.get(dimension, {}).get(raw.strip())
+    if chinese_code:
+        return chinese_code
+    normalized = raw.strip().lower().replace("-", "_").replace(" ", "_")
+    if dimension == "visibility":
+        return VISIBILITY_ALIASES.get(normalized)
+    if dimension == "safety_level":
+        return SAFETY_LEVEL_ALIASES.get(normalized)
+    alias = TAG_ALIASES.get(dimension, {})
+    return alias.get(raw.strip()) or alias.get(normalized)
+
+
+# ---------------------------------------------------------------------------
+# Public API — delegates to tag_cache when loaded, fallback otherwise
+# ---------------------------------------------------------------------------
+
+
+def get_valid_codes(dimension: str) -> set[str]:
+    if tag_cache.is_loaded():
+        return tag_cache.get_valid_codes(dimension)
+    return set(_FALLBACK_CODE_MAP.get(dimension, {}).keys())
+
+
+def validate_code(dimension: str, value: str | None) -> str | None:
+    if tag_cache.is_loaded():
+        return tag_cache.validate_code(dimension, value)
+    return _fallback_validate_code(dimension, value)
 
 
 def map_chinese_to_code(dimension: str, chinese: str) -> str | None:
     if not chinese:
         return None
-    return _CHINESE_MAP.get(dimension, {}).get(chinese.strip())
+    if tag_cache.is_loaded():
+        return tag_cache.resolve_code(dimension, chinese)
+    return _FALLBACK_CHINESE_MAP.get(dimension, {}).get(chinese.strip())
 
 
 def resolve_code(dimension: str, raw: str | None) -> str | None:
-    """Try validate_code first, then map_chinese_to_code, then alias tables."""
-    if not raw:
-        return None
-    code = validate_code(dimension, raw)
-    if code:
-        return code
-    chinese_code = map_chinese_to_code(dimension, raw)
-    if chinese_code:
-        return chinese_code
-    if dimension == "visibility":
-        return VISIBILITY_ALIASES.get(raw.strip().lower().replace("-", "_").replace(" ", "_"))
-    if dimension == "safety_level":
-        return SAFETY_LEVEL_ALIASES.get(raw.strip().lower().replace("-", "_").replace(" ", "_"))
-    alias = TAG_ALIASES.get(dimension, {})
-    normalized = raw.strip().lower().replace("-", "_").replace(" ", "_")
-    return alias.get(raw.strip()) or alias.get(normalized)
-    return None
+    if tag_cache.is_loaded():
+        return tag_cache.resolve_code(dimension, raw)
+    return _fallback_resolve_code(dimension, raw)
 
 
 def get_label(dimension: str, code: str) -> str:
-    entry = _CODE_MAP.get(dimension, {}).get(code)
+    if tag_cache.is_loaded():
+        return tag_cache.get_label(dimension, code)
+    entry = _FALLBACK_CODE_MAP.get(dimension, {}).get(code)
     return entry[0] if entry else code
 
 
 def resolve_tag_values(dimension: str, raw: str | None) -> list[str]:
-    """Split multi-value string and resolve each to canonical code."""
+    if tag_cache.is_loaded():
+        return tag_cache.resolve_tag_values(dimension, raw)
     if not raw or not raw.strip():
         return []
-    import re
     values: list[str] = []
     for item in re.split(r"[|、,，;；/]+", raw):
-        code = resolve_code(dimension, item.strip())
+        code = _fallback_resolve_code(dimension, item.strip())
         if code and code not in values:
             values.append(code)
     return values

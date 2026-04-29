@@ -186,9 +186,9 @@ export function useCrmProfile() {
         page_size: listPageSize.value,
       }
       if (filters.q.trim()) params.q = filters.q.trim()
-      if (filters.coach_id !== null) params.coach_id = filters.coach_id
-      if (filters.group_id !== null) params.group_id = filters.group_id
-      if (filters.channel_id !== null) params.channel_id = filters.channel_id
+      if (filters.coach_id !== null && filters.coach_id !== '') params.coach_id = filters.coach_id
+      if (filters.group_id !== null && filters.group_id !== '') params.group_id = filters.group_id
+      if (filters.channel_id !== null && filters.channel_id !== '') params.channel_id = filters.channel_id
       if (includeFilters) params.include_filters = 1
 
       const res: any = await request.get('/v1/crm-customers/list', { params })

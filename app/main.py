@@ -43,6 +43,8 @@ async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         seed_all(db)
+        from .rag.tag_cache import load_from_db
+        load_from_db(db)
     finally:
         db.close()
     schedule_service.start()

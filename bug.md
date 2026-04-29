@@ -649,3 +649,64 @@
 - **复现条件**: `.env` 使用 `AI_PROVIDER=deepseek` 并发起 `/ai/chat-stream`；当 DeepSeek/出口代理在响应头前断开 HTTP/2 或复用连接时稳定出现该 traceback。
 - **解决方案**: AI 客户端按 HTTP/2 开关维护连接池；非流式和流式请求遇到首包前 `RemoteProtocolError` 时关闭当前客户端并用 HTTP/1.1 重试一次；启动预热按当前 provider 选择 DeepSeek 或 aihubmix base url；local Qdrant 模式跳过 payload index 创建，避免无效 warning。
 - **关联文件**: app/clients/ai_chat_client.py, app/main.py, app/rag/vector_store.py
+
+## Bug #66: AI 流式请求 `httpx.ReadError` 未被 HTTP/2 降级捕获 + 单 provider 内无连接重试，双 provider 同时抖动时直接全挂
+
+- **日期**: 2026-04-29
+- **现象**: DeepSeek 和 aihubmix 在同一时段均返回 `httpcore.ReadError` / `httpcore.RemoteProtocolError: Server disconnected without sending a response`，failover 链走完后用户收到 `AI 服务异常`；日志显示 deepseek HTTP/2→HTTP/1.1 降级生效，但 HTTP/1.1 重试遇到 `ReadError` 后直接放弃；aihubmix 同样模式。此问题高频出现，严重影响使用体验。
+- **根因**: 两层缺陷叠加：
+  1. `_stream_chat_completion` / `_post_chat_completion` 的 HTTP/2→HTTP/1.1 降级 except 子句只捕获 `httpx.RemoteProtocolError`，不捕获 `httpx.ReadError`（两者是 `TransportError` 下的兄弟异常，均为连接断开），导致 `ReadError` 直接穿透到上层。
+  2. `_do_stream` 内单 provider 没有连接级重试机制——连接瞬断后不会等待短暂 backoff 再试，直接判定当前 provider 失败。两个 provider 同时遇到瞬时网络抖动时，failover 也无法挽救。
+- **复现条件**: AI provider 出口网关或中间链路出现瞬时 TCP 连接断开（常见于高并发、长连接复用、HTTP/2 GOAWAY 等场景），两个 provider 短时间内同时受影响。
+- **解决方案**:
+  1. `_stream_chat_completion` 和 `_post_chat_completion` 的 except 子句改为 `(httpx.RemoteProtocolError, httpx.ReadError)`，让 `ReadError` 也走 HTTP/2→HTTP/1.1 降级。
+  2. `_do_stream` 增加 `_STREAM_CONNECT_RETRIES = 2` 连接级重试：首个 chunk 之前出错时，关闭坏连接池、等待 1.5s backoff 后重试一次；已 yield 部分内容则不重试直接抛出。
+  3. 组合后完整容错路径：provider1 HTTP/2 → HTTP/1.1 → retry(1.5s backoff) → failover provider2 → 同样流程，总共最多 8 次连接机会。
+- **关联文件**: app/clients/ai_chat_client.py
+
+## Bug #67: 前端 AI 对话出错时只显示"AI 服务异常"，无法区分错误类型，无重试按钮
+
+- **日期**: 2026-04-29
+- **现象**: AI 流式请求失败时，前端在助手消息中以纯文本 `[错误] AI 服务异常` 显示，用户无法判断是超时、连接问题、服务商故障还是配置缺失；也没有一键重试按钮，必须手动重新输入问题。
+- **根因**: 三层问题叠加：
+  1. 后端 `ai_chat_client.py` 的 RuntimeError 消息统一为 `'AI 服务异常'`，不包含 provider 名称和错误分类。
+  2. 后端 `ai_coach.py` 的 SSE error 事件只传递 `message` 字段，不传递 `code` 字段，前端无法分类展示。
+  3. 前端 `useAiCoach.ts` catch 块把错误拼为 `[错误] xxx` 纯文本写入 `content`，`AiCoachAssistantMessage.vue` 直接当普通 Markdown 渲染，没有专门的错误卡片和重试功能。
+- **复现条件**: 任意 AI 调用失败（超时、连接断开、服务商返回错误等）均可看到此问题。
+- **解决方案**:
+  1. 后端 `ai_chat_client.py`：RuntimeError 消息改为包含 provider 名称和错误类别（`AI 服务连接失败 (deepseek)`、`AI 响应中途断开 (aihubmix)` 等）。
+  2. 后端 `ai_coach.py`：新增 `_classify_ai_error()` 函数，根据异常消息分类为 `timeout` / `connection` / `upstream` / `not_configured` / `unknown`，SSE error 事件增加 `code` 字段。
+  3. 前端 `useAiCoach.ts`：assistant 消息类型新增 `errorCode` / `errorMessage` 字段；catch 块不再拼 `[错误]` 前缀到 content，改为设置结构化错误字段；新增 `retryLast()` 方法。
+  4. 前端 `AiCoachAssistantMessage.vue`：当 `msg.errorCode` 存在时，渲染专用错误卡片（红色背景 + 分类标题 + 详细消息 + 操作建议 + 重试按钮），如有部分已接收内容则仍展示。
+  5. 事件链：`AiCoachAssistantMessage @retry` → `AiCoachMessageList @retry` → `AiCoachPanel.onRetryLast()`。
+- **关联文件**: app/clients/ai_chat_client.py, app/crm_profile/services/ai_coach.py, frontend/src/views/CrmProfile/composables/useAiCoach.ts, frontend/src/views/CrmProfile/components/AiCoachAssistantMessage.vue, frontend/src/views/CrmProfile/components/AiCoachMessageList.vue, frontend/src/views/CrmProfile/components/AiCoachPanel.vue
+
+## Bug #68: 首次登录偶发"用户名或密码错误"——多 Worker RSA 密钥不一致 + 登录速度慢
+
+- **日期**: 2026-04-29
+- **现象**: 用户输入正确账号密码后点击登录，偶尔提示"用户名或密码错误"；再点一次登录又成功。同时用户反馈登录响应较慢。
+- **根因**: 两个问题叠加：
+  1. **RSA 密钥不一致（核心 Bug）**：`Dockerfile` 中 `uvicorn --workers 2` 启动了 2 个 Worker 进程。`security.py` 中 RSA 密钥使用 `rsa.generate_private_key()` 随机生成，每个 Worker 启动时独立生成不同的密钥对。前端 `GET /v1/auth/public-key` 命中 Worker A 拿到 PubKey-A → 加密密码 → `POST /v1/auth/login` 命中 Worker B → PrivKey-B 无法解密 → `decrypt_rsa_password` 静默回退为密文原文 → 密码校验必然失败。第二次点击如果两个请求恰好命中同一 Worker 就会成功。
+  2. **登录速度慢**：每次登录都串行发起 `GET /v1/auth/public-key` + `POST /v1/auth/login` 两次 HTTP 请求。公钥在服务重启前不变，完全可以缓存，省掉一次网络 RTT。
+- **复现条件**: 生产环境 `--workers >= 2` 时，约 50% 概率首次登录失败（取决于负载均衡 Worker 分配）。
+- **解决方案**:
+  1. `security.py`：RSA 密钥改为从 `app_secret_key` 确定性派生。优先使用 pycryptodome 的确定性 PRNG 生成；若未安装则用文件缓存方式（第一个 Worker 生成后持久化到临时目录，后续 Worker 加载同一份）。所有 Worker 共享同一密钥对。
+  2. `security.py`：`decrypt_rsa_password` 解密失败时增加 `_log.warning`，不再静默回退。
+  3. `Login.vue`：页面加载时预取公钥并缓存到组件变量，后续登录不再重复请求。
+- **关联文件**: app/security.py, Dockerfile, frontend/src/views/Login.vue
+
+## Bug #69: 缺少"记住登录状态"功能——用户需频繁重新登录
+
+- **日期**: 2026-04-29
+- **现象**: 用户每天进入系统都需重新登录，access_token 默认只有 24 小时。没有记住登录状态的选项，也没有自动续期机制。
+- **根因**: 三层缺失：
+  1. 后端 `api_login` 不识别 `remember_me` 参数，access_token 固定 24h，refresh_token 固定 7 天。
+  2. 前端 `Login.vue` 没有"记住登录状态"复选框，登录请求也不传该参数。
+  3. 前端 `request.ts` 没有 token 自动刷新逻辑，access_token 过期后任何 API 请求直接 401 跳转登录页，refresh_token 形同虚设。
+- **解决方案**:
+  1. 后端 `api.py`：登录接口读取 `remember_me` 参数。为真时 access_token 有效期 7 天，refresh_token 14 天；为假时保持原默认。
+  2. 后端 `api.py`：新增 `POST /v1/auth/refresh` 端点，接收 `refresh_token` 返回新的 `access_token`（普通有效期 24h）。校验 `type: refresh` 声明并检查用户存在且 status=1。
+  3. 后端 `security.py`：`create_refresh_token()` 支持 `expires_delta` 参数，与 `create_access_token` 对齐。
+  4. 前端 `Login.vue`：增加"记住登录状态（7天）"复选框，勾选后登录请求带 `remember_me: true`，并持久化用户偏好到 `localStorage`。
+  5. 前端 `request.ts`：响应拦截器捕获 HTTP 401，调用 `/v1/auth/refresh` 换取新 token，成功后重试原请求；并发 401 时只发一个刷新，其余排队等待。刷新失败则清空 token 跳转登录页。
+- **关联文件**: app/routers/api.py, app/security.py, frontend/src/views/Login.vue, frontend/src/utils/request.ts

@@ -139,12 +139,17 @@ def _read_attachment_file(attachment: CrmAiAttachment) -> bytes | None:
     if attachment.storage_local_path and Path(attachment.storage_local_path).exists():
         return Path(attachment.storage_local_path).read_bytes()
 
-    # Fallback: try via storage facade download
+    # Fallback: download from storage provider
     try:
         from ...services.storage import StorageResult, storage_facade as sf
         handle = StorageResult(
             provider=attachment.storage_provider,
             object_key=attachment.storage_key,
+            public_url=attachment.storage_public_url or "",
+            original_filename=attachment.original_filename,
+            stored_filename=attachment.original_filename,
+            mime_type=attachment.mime_type,
+            file_size=attachment.file_size,
             local_path=attachment.storage_local_path or "",
         )
         return sf.download_bytes(handle)

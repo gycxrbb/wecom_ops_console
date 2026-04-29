@@ -102,6 +102,7 @@ class CrmAiAttachment(Base):
     file_size: Mapped[int] = mapped_column(Integer, nullable=False)
     storage_provider: Mapped[str] = mapped_column(String(16), nullable=False)
     storage_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    storage_public_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     storage_local_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     page_count: Mapped[int] = mapped_column(Integer, default=1)
     vision_description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

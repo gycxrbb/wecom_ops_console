@@ -42,12 +42,14 @@ export type AiChatMessage =
       safetyNotes?: string[]
       safetyResult?: { level: string; reason_codes: string[]; notes: string[] }
       requiresMedicalReview?: boolean
-      tokenUsage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
+      tokenUsage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cached_tokens?: number }
       thinkingContent?: string
       loadingStage?: 'prepare' | 'model_call'
       thinkingVisible?: boolean
       thinkingDone?: boolean
       streaming?: boolean
+      errorCode?: string
+      errorMessage?: string
     }
   | {
       role: 'reference'; messageType: 'rag_reference'
@@ -89,7 +91,7 @@ export type AiSessionMessage = {
   content: string
   created_at?: string | null
   requires_medical_review?: boolean
-  token_usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
+  token_usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cached_tokens?: number }
 }
 
 type StreamPayload = {
@@ -97,9 +99,10 @@ type StreamPayload = {
   message_id?: string
   delta?: string
   message?: string
+  code?: string
   stage?: string
   status?: string
-  token_usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
+  token_usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cached_tokens?: number }
   requires_medical_review?: boolean
   safety_notes?: string[]
   missing_data_notes?: string[]
@@ -470,7 +473,9 @@ export function useAiCoach() {
         }
 
         if (event === 'error') {
-          throw new Error(payload?.message || payload?.delta || 'AI 服务异常')
+          const err = new Error(payload?.message || payload?.delta || 'AI 服务异常')
+          ;(err as any).code = payload?.code || 'unknown'
+          throw err
         }
       },
     )
@@ -521,12 +526,17 @@ export function useAiCoach() {
       }
     } catch (e: any) {
       const msg = e?.message || 'AI 服务异常'
+      const code = e?.code || 'unknown'
       answerAbortController.value?.abort()
       thinkingAbortController.value?.abort()
       error.value = msg
       assistantMessage.streaming = false
       assistantMessage.thinkingVisible = false
-      assistantMessage.content = assistantMessage.content || `[错误] ${msg}`
+      assistantMessage.errorCode = code
+      assistantMessage.errorMessage = msg
+      if (!assistantMessage.content) {
+        assistantMessage.content = ''
+      }
       return null
     } finally {
       loading.value = false
@@ -561,25 +571,37 @@ export function useAiCoach() {
     restoredSessionMeta.value = null
   }
 
+  const retryLast = async (customerId: number) => {
+    // Find the last user message and remove the failed assistant message(s) after it
+    let lastUserIdx = -1
+    for (let i = chatHistory.value.length - 1; i >= 0; i--) {
+      if (chatHistory.value[i].role === 'user') {
+        lastUserIdx = i
+        break
+      }
+    }
+    if (lastUserIdx < 0) return null
+    const userMsg = chatHistory.value[lastUserIdx] as Extract<AiChatMessage, { role: 'user' }>
+    // Remove everything after the user message (failed assistant + references)
+    chatHistory.value.splice(lastUserIdx)
+    error.value = ''
+    return sendChat(customerId, userMsg.content)
+  }
+
   const uploadAttachment = async (customerId: number, file: File): Promise<AiAttachment> => {
     const formData = new FormData()
     formData.append('file', file)
-    const token = localStorage.getItem('access_token')
-    const res = await fetch(`/api/v1/crm-customers/${customerId}/ai/upload-attachment`, {
-      method: 'POST',
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-      credentials: 'include',
-      body: formData,
-    })
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}))
-      throw new Error(data.detail || `上传失败 (${res.status})`)
-    }
-    return res.json()
+    // Use request (axios) to auto-unwrap UnifiedResponseRoute wrapper
+    const res: any = await request.post(
+      `/v1/crm-customers/${customerId}/ai/upload-attachment`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120_000 },
+    )
+    return res
   }
 
   return {
-    loading, chatHistory, error, tokenDisplay, sessionId, sendChat, clearSession,
+    loading, chatHistory, error, tokenDisplay, sessionId, sendChat, clearSession, retryLast,
     markMedicalReview, uploadAttachment,
     scenes, currentScene, outputStyle, profileNote, profileNoteSaving, configLoaded,
     sessionHistory, sessionHistoryLoading, loadSessionHistory, openHistorySession,

@@ -3,33 +3,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from . import tag_cache
 from .intent_rules import recognize_intent
-from .vocabulary import VOCABULARY, get_label, get_valid_codes
+from .vocabulary import get_label, get_valid_codes
 
 _SAFETY_ORDER = ["general", "nutrition_education", "medical_sensitive", "doctor_review", "contraindicated"]
-
-# Build keyword-to-code reverse index from vocabulary Chinese labels
-_GOAL_KEYWORDS: dict[str, str] = {}
-_SCENE_KEYWORDS: dict[str, str] = {}
-_QTYPE_KEYWORDS: dict[str, str] = {}
-
-for _code, _label, _desc, _sort in VOCABULARY.get("customer_goal", []):
-    for _kw in _label.split("/"):
-        _kw = _kw.strip()
-        if _kw:
-            _GOAL_KEYWORDS[_kw] = _code
-
-for _code, _label, _desc, _sort in VOCABULARY.get("intervention_scene", []):
-    for _kw in _label.split("/"):
-        _kw = _kw.strip()
-        if _kw:
-            _SCENE_KEYWORDS[_kw] = _code
-
-for _code, _label, _desc, _sort in VOCABULARY.get("question_type", []):
-    for _kw in _label.split("/"):
-        _kw = _kw.strip()
-        if _kw:
-            _QTYPE_KEYWORDS[_kw] = _code
 
 
 @dataclass
@@ -47,9 +25,13 @@ def compile_query(message: str, scene_key: str) -> QueryIntent:
     """Compile user message + scene into structured query intent."""
     intent = recognize_intent(message, scene_key)
 
-    goals = _extract_keywords(message, _GOAL_KEYWORDS)
-    scenes = _extract_keywords(message, _SCENE_KEYWORDS)
-    qtypes = _extract_keywords(message, _QTYPE_KEYWORDS)
+    goal_kw = tag_cache.get_keywords("customer_goal")
+    scene_kw = tag_cache.get_keywords("intervention_scene")
+    qtype_kw = tag_cache.get_keywords("question_type")
+
+    goals = _extract_keywords(message, goal_kw)
+    scenes = _extract_keywords(message, scene_kw)
+    qtypes = _extract_keywords(message, qtype_kw)
 
     if scene_key and scene_key in get_valid_codes("intervention_scene"):
         if scene_key not in scenes:

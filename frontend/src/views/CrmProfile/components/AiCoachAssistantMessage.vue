@@ -4,7 +4,27 @@
       <img src="https://cdn.mengfugui.com/logo.png" alt="AI Coach" style="width: 100%; height: 100%; border-radius: inherit; object-fit: cover;" />
     </div>
     <div class="ai-msg-content">
-      <div class="ai-msg-bubble">
+      <!-- Error card -->
+      <div v-if="msg.errorCode" class="ai-msg-error-card">
+        <div class="ai-msg-error-header">
+          <el-icon :size="18" class="ai-msg-error-icon"><WarningFilled /></el-icon>
+          <span class="ai-msg-error-title">{{ errorTitle }}</span>
+        </div>
+        <div class="ai-msg-error-detail">{{ msg.errorMessage }}</div>
+        <div class="ai-msg-error-hint">{{ errorHint }}</div>
+        <div class="ai-msg-error-actions">
+          <el-button size="small" type="primary" @click="$emit('retry')">
+            <el-icon><RefreshRight /></el-icon> 重新发送
+          </el-button>
+        </div>
+        <!-- If there was partial content before error, still show it -->
+        <div v-if="msg.content" class="ai-msg-error-partial">
+          <div class="ai-msg-error-partial-label">已接收的部分回复：</div>
+          <MarkdownRenderer :content="msg.content" :streaming="false" />
+        </div>
+      </div>
+      <!-- Normal message bubble -->
+      <div v-else class="ai-msg-bubble">
         <AiCoachThinkingPanel
           v-if="msg.thinkingVisible && (msg.thinkingContent || msg.streaming)"
           :thinking-content="msg.thinkingContent"
@@ -23,7 +43,7 @@
           </div>
         </div>
       </div>
-      <div v-if="msg.content && !msg.content.startsWith('[错误]')" class="ai-msg-actions">
+      <div v-if="msg.content && !msg.errorCode" class="ai-msg-actions">
         <el-button size="small" text @click="$emit('copy', msg.content)">
           <el-icon><CopyDocument /></el-icon> 复制{{ msg.requiresMedicalReview ? '供内部复核' : '草稿' }}
         </el-button>
@@ -31,27 +51,59 @@
           <el-icon><Warning /></el-icon> 标记需医生确认
         </el-button>
       </div>
-      <div v-if="msg.tokenUsage" class="ai-msg-tokens">Tokens: {{ msg.tokenUsage.total_tokens || 0 }}</div>
+      <div v-if="msg.tokenUsage" class="ai-msg-tokens">Tokens: {{ msg.tokenUsage.total_tokens || 0 }}
+        <template v-if="msg.tokenUsage.cached_tokens">
+          · 缓存命中 {{ msg.tokenUsage.cached_tokens }}
+        </template>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { CopyDocument, Warning } from '@element-plus/icons-vue'
+import { computed } from 'vue'
+import { CopyDocument, Warning, WarningFilled, RefreshRight } from '@element-plus/icons-vue'
 import MarkdownRenderer from '#/components/markdown/MarkdownRenderer.vue'
 import AiCoachThinkingPanel from './AiCoachThinkingPanel.vue'
 import type { AiChatMessage } from '../composables/useAiCoach'
 
 type AssistantMsg = Extract<AiChatMessage, { role: 'assistant' }>
 
-defineProps<{
+const props = defineProps<{
   msg: AssistantMsg
 }>()
 
 defineEmits<{
   copy: [content: string]
   'mark-medical-review': [msg: AssistantMsg]
+  retry: []
 }>()
+
+const ERROR_META: Record<string, { title: string; hint: string }> = {
+  connection: {
+    title: 'AI 服务连接失败',
+    hint: '上游 AI 服务暂时无法连接，通常是网络波动或服务商临时不可用，请稍后重试。',
+  },
+  timeout: {
+    title: 'AI 服务响应超时',
+    hint: '等待 AI 回复超时，可能是当前请求过于复杂或服务商负载较高，请缩短问题后重试。',
+  },
+  upstream: {
+    title: 'AI 服务返回错误',
+    hint: '上游 AI 服务返回了错误状态码，可能是服务商限流或临时故障，请稍后重试。',
+  },
+  not_configured: {
+    title: 'AI 服务未配置',
+    hint: '系统尚未正确配置 AI 服务密钥，请联系管理员检查 API Key 设置。',
+  },
+  unknown: {
+    title: 'AI 服务异常',
+    hint: '发生了未预期的错误，请重试。如反复出现请联系管理员。',
+  },
+}
+
+const errorTitle = computed(() => ERROR_META[props.msg.errorCode || 'unknown']?.title || 'AI 服务异常')
+const errorHint = computed(() => ERROR_META[props.msg.errorCode || 'unknown']?.hint || '请重试或联系管理员。')
 
 const safetyCodeLabel = (code: string) => {
   const map: Record<string, string> = {
@@ -82,4 +134,19 @@ const safetyCodeLabel = (code: string) => {
 .ai-msg-content:hover .ai-msg-actions { opacity: 1; }
 .ai-msg-actions .el-button { margin: 0; }
 .ai-msg-tokens { margin-top: 6px; text-align: right; font-size: 11px; color: #d1d5db; font-variant-numeric: tabular-nums; }
+
+/* Error card */
+.ai-msg-error-card { padding: 16px 18px; border-radius: 4px 18px 18px 18px; background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
+:global(html.dark) .ai-msg-error-card { background: rgba(239,68,68,0.1); border-color: rgba(239,68,68,0.25); color: #fca5a5; }
+.ai-msg-error-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.ai-msg-error-icon { color: #dc2626; flex-shrink: 0; }
+:global(html.dark) .ai-msg-error-icon { color: #f87171; }
+.ai-msg-error-title { font-size: 14px; font-weight: 600; }
+.ai-msg-error-detail { font-size: 12.5px; color: #b91c1c; margin-bottom: 6px; padding: 6px 10px; background: rgba(0,0,0,0.04); border-radius: 6px; word-break: break-all; }
+:global(html.dark) .ai-msg-error-detail { color: #fca5a5; background: rgba(255,255,255,0.06); }
+.ai-msg-error-hint { font-size: 12.5px; color: #92400e; line-height: 1.6; margin-bottom: 12px; }
+:global(html.dark) .ai-msg-error-hint { color: #d4d4d8; }
+.ai-msg-error-actions { display: flex; gap: 8px; }
+.ai-msg-error-partial { margin-top: 12px; padding-top: 12px; border-top: 1px dashed #fecaca; }
+.ai-msg-error-partial-label { font-size: 11px; color: #9ca3af; margin-bottom: 4px; }
 </style>

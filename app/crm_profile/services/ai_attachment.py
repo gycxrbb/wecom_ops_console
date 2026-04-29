@@ -68,6 +68,7 @@ async def upload_attachment(
         file_size=len(raw),
         storage_provider=result.provider,
         storage_key=result.object_key,
+        storage_public_url=result.public_url,
         storage_local_path=result.local_path,
         page_count=1,
         processing_status="pending",

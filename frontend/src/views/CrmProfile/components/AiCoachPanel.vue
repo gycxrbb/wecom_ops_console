@@ -102,8 +102,8 @@
                 <div class="ai-scene-bar">
                   <span class="ai-scene-label">输出模式</span>
                   <el-select v-model="outputStyle" size="small" class="ai-scene-select">
-                    <el-option label="教练简报" value="coach_brief" />
-                    <el-option label="客户话术" value="customer_reply" />
+                    <el-option label="客户话术" value="coach_brief" />
+                    <el-option label="教练简报" value="customer_reply" />
                     <el-option label="交接备注" value="handoff_note" />
                     <el-option label="详细报告" value="detailed_report" />
                   </el-select>
@@ -220,6 +220,7 @@
             @dismiss-data-gap="dismissDataGap"
             @toggle-select="onToggleSelect"
             @send-to-center="sendAssetToCenter"
+            @retry="onRetryLast"
           />
 
           <!-- Select mode action bar -->
@@ -378,7 +379,7 @@ const onResizeStart = (e: MouseEvent) => {
 onBeforeUnmount(() => { resizing = false })
 
 const {
-  loading, chatHistory, tokenDisplay, sessionId, sendChat, clearSession,
+  loading, chatHistory, tokenDisplay, sessionId, sendChat, clearSession, retryLast,
   markMedicalReview: markReviewApi,
   scenes, currentScene, outputStyle, profileNote, profileNoteSaving, configLoaded,
   sessionHistory, sessionHistoryLoading, loadSessionHistory, openHistorySession,
@@ -389,6 +390,7 @@ const {
 
 const input = ref('')
 const pendingAttachments = ref<AiAttachment[]>([])
+const attachmentPreviewUrls = ref<Map<string, string>>(new Map())
 const uploadingAttachment = ref(false)
 const fileInputRef = ref<HTMLInputElement>()
 
@@ -408,11 +410,21 @@ const onFileSelected = async (e: Event) => {
     return
   }
 
+  // Create local preview URL for images
+  let localPreviewUrl: string | undefined
+  if (file.type.startsWith('image/')) {
+    localPreviewUrl = URL.createObjectURL(file)
+  }
+
   uploadingAttachment.value = true
   try {
     const att = await uploadAttachment(props.customerId, file)
     pendingAttachments.value.push(att)
+    if (localPreviewUrl && att.attachment_id) {
+      attachmentPreviewUrls.value.set(att.attachment_id, localPreviewUrl)
+    }
   } catch (err: any) {
+    if (localPreviewUrl) URL.revokeObjectURL(localPreviewUrl)
     ElMessage.error(err?.message || '附件上传失败')
   } finally {
     uploadingAttachment.value = false
@@ -420,13 +432,19 @@ const onFileSelected = async (e: Event) => {
 }
 
 const removeAttachment = (idx: number) => {
+  const att = pendingAttachments.value[idx]
+  if (att?.attachment_id) {
+    const url = attachmentPreviewUrls.value.get(att.attachment_id)
+    if (url) {
+      URL.revokeObjectURL(url)
+      attachmentPreviewUrls.value.delete(att.attachment_id)
+    }
+  }
   pendingAttachments.value.splice(idx, 1)
 }
 
 const getAttachmentPreviewUrl = (att: AiAttachment): string => {
-  // For newly uploaded attachments, we can't preview server-side images
-  // Return a placeholder — real preview would need the storage URL
-  return ''
+  return attachmentPreviewUrls.value.get(att.attachment_id) || ''
 }
 const messageListRef = ref<InstanceType<typeof AiCoachMessageList>>()
 const sidebarTab = ref<'history' | 'context' | 'notes' | null>(null)
@@ -731,6 +749,13 @@ const send = async () => {
     attachmentIds,
     attachments,
   })
+  await nextTick()
+  forceScrollBottom()
+}
+
+const onRetryLast = async () => {
+  if (!props.customerId || loading.value) return
+  await retryLast(props.customerId)
   await nextTick()
   forceScrollBottom()
 }

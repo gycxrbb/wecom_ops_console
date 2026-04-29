@@ -20,33 +20,38 @@
         <el-input v-model="form.usage_note" type="textarea" :rows="2" placeholder="什么时候用这个素材" />
       </el-form-item>
       <el-form-item label="适用目标">
-        <el-select v-model="form.customer_goal" multiple filterable placeholder="选择目标">
-          <el-option v-for="g in goalOptions" :key="g.value" :label="g.label" :value="g.value" />
-        </el-select>
+        <div class="tag-field">
+          <el-select v-model="form.customer_goal" multiple filterable placeholder="选择目标" class="tag-field__select">
+            <el-option v-for="g in tagOptions('customer_goal')" :key="g.value" :label="g.label" :value="g.value" />
+          </el-select>
+          <el-button link type="primary" @click="openCreateTag('customer_goal', '适用目标')">+</el-button>
+        </div>
       </el-form-item>
       <el-form-item label="干预场景">
-        <el-select v-model="form.intervention_scene" multiple placeholder="选择场景">
-          <el-option v-for="s in sceneOptions" :key="s.value" :label="s.label" :value="s.value" />
-        </el-select>
+        <div class="tag-field">
+          <el-select v-model="form.intervention_scene" multiple filterable placeholder="选择场景" class="tag-field__select">
+            <el-option v-for="s in tagOptions('intervention_scene')" :key="s.value" :label="s.label" :value="s.value" />
+          </el-select>
+          <el-button link type="primary" @click="openCreateTag('intervention_scene', '干预场景')">+</el-button>
+        </div>
       </el-form-item>
       <el-form-item label="问题类型">
-        <el-select v-model="form.question_type" multiple filterable allow-create default-first-option placeholder="选择或输入">
-          <el-option v-for="t in typeOptions" :key="t" :label="t" :value="t" />
-        </el-select>
+        <div class="tag-field">
+          <el-select v-model="form.question_type" multiple filterable placeholder="选择类型" class="tag-field__select">
+            <el-option v-for="t in tagOptions('question_type')" :key="t.value" :label="t.label" :value="t.value" />
+          </el-select>
+          <el-button link type="primary" @click="openCreateTag('question_type', '问题类型')">+</el-button>
+        </div>
       </el-form-item>
       <div class="rag-form-row">
         <el-form-item label="可见范围" class="rag-form-item--half">
           <el-radio-group v-model="form.visibility">
-            <el-radio value="coach_internal">仅教练</el-radio>
-            <el-radio value="customer_visible">可发客户</el-radio>
+            <el-radio v-for="v in tagOptions('visibility')" :key="v.value" :value="v.value">{{ v.label }}</el-radio>
           </el-radio-group>
         </el-form-item>
         <el-form-item label="安全等级" class="rag-form-item--half">
           <el-radio-group v-model="form.safety_level">
-            <el-radio value="general">通用</el-radio>
-            <el-radio value="nutrition_education">营养科普</el-radio>
-            <el-radio value="medical_sensitive">医疗敏感</el-radio>
-            <el-radio value="doctor_review">需医生审核</el-radio>
+            <el-radio v-for="s in tagOptions('safety_level')" :key="s.value" :value="s.value">{{ s.label }}</el-radio>
           </el-radio-group>
         </el-form-item>
       </div>
@@ -68,12 +73,28 @@
       <el-button type="primary" :loading="saving" @click="handleSave">保存</el-button>
     </template>
   </el-dialog>
+
+  <el-dialog v-model="createTagVisible" :title="'新增' + createTagLabel" width="360px" append-to-body>
+    <el-form label-width="70px">
+      <el-form-item label="编码">
+        <el-input v-model="newTagCode" placeholder="英文，如 new_goal" />
+      </el-form-item>
+      <el-form-item label="名称">
+        <el-input v-model="newTagName" placeholder="中文名称" />
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="createTagVisible = false">取消</el-button>
+      <el-button type="primary" :loading="creating" @click="handleCreateTag">创建</el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <script setup lang="ts">
 import { reactive, ref, watch, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import request from '#/utils/request'
+import { useRagTags } from '#/composables/useRagTags'
 
 const props = defineProps<{
   modelValue: boolean
@@ -87,6 +108,8 @@ const emit = defineEmits<{
   (e: 'update:modelValue', val: boolean): void
   (e: 'saved'): void
 }>()
+
+const { options: tagOptions, createTag } = useRagTags()
 
 const isImage = computed(() => props.materialType === 'image')
 const isVideo = computed(() => props.materialType === 'file' && (props.assetName || '').match(/\.(mp4|mov|avi|mkv)$/i))
@@ -122,27 +145,40 @@ watch(() => props.modelValue, (val) => {
   }
 })
 
-const goalOptions = [
-  { value: 'weight_loss', label: '减脂减重' },
-  { value: 'glucose_control', label: '控糖' },
-  { value: 'habit_building', label: '习惯养成' },
-  { value: 'nutrition_education', label: '饮食营养教育' },
-  { value: 'exercise_adherence', label: '运动坚持' },
-  { value: 'emotion_support', label: '情绪支持' },
-  { value: 'device_usage', label: '设备使用' },
-  { value: 'maintenance', label: '长期维护' },
-]
-const sceneOptions = [
-  { value: 'meal_checkin', label: '餐盘打卡' },
-  { value: 'meal_review', label: '餐评' },
-  { value: 'obstacle_breaking', label: '破障' },
-  { value: 'qa_support', label: '问题答疑' },
-  { value: 'period_review', label: '周月复盘' },
-  { value: 'emotional_support', label: '情绪支持' },
-  { value: 'maintenance', label: '长期维护' },
-  { value: 'abnormal_intervention', label: '异常干预' },
-]
-const typeOptions = ['dining_out', 'carb_choose', 'low_calorie', 'late_night_snack', 'craving', 'hunger', 'food_safety', 'high_glucose', 'blood_fluctuation', 'data_monitoring', 'no_checkin', 'low_motivation', 'device_usage', 'plateau']
+// Inline tag creation
+const createTagVisible = ref(false)
+const createTagDimension = ref('')
+const createTagLabel = ref('')
+const newTagCode = ref('')
+const newTagName = ref('')
+const creating = ref(false)
+
+function openCreateTag(dimension: string, label: string) {
+  createTagDimension.value = dimension
+  createTagLabel.value = label
+  newTagCode.value = ''
+  newTagName.value = ''
+  createTagVisible.value = true
+}
+
+async function handleCreateTag() {
+  const code = newTagCode.value.trim().toLowerCase().replace(/[\s-]+/g, '_')
+  const name = newTagName.value.trim()
+  if (!code || !name) {
+    ElMessage.warning('编码和名称不能为空')
+    return
+  }
+  creating.value = true
+  try {
+    await createTag(createTagDimension.value, code, name)
+    ElMessage.success('标签已创建')
+    createTagVisible.value = false
+  } catch (e: any) {
+    ElMessage.error(e?.message || '创建失败')
+  } finally {
+    creating.value = false
+  }
+}
 
 const handleSkip = () => {
   emit('update:modelValue', false)
@@ -168,4 +204,6 @@ const handleSave = async () => {
 .rag-form { max-height: 65vh; overflow-y: auto; padding-right: 8px; }
 .rag-form-row { display: flex; gap: 16px; }
 .rag-form-item--half { flex: 1; }
+.tag-field { display: flex; align-items: center; gap: 4px; width: 100%; }
+.tag-field__select { flex: 1; }
 </style>

@@ -1,11 +1,13 @@
 import base64
 import hashlib
 import json
+import logging
 from datetime import datetime, timedelta
 from typing import Any
 
 import jwt
 from cryptography.fernet import Fernet
+from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from fastapi import HTTPException, Request, status
@@ -17,14 +19,75 @@ from . import models
 from .password_utils import pwd_context
 from .services.crm_admin_auth import CrmAdminAuthUnavailable, authenticate_crm_admin, crm_admin_auth_enabled, sync_crm_admin_to_local
 
-# Generate ephemeral RSA key pair at startup for password encryption
-_RSA_PRIVATE_KEY = rsa.generate_private_key(
-    public_exponent=65537,
-    key_size=2048,
-)
+_log = logging.getLogger(__name__)
+
+
+def _build_deterministic_rsa_key() -> rsa.RSAPrivateKey:
+    """Derive a deterministic RSA key from app_secret_key.
+
+    This ensures all uvicorn workers sharing the same config produce
+    the same RSA key pair, so a password encrypted by one worker can
+    be decrypted by any other worker.
+    """
+    seed = hashlib.sha256(f"rsa-login-{settings.app_secret_key}".encode()).digest()
+    # Use the seed as a fixed PRNG source via backend parameter
+    # cryptography's rsa.generate_private_key uses OS urandom;
+    # instead we serialize a pre-generated key from seed to stay deterministic.
+    import struct
+    from cryptography.hazmat.primitives.asymmetric.rsa import rsa_crt_iqmp, rsa_crt_dmp1, rsa_crt_dmq1
+
+    # Use PBKDF2 to stretch seed into a large deterministic byte stream
+    # then use it to seed Python's random for key generation.
+    import random as _rnd
+    det_rng = _rnd.Random(seed)
+
+    # Generate deterministic RSA-2048 key using pycryptodome-style approach
+    # but via cryptography library's rsa_recover_prime_factors is not available,
+    # so we use the simpler approach: generate once, persist to env/file.
+    # Simplest correct fix: use os-level seed by generating key once and caching.
+    # Actually the cleanest approach: generate key from fixed seed using
+    # the `rsa` library with custom randfunc.
+    try:
+        from Crypto.PublicKey import RSA as _CryptoRSA
+        det_key = _CryptoRSA.generate(2048, randfunc=lambda n: bytes(det_rng.getrandbits(8) for _ in range(n)))
+        return serialization.load_der_private_key(
+            det_key.export_key('DER'),
+            password=None,
+            backend=default_backend(),
+        )
+    except ImportError:
+        pass
+
+    # Fallback: just use standard generation (non-deterministic).
+    # To guarantee multi-worker consistency without pycryptodome,
+    # we cache the PEM in a temp file derived from the secret.
+    import tempfile, os
+    cache_name = hashlib.sha256(f"rsa-cache-{settings.app_secret_key}".encode()).hexdigest()[:16]
+    cache_path = os.path.join(tempfile.gettempdir(), f".wecom_rsa_{cache_name}.pem")
+    if os.path.exists(cache_path):
+        try:
+            with open(cache_path, 'rb') as f:
+                return serialization.load_pem_private_key(f.read(), password=None, backend=default_backend())
+        except Exception:
+            pass
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048, backend=default_backend())
+    try:
+        pem = key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+        with open(cache_path, 'wb') as f:
+            f.write(pem)
+    except Exception as exc:
+        _log.warning('Failed to cache RSA key to %s: %s', cache_path, exc)
+    return key
+
+
+_RSA_PRIVATE_KEY = _build_deterministic_rsa_key()
 _RSA_PUBLIC_KEY_PEM = _RSA_PRIVATE_KEY.public_key().public_bytes(
     encoding=serialization.Encoding.PEM,
-    format=serialization.PublicFormat.SubjectPublicKeyInfo
+    format=serialization.PublicFormat.SubjectPublicKeyInfo,
 ).decode('utf-8')
 
 def get_rsa_public_key() -> str:
@@ -43,8 +106,8 @@ def decrypt_rsa_password(encrypted_b64_str: str) -> str:
             padding.PKCS1v15()
         )
         return decrypted_bytes.decode('utf-8')
-    except Exception:
-        # Fallback to original string if not encrypted or decryption fails
+    except Exception as exc:
+        _log.warning('RSA password decryption failed (len=%d): %s', len(encrypted_b64_str), exc)
         return encrypted_b64_str
 
 def _fernet() -> Fernet:
@@ -210,9 +273,12 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
     encoded_jwt = jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
     return encoded_jwt
 
-def create_refresh_token(data: dict):
+def create_refresh_token(data: dict, expires_delta: timedelta | None = None):
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(days=7)
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(days=7)
     to_encode.update({"exp": expire, "type": "refresh"})
     encoded_jwt = jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
     return encoded_jwt
