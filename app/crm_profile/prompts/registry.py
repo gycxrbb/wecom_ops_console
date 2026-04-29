@@ -1,10 +1,11 @@
-"""Prompt Template Registry — loads and caches prompt layers from .md files."""
+"""Prompt Template Registry — loads prompts from DB (priority) or .md files (fallback)."""
 from __future__ import annotations
 
 import hashlib
 import logging
+import threading
+import time
 from pathlib import Path
-from functools import lru_cache
 
 _log = logging.getLogger(__name__)
 
@@ -27,11 +28,57 @@ VALID_STYLES = {
     "detailed_report": "详细报告",
 }
 
-_PROMPT_VERSION = "v2.0"
+_PROMPT_VERSION = "v2.1"
 
+# ── TTL Cache ───────────────────────────────────────────────────────────────
+
+_CACHE_TTL = 60  # seconds
+_cache: dict[str, tuple[str, float]] = {}
+_cache_lock = threading.Lock()
+
+
+def _cache_get(key: str) -> str | None:
+    with _cache_lock:
+        val, ts = _cache.get(key, ("", 0))
+        if val and (time.monotonic() - ts) < _CACHE_TTL:
+            return val
+        return None
+
+
+def _cache_set(key: str, value: str) -> None:
+    with _cache_lock:
+        _cache[key] = (value, time.monotonic())
+
+
+def _cache_invalidate(key: str | None = None) -> None:
+    with _cache_lock:
+        if key:
+            _cache.pop(key, None)
+        else:
+            _cache.clear()
+
+
+# ── DB lookup ────────────────────────────────────────────────────────────────
+
+def _db_lookup(key: str) -> str | None:
+    """Try to load prompt content from DB. Returns None if DB unavailable."""
+    try:
+        from ...database import SessionLocal
+        from ...models_prompt import PromptTemplate
+
+        db = SessionLocal()
+        try:
+            row = db.query(PromptTemplate).filter_by(key=key, is_active=True).first()
+            return row.content if row else None
+        finally:
+            db.close()
+    except Exception:
+        return None
+
+
+# ── Core loader ──────────────────────────────────────────────────────────────
 
 def _read_md(rel_path: str) -> str:
-    """Read a .md template file relative to prompts/ directory."""
     fp = _PROMPTS_DIR / rel_path
     if not fp.exists():
         _log.warning("Prompt template not found: %s", fp)
@@ -39,50 +86,73 @@ def _read_md(rel_path: str) -> str:
     return fp.read_text(encoding="utf-8").strip()
 
 
-@lru_cache(maxsize=1)
+def _load_prompt(cache_key: str, fallback_path: str) -> str:
+    """Load prompt: cache → DB → .md file."""
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    # Try DB
+    db_content = _db_lookup(cache_key)
+    if db_content:
+        _cache_set(cache_key, db_content)
+        return db_content
+
+    # Fallback to .md
+    content = _read_md(fallback_path)
+    if content:
+        _cache_set(cache_key, content)
+    return content
+
+
+# ── Public API ───────────────────────────────────────────────────────────────
+
+def reload_prompt(key: str) -> None:
+    """Invalidate cache for a specific prompt key (called after admin save)."""
+    _cache_invalidate(key)
+
+
+def reload_all() -> None:
+    """Invalidate all cached prompts."""
+    _cache_invalidate()
+
+
 def get_platform_guardrails() -> str:
-    return _read_md("base/platform_guardrails.md")
+    return _load_prompt("platform_guardrails", "base/platform_guardrails.md")
 
 
-@lru_cache(maxsize=1)
 def get_health_coach_core() -> str:
-    return _read_md("base/health_coach_core.md")
+    return _load_prompt("health_coach_core", "base/health_coach_core.md")
 
 
-@lru_cache(maxsize=1)
 def get_visible_thinking_core() -> str:
-    return _read_md("base/visible_thinking_core.md")
+    return _load_prompt("visible_thinking_core", "base/visible_thinking_core.md")
 
 
-@lru_cache(maxsize=1)
 def get_context_header() -> str:
-    return _read_md("base/context_header.md")
+    return _load_prompt("context_header", "base/context_header.md")
 
 
-@lru_cache(maxsize=1)
 def get_rag_header() -> str:
-    return _read_md("base/rag_header.md")
+    return _load_prompt("rag_header", "base/rag_header.md")
 
 
-@lru_cache(maxsize=1)
 def get_scene_hint_header() -> str:
-    return _read_md("base/scene_hint_header.md")
+    return _load_prompt("scene_hint_header", "base/scene_hint_header.md")
 
 
-@lru_cache(maxsize=8)
 def get_scene_prompt(scene_key: str) -> str:
     if scene_key not in VALID_SCENES:
         _log.warning("Unknown scene key: %s, falling back to qa_support", scene_key)
         scene_key = "qa_support"
-    return _read_md(f"scenes/{scene_key}.md")
+    return _load_prompt(scene_key, f"scenes/{scene_key}.md")
 
 
-@lru_cache(maxsize=8)
 def get_style_prompt(style_key: str) -> str:
     if style_key not in VALID_STYLES:
         _log.warning("Unknown style key: %s, falling back to coach_brief", style_key)
         style_key = "coach_brief"
-    return _read_md(f"styles/{style_key}.md")
+    return _load_prompt(style_key, f"styles/{style_key}.md")
 
 
 def get_scene_label(scene_key: str) -> str:
@@ -98,7 +168,6 @@ def get_version() -> str:
 
 
 def get_system_prompt_hash(scene_key: str) -> str:
-    """Return a short hash for audit — identifies which prompt combination was used."""
     combined = get_platform_guardrails() + get_health_coach_core() + get_scene_prompt(scene_key)
     return hashlib.sha256(combined.encode()).hexdigest()[:16]
 

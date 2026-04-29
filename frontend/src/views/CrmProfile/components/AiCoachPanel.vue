@@ -102,8 +102,8 @@
                 <div class="ai-scene-bar">
                   <span class="ai-scene-label">输出模式</span>
                   <el-select v-model="outputStyle" size="small" class="ai-scene-select">
-                    <el-option label="客户话术" value="coach_brief" />
-                    <el-option label="教练简报" value="customer_reply" />
+                    <el-option label="客户话术" value="customer_reply" />
+                    <el-option label="教练简报" value="coach_brief" />
                     <el-option label="交接备注" value="handoff_note" />
                     <el-option label="详细报告" value="detailed_report" />
                   </el-select>

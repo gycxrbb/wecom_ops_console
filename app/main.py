@@ -24,6 +24,7 @@ from .routers.api_crm_points import router as crm_points_router
 from .routers.api_speech_templates import router as speech_templates_router
 from .routers.api_external_docs import router as external_docs_router
 from .routers.api_rag import router as rag_router
+from .routers.api_prompt_templates import router as prompt_templates_router
 from .services.seed import seed_all
 from .services.scheduler_service import schedule_service
 import hashlib
@@ -43,6 +44,9 @@ async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         seed_all(db)
+        from .models_prompt import PromptTemplate  # noqa: F401 — ensure table creation
+        from .services.prompt_seed import seed_prompt_templates
+        seed_prompt_templates(db)
         from .rag.tag_cache import load_from_db
         load_from_db(db)
     finally:
@@ -190,6 +194,7 @@ app.include_router(crm_points_router)
 app.include_router(speech_templates_router)
 app.include_router(external_docs_router)
 app.include_router(rag_router)
+app.include_router(prompt_templates_router)
 
 if settings.crm_profile_enabled:
     from .crm_profile import router as crm_profile_router, init_models

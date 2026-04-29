@@ -93,12 +93,15 @@ async def _do_retrieve(
     must_not: dict[str, Any] = {"semantic_quality": ["weak", "stale"]}
 
     # Scene-based positive filter
+    scene_values: list[str] | None = None
     if query_intent.intervention_scenes:
-        filters["intervention_scene"] = query_intent.intervention_scenes
+        scene_values = query_intent.intervention_scenes
     else:
         mapped_scene = _SCENE_MAP.get(scene_key)
         if mapped_scene:
-            filters["intervention_scene"] = [mapped_scene]
+            scene_values = [mapped_scene]
+    if scene_values:
+        filters["intervention_scene"] = scene_values
 
     # Domain exclusion: when nutrition intent detected, exclude points_operation scenes
     if query_intent.domain == "nutrition" and query_intent.negative_scenes:
@@ -115,6 +118,15 @@ async def _do_retrieve(
         query_vector, top_k=settings.rag_top_k,
         filters=filters, must_not=must_not or None,
     )
+
+    # 5a. Fallback: drop scene filter if too strict (most data may lack intervention_scene)
+    if not raw_hits and scene_values:
+        broad_filters = {k: v for k, v in filters.items() if k != "intervention_scene"}
+        _log.info("RAG scene filter returned 0 hits, retrying without intervention_scene filter")
+        raw_hits = await search(
+            query_vector, top_k=settings.rag_top_k,
+            filters=broad_filters, must_not=must_not or None,
+        )
 
     # 5b. Phase 2: Search materials for recommended_assets only
     material_filters: dict[str, Any] = {"content_kind": ["image", "video", "meme", "file"]}

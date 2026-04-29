@@ -77,6 +77,10 @@
         <el-icon><Lock /></el-icon>
         <span>权限管理</span>
       </el-menu-item>
+      <el-menu-item index="/prompt-manage" v-if="userStore.user?.role === 'admin'">
+        <el-icon><EditPen /></el-icon>
+        <span>提示词管理</span>
+      </el-menu-item>
     </el-menu>
 
     <div class="user-footer">
@@ -106,7 +110,7 @@
 </template>
 
 <script setup lang="ts">
-import { DataBoard, Promotion, ChatDotRound, Document, Picture, Timer, Tickets, Stamp, User, Lock, CaretBottom, Notebook, ChatLineSquare, Reading, UserFilled } from '@element-plus/icons-vue'
+import { DataBoard, Promotion, ChatDotRound, Document, Picture, Timer, Tickets, Stamp, User, Lock, CaretBottom, Notebook, ChatLineSquare, Reading, UserFilled, EditPen } from '@element-plus/icons-vue'
 import { moduleVisible as checkVisible, type PermissionKey } from '#/utils/permissions'
 
 const props = defineProps<{

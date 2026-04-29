@@ -569,6 +569,7 @@ export function useAiCoach() {
     lastTokenUsage.value = null
     loading.value = false
     restoredSessionMeta.value = null
+    outputStyle.value = 'coach_brief'
   }
 
   const retryLast = async (customerId: number) => {
