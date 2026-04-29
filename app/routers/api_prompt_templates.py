@@ -79,6 +79,7 @@ def get_template_tree(request: Request, db: Session = Depends(get_db)):
             "key": r.key,
             "label": r.label,
             "version": r.version,
+            "is_active": r.is_active,
         })
     return tree
 
@@ -125,6 +126,7 @@ def update_template(
     row.content = req.content
     row.version = new_ver
     row.updated_by = user.username
+    row.is_active = True
 
     db.add(PromptTemplateVersion(
         template_id=row.id, content=req.content, version=new_ver,
@@ -204,6 +206,7 @@ def rollback_template(
     row.content = ver.content
     row.version = ver.version
     row.updated_by = user.username
+    row.is_active = True
 
     db.add(PromptTemplateVersion(
         template_id=row.id, content=ver.content, version=ver.version,
@@ -289,6 +292,7 @@ def switch_snapshot(
             tpl.content = item.content
             tpl.version = item.version
             tpl.updated_by = f"snapshot:{snap.name}"
+            tpl.is_active = True
 
             db.add(PromptTemplateVersion(
                 template_id=tpl.id, content=item.content, version=item.version,
@@ -297,6 +301,7 @@ def switch_snapshot(
             ))
             switched.append(tpl.key)
         else:
+            tpl.is_active = False
             skipped.append(tpl.key)
 
     db.commit()

@@ -13,6 +13,17 @@
       </div>
     </div>
 
+    <el-alert
+      type="info"
+      :closable="false"
+      show-icon
+      style="margin-bottom: 16px"
+    >
+      <template #title>
+        数据库中的提示词即为 AI 实际使用的版本。通过上方快照切换或编辑保存后立即生效，无需重启服务，.md 文件仅作备份。
+      </template>
+    </el-alert>
+
     <div class="main-layout">
       <!-- Left: tree -->
       <div class="tree-panel">
@@ -24,9 +35,10 @@
           @node-click="onNodeClick"
         >
           <template #default="{ data }">
-            <span class="tree-node">
+            <span class="tree-node" :class="{ 'node-inactive': data.is_active === false }">
               <span>{{ data.label }}</span>
-              <el-tag v-if="data.version" size="small" type="info">{{ data.version }}</el-tag>
+              <el-tag v-if="data.is_active === false" size="small" type="info">未启用</el-tag>
+              <el-tag v-else-if="data.version" size="small" type="success">{{ data.version }}</el-tag>
             </span>
           </template>
         </el-tree>
@@ -37,7 +49,8 @@
         <div class="editor-header">
           <div>
             <span class="editor-title">{{ current.label }}</span>
-            <el-tag size="small">{{ current.version }}</el-tag>
+            <el-tag v-if="current.is_active" size="small" type="success" effect="dark">{{ current.version }} 生效中</el-tag>
+            <el-tag v-else size="small" type="warning" effect="dark">未启用 — AI 不加载此模板</el-tag>
             <span class="editor-meta">{{ current.layer }} / {{ current.key }}</span>
           </div>
           <div>
@@ -155,6 +168,7 @@ const buildTree = async () => {
       id: item.id,
       key: item.key,
       version: item.version,
+      is_active: item.is_active,
     })),
   }))
 }
@@ -274,4 +288,5 @@ onMounted(() => { buildTree(); loadSnapshots() })
 .version-panel { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--el-border-color-lighter); }
 .version-panel h4 { margin: 0 0 12px 0; }
 .tree-node { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.node-inactive { opacity: 0.5; }
 </style>

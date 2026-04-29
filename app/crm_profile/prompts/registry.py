@@ -33,19 +33,24 @@ _PROMPT_VERSION = "v2.1"
 # ── TTL Cache ───────────────────────────────────────────────────────────────
 
 _CACHE_TTL = 60  # seconds
-_cache: dict[str, tuple[str, float]] = {}
+_CACHE_MISS = object()  # sentinel: key not in cache or expired
+_cache: dict[str, tuple[object, float]] = {}
 _cache_lock = threading.Lock()
 
 
-def _cache_get(key: str) -> str | None:
+def _cache_get(key: str):
+    """Return cached value, or _CACHE_MISS if absent/expired."""
     with _cache_lock:
-        val, ts = _cache.get(key, ("", 0))
-        if val and (time.monotonic() - ts) < _CACHE_TTL:
+        entry = _cache.get(key)
+        if entry is None:
+            return _CACHE_MISS
+        val, ts = entry
+        if (time.monotonic() - ts) < _CACHE_TTL:
             return val
-        return None
+        return _CACHE_MISS
 
 
-def _cache_set(key: str, value: str) -> None:
+def _cache_set(key: str, value) -> None:
     with _cache_lock:
         _cache[key] = (value, time.monotonic())
 
@@ -60,16 +65,18 @@ def _cache_invalidate(key: str | None = None) -> None:
 
 # ── DB lookup ────────────────────────────────────────────────────────────────
 
-def _db_lookup(key: str) -> str | None:
-    """Try to load prompt content from DB. Returns None if DB unavailable."""
+def _db_lookup(key: str) -> tuple[str, bool] | None:
+    """Load prompt from DB. Returns (content, is_active) or None if not in DB."""
     try:
         from ...database import SessionLocal
         from ...models_prompt import PromptTemplate
 
         db = SessionLocal()
         try:
-            row = db.query(PromptTemplate).filter_by(key=key, is_active=True).first()
-            return row.content if row else None
+            row = db.query(PromptTemplate).filter_by(key=key).first()
+            if row is None:
+                return None
+            return (row.content, row.is_active)
         finally:
             db.close()
     except Exception:
@@ -87,18 +94,25 @@ def _read_md(rel_path: str) -> str:
 
 
 def _load_prompt(cache_key: str, fallback_path: str) -> str:
-    """Load prompt: cache → DB → .md file."""
+    """Load prompt: cache → DB → .md file.
+
+    Templates marked is_active=False in DB return "" (no .md fallback),
+    ensuring snapshot rollback fully deactivates v2-only templates.
+    """
     cached = _cache_get(cache_key)
-    if cached is not None:
-        return cached
+    if cached is not _CACHE_MISS:
+        return cached if cached else ""
 
-    # Try DB
-    db_content = _db_lookup(cache_key)
-    if db_content:
-        _cache_set(cache_key, db_content)
-        return db_content
+    db_result = _db_lookup(cache_key)
+    if db_result is not None:
+        content, is_active = db_result
+        if not is_active:
+            _cache_set(cache_key, None)
+            return ""
+        _cache_set(cache_key, content)
+        return content
 
-    # Fallback to .md
+    # Not in DB at all — fallback to .md
     content = _read_md(fallback_path)
     if content:
         _cache_set(cache_key, content)
