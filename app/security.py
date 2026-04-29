@@ -23,31 +23,19 @@ _log = logging.getLogger(__name__)
 
 
 def _build_deterministic_rsa_key() -> rsa.RSAPrivateKey:
-    """Derive a deterministic RSA key from app_secret_key.
+    """Load or generate a persistent RSA key for login password encryption.
 
-    This ensures all uvicorn workers sharing the same config produce
-    the same RSA key pair, so a password encrypted by one worker can
-    be decrypted by any other worker.
+    Key is cached in data/ directory (same as SQLite DB) so it survives
+    restarts and OS temp-file cleanup. All workers share the same key.
     """
+    import os
+    from .config import DATA_DIR
+
+    # Try pycryptodome deterministic path first
     seed = hashlib.sha256(f"rsa-login-{settings.app_secret_key}".encode()).digest()
-    # Use the seed as a fixed PRNG source via backend parameter
-    # cryptography's rsa.generate_private_key uses OS urandom;
-    # instead we serialize a pre-generated key from seed to stay deterministic.
-    import struct
-    from cryptography.hazmat.primitives.asymmetric.rsa import rsa_crt_iqmp, rsa_crt_dmp1, rsa_crt_dmq1
-
-    # Use PBKDF2 to stretch seed into a large deterministic byte stream
-    # then use it to seed Python's random for key generation.
-    import random as _rnd
-    det_rng = _rnd.Random(seed)
-
-    # Generate deterministic RSA-2048 key using pycryptodome-style approach
-    # but via cryptography library's rsa_recover_prime_factors is not available,
-    # so we use the simpler approach: generate once, persist to env/file.
-    # Simplest correct fix: use os-level seed by generating key once and caching.
-    # Actually the cleanest approach: generate key from fixed seed using
-    # the `rsa` library with custom randfunc.
     try:
+        import random as _rnd
+        det_rng = _rnd.Random(seed)
         from Crypto.PublicKey import RSA as _CryptoRSA
         det_key = _CryptoRSA.generate(2048, randfunc=lambda n: bytes(det_rng.getrandbits(8) for _ in range(n)))
         return serialization.load_der_private_key(
@@ -58,29 +46,30 @@ def _build_deterministic_rsa_key() -> rsa.RSAPrivateKey:
     except ImportError:
         pass
 
-    # Fallback: just use standard generation (non-deterministic).
-    # To guarantee multi-worker consistency without pycryptodome,
-    # we cache the PEM in a temp file derived from the secret.
-    import tempfile, os
+    # Fallback: persistent file cache in data/ (not temp dir)
     cache_name = hashlib.sha256(f"rsa-cache-{settings.app_secret_key}".encode()).hexdigest()[:16]
-    cache_path = os.path.join(tempfile.gettempdir(), f".wecom_rsa_{cache_name}.pem")
-    if os.path.exists(cache_path):
+    cache_path = DATA_DIR / f".rsa_key_{cache_name}.pem"
+
+    if cache_path.exists():
         try:
-            with open(cache_path, 'rb') as f:
-                return serialization.load_pem_private_key(f.read(), password=None, backend=default_backend())
+            return serialization.load_pem_private_key(
+                cache_path.read_bytes(), password=None, backend=default_backend()
+            )
         except Exception:
-            pass
+            _log.warning("Cached RSA key corrupted, regenerating: %s", cache_path)
+
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048, backend=default_backend())
     try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
         pem = key.private_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PrivateFormat.PKCS8,
             encryption_algorithm=serialization.NoEncryption(),
         )
-        with open(cache_path, 'wb') as f:
-            f.write(pem)
+        cache_path.write_bytes(pem)
+        _log.info("Generated and cached RSA key at %s", cache_path)
     except Exception as exc:
-        _log.warning('Failed to cache RSA key to %s: %s', cache_path, exc)
+        _log.warning("Failed to cache RSA key: %s", exc)
     return key
 
 
@@ -97,7 +86,6 @@ def decrypt_rsa_password(encrypted_b64_str: str) -> str:
     if not encrypted_b64_str:
         return ""
     try:
-        # Check if it looks like base64 RSA string (long enough)
         if len(encrypted_b64_str) < 50:
             return encrypted_b64_str
         encrypted_bytes = base64.b64decode(encrypted_b64_str)
@@ -107,7 +95,12 @@ def decrypt_rsa_password(encrypted_b64_str: str) -> str:
         )
         return decrypted_bytes.decode('utf-8')
     except Exception as exc:
-        _log.warning('RSA password decryption failed (len=%d): %s', len(encrypted_b64_str), exc)
+        _log.error(
+            'RSA decryption failed — likely key mismatch (len=%d, prefix=%s): %s',
+            len(encrypted_b64_str),
+            encrypted_b64_str[:20],
+            exc,
+        )
         return encrypted_b64_str
 
 def _fernet() -> Fernet:
