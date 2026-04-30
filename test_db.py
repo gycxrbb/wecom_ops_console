@@ -1,0 +1,1 @@
+from app.clients.crm_db import get_connection; conn=get_connection(); cur=conn.cursor(); cur.execute('DESCRIBE point_logs'); print(cur.fetchall()); cur.execute('SELECT * FROM point_logs LIMIT 2'); print(cur.fetchall())

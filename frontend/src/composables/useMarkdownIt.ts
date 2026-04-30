@@ -82,6 +82,21 @@ function createInstance(): MarkdownIt {
     return defaultTableClose(tokens, idx, options, env, self) + '</div>'
   }
 
+  // txt fence: custom "客户话术" block with copy button
+  const defaultFence =
+    md.renderer.rules.fence ||
+    ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options))
+  md.renderer.rules.fence = (tokens, idx, options, env, self) => {
+    const token = tokens[idx]
+    const info = token.info ? token.info.trim() : ''
+    if (info === 'txt') {
+      const content = token.content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      const escaped = content.replace(/'/g, "\\'").replace(/\n/g, '\\n')
+      return `<div class="md-txt-block"><div class="md-txt-header"><span class="md-txt-label">客户话术</span><button class="md-txt-copy" onclick="(function(btn){var s=btn.closest('.md-txt-block').querySelector('code');navigator.clipboard.writeText(s.textContent).then(function(){btn.textContent='已复制';setTimeout(function(){btn.textContent='复制'},1500)})})(this)">复制</button></div><pre class="md-txt-pre"><code>${content}</code></pre></div>`
+    }
+    return defaultFence(tokens, idx, options, env, self)
+  }
+
   return md
 }
 

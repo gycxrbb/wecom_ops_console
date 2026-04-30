@@ -11,7 +11,7 @@ from .middleware.ip_rate_limit import IPRateLimitMiddleware, cleanup_buckets as 
 from .routers.auth import router as auth_router
 from .routers.pages import router as pages_router
 from .routers.api import router as api_router
-from .schema_migrations import ensure_schedule_schema, ensure_asset_folders_schema, ensure_plan_schema, ensure_user_profile_schema, ensure_external_docs_schema, ensure_rag_schema, ensure_speech_category_schema
+from .schema_migrations import ensure_schedule_schema, ensure_asset_folders_schema, ensure_plan_schema, ensure_user_profile_schema, ensure_external_docs_schema, ensure_rag_schema, ensure_speech_category_schema, ensure_crm_ai_feedback_schema, ensure_crm_ai_message_p1_columns
 from .routers.api_folders import router as folders_router
 from .routers.api_operation_plans import router as operation_plans_router
 from .routers.api_profile import router as profile_router
@@ -41,6 +41,8 @@ async def lifespan(app: FastAPI):
     ensure_external_docs_schema(engine)
     ensure_rag_schema(engine)
     ensure_speech_category_schema(engine)
+    ensure_crm_ai_feedback_schema(engine)
+    ensure_crm_ai_message_p1_columns(engine)
     db = SessionLocal()
     try:
         seed_all(db)

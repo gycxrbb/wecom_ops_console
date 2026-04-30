@@ -144,7 +144,8 @@ const getRouteName = () => {
     '/approvals': '审批中心',
     '/users': '用户管理',
     '/permissions': '权限管理',
-    '/profile': '个人中心'
+    '/profile': '个人中心',
+    '/feedback-review': '反馈审核'
   }
   return map[route.path] || '页面'
 }

@@ -28,6 +28,34 @@ _SCENE_MAP = {
 }
 
 
+def _apply_tag_boosts(
+    hits: list[dict],
+    query_intent: QueryIntent,
+    *,
+    goal_boost: float = 0.05,
+    qtype_boost: float = 0.04,
+    scene_boost: float = 0.03,
+) -> list[dict]:
+    """Boost scores for hits matching query intent tags."""
+    goal_set = set(query_intent.customer_goals or [])
+    qtype_set = set(query_intent.question_types or [])
+    scene_set = set(query_intent.intervention_scenes or [])
+
+    for hit in hits:
+        payload = hit.get("payload", {})
+        boost = 0.0
+        if goal_set and goal_set & set(payload.get("customer_goal", [])):
+            boost += goal_boost
+        if qtype_set and qtype_set & set(payload.get("question_type", [])):
+            boost += qtype_boost
+        if scene_set and scene_set & set(payload.get("intervention_scene", [])):
+            boost += scene_boost
+        if boost:
+            hit["score"] = hit["score"] + boost
+            hit["tag_boost"] = round(boost, 3)
+    return hits
+
+
 async def retrieve_rag_context(
     *,
     customer_id: int,
@@ -50,6 +78,7 @@ async def retrieve_rag_context(
             customer_id=customer_id,
             message=message,
             scene_key=scene_key,
+            output_style=output_style,
             session_id=session_id,
             message_id=message_id,
         )
@@ -63,6 +92,7 @@ async def _do_retrieve(
     customer_id: int,
     message: str,
     scene_key: str,
+    output_style: str,
     session_id: str | None,
     message_id: str | None,
 ) -> RagBundle:
@@ -128,7 +158,11 @@ async def _do_retrieve(
             filters=broad_filters, must_not=must_not or None,
         )
 
-    # 5b. Phase 2: Search materials for recommended_assets only
+    # 5b. Apply tag-based score boosts (customer_goal, question_type, intervention_scene)
+    if raw_hits:
+        _apply_tag_boosts(raw_hits, query_intent)
+
+    # 5c. Phase 2: Search materials for recommended_assets only
     material_filters: dict[str, Any] = {"content_kind": ["image", "video", "meme", "file"]}
     raw_material_hits = await search(
         query_vector, top_k=6,
@@ -165,6 +199,7 @@ async def _do_retrieve(
                 "source_type": payload.get("source_type", ""),
                 "source_id": payload.get("source_id", 0),
                 "semantic_text": resource.semantic_text[:500] if resource and resource.semantic_text else "",
+                "tag_boost": hit.get("tag_boost", 0.0),
                 "filter_reason": None,
             })
 
@@ -219,12 +254,13 @@ async def _do_retrieve(
                 score=round(hit["score"], 4),
                 content_kind=hit["payload"].get("content_kind", "text"),
                 safety_level=hit["payload"].get("safety_level", "general"),
+                tag_boost=hit.get("tag_boost", 0.0),
             ))
     finally:
         db.close()
 
     # 10. Build recommended assets from phase 2 material hits
-    recommended_assets = await _build_recommended_assets(material_source_ids)
+    recommended_assets = await _build_recommended_assets(material_source_ids, output_style=output_style)
 
     # 11. Build context text for prompt injection
     context_parts = []
@@ -243,6 +279,7 @@ async def _do_retrieve(
             "resource_id": h["resource_id"],
             "title": h["title"],
             "score": round(h["score"], 4),
+            "tag_boost": h.get("tag_boost", 0.0),
             "filter_reason": h["filter_reason"],
         }
         for h in enriched_hits
@@ -269,7 +306,11 @@ async def _do_retrieve(
     )
 
 
-async def _build_recommended_assets(material_ids: list[int]) -> list[RagRecommendedAsset]:
+async def _build_recommended_assets(
+    material_ids: list[int],
+    *,
+    output_style: str = "coach_brief",
+) -> list[RagRecommendedAsset]:
     if not material_ids:
         return []
 
@@ -313,6 +354,11 @@ async def _build_recommended_assets(material_ids: list[int]) -> list[RagRecommen
                 customer_sendable=visibility == "customer_visible",
                 resource_id=resource_id,
             ))
+
+        # In customer_reply mode, prioritize customer-visible assets
+        if output_style == "customer_reply" and assets:
+            assets.sort(key=lambda a: (0 if a.customer_sendable else 1))
+
         return assets
     finally:
         db.close()

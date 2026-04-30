@@ -314,7 +314,7 @@ def fetch_crm_group_members_bulk(group_ids: list[int]) -> dict[int, dict[str, An
                 LEFT JOIN customer_groups cg ON cg.group_id = g.id
                 LEFT JOIN customers c ON c.id = cg.customer_id
                 WHERE g.id IN ({placeholders})
-                ORDER BY g.id, c.total_points DESC, c.name
+                ORDER BY g.id, c.points DESC, c.name
                 ''',
                 tuple(normalized_group_ids),
             )
@@ -352,7 +352,7 @@ def fetch_crm_group_members_bulk(group_ids: list[int]) -> dict[int, dict[str, An
                 'name': row.get('customer_name') or f'未命名成员#{customer_id}',
                 'points': float(row.get('points', 0) or 0),
                 'total_points': float(row.get('total_points', 0) or 0),
-                'current_points': float(row.get('total_points', 0) or 0),
+                'current_points': float(row.get('points', 0) or 0),
                 'week_points': week_cust.get(int(customer_id), 0.0),
                 'month_points': month_cust.get(int(customer_id), 0.0),
             })
@@ -384,7 +384,7 @@ def fetch_crm_individual_leaderboard(
     page: int = 1,
     page_size: int = 20,
 ) -> dict[str, Any]:
-    """个人积分榜单（按累计积分降序），带分页，标注所属群组"""
+    """个人积分榜单（按当前积分降序），带分页，标注所属群组"""
     if not crm_group_enabled():
         return {'available': False, 'list': [], 'pagination': {'page': page, 'page_size': page_size, 'total': 0}}
 
@@ -408,7 +408,7 @@ def fetch_crm_individual_leaderboard(
                 LEFT JOIN customer_groups cg ON cg.customer_id = c.id
                 LEFT JOIN `groups` g ON g.id = cg.group_id
                 GROUP BY c.id, c.name, c.points, c.total_points
-                ORDER BY c.total_points DESC, c.name
+                ORDER BY c.points DESC, c.name
                 LIMIT %s OFFSET %s
             ''', (page_size, offset))
             rows = cur.fetchall()
@@ -427,7 +427,7 @@ def fetch_crm_individual_leaderboard(
                 'name': r['name'] or f'未命名成员#{r["id"]}',
                 'points': float(r.get('points', 0) or 0),
                 'total_points': tp,
-                'current_points': tp,
+                'current_points': float(r.get('points', 0) or 0),
                 'week_points': week_cust.get(r['id'], 0.0),
                 'month_points': month_cust.get(r['id'], 0.0),
                 'group_names': r.get('group_names') or '',

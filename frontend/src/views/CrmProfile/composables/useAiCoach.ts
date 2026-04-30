@@ -17,6 +17,7 @@ export type AiAttachment = {
   filename: string
   mime_type: string
   file_size: number
+  url?: string
 }
 
 export type RagRecommendedAsset = {
@@ -50,6 +51,7 @@ export type AiChatMessage =
       streaming?: boolean
       errorCode?: string
       errorMessage?: string
+      feedback?: { rating: 'like' | 'dislike'; feedbackId: string } | null
     }
   | {
       role: 'reference'; messageType: 'rag_reference'
@@ -92,6 +94,7 @@ export type AiSessionMessage = {
   created_at?: string | null
   requires_medical_review?: boolean
   token_usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cached_tokens?: number }
+  feedback?: { rating: string; feedback_id: string } | null
 }
 
 type StreamPayload = {
@@ -229,6 +232,7 @@ export function useAiCoach() {
   const sessionId = ref<string | null>(null)
 
   const scenes = ref<SceneOption[]>([])
+  const styles = ref<SceneOption[]>([])
   const expansionOptions = ref<Record<string, string>>({})
   const selectedExpansions = ref<string[]>([])
   const currentScene = ref('qa_support')
@@ -241,16 +245,25 @@ export function useAiCoach() {
   const answerAbortController = ref<AbortController | null>(null)
   const thinkingAbortController = ref<AbortController | null>(null)
   const restoredSessionMeta = ref<{ sceneKey: string; outputStyle: string; promptVersion: string } | null>(null)
+  const quotedMessage = ref<Extract<AiChatMessage, { role: 'assistant' }> | null>(null)
 
   const tokenDisplay = computed(() => {
     if (!lastTokenUsage.value) return ''
     return `最近一次消耗 ${lastTokenUsage.value.total_tokens} tokens`
   })
 
+  const setQuote = (msg: Extract<AiChatMessage, { role: 'assistant' }>) => {
+    quotedMessage.value = msg
+  }
+  const clearQuote = () => {
+    quotedMessage.value = null
+  }
+
   const loadAiConfig = async (customerId: number) => {
     try {
       const res: any = await request.get(`/v1/crm-customers/${customerId}/ai/config`)
       scenes.value = res.scenes || []
+      styles.value = res.styles || []
       expansionOptions.value = res.expansion_options || {}
       profileNote.value = res.profile_note || { crm_customer_id: customerId }
       if (res.profile_note?.preferred_scene_hint) {
@@ -323,6 +336,7 @@ export function useAiCoach() {
         thinkingVisible: false,
         thinkingDone: true,
         streaming: false,
+        feedback: item.feedback ? { rating: item.feedback.rating as 'like' | 'dislike', feedbackId: item.feedback.feedback_id } : null,
       }))
 
       // Restore session strategy from audit trail
@@ -397,6 +411,7 @@ export function useAiCoach() {
       selected_expansions: selectedExpansions.value.length ? selectedExpansions.value : undefined,
       health_window_days: normalizeHealthWindowDays(options?.healthWindowDays),
       attachment_ids: options?.attachmentIds?.length ? options.attachmentIds : undefined,
+      quoted_message_id: quotedMessage.value?.messageId || undefined,
     }
 
     let answerCompleted = false
@@ -519,6 +534,7 @@ export function useAiCoach() {
     try {
       void thinkingPromise
       await answerPromise
+      clearQuote()
       await loadSessionHistory(customerId, { silent: true })
       return {
         session_id: sessionId.value,
@@ -570,6 +586,7 @@ export function useAiCoach() {
     loading.value = false
     restoredSessionMeta.value = null
     outputStyle.value = 'coach_brief'
+    clearQuote()
   }
 
   const retryLast = async (customerId: number) => {
@@ -589,6 +606,86 @@ export function useAiCoach() {
     return sendChat(customerId, userMsg.content)
   }
 
+  const regenerate = async (customerId: number, messageId: string) => {
+    if (loading.value) return null
+    loading.value = true
+    error.value = ''
+
+    const assistantIdx = chatHistory.value.length
+    chatHistory.value.push({
+      role: 'assistant', messageType: 'assistant_answer',
+      content: '',
+      safetyNotes: [],
+      thinkingContent: '',
+      thinkingVisible: false,
+      thinkingDone: false,
+      streaming: true,
+    })
+    type AssistantMsg = Extract<AiChatMessage, { role: 'assistant' }>
+    const assistantMessage = chatHistory.value[assistantIdx] as AssistantMsg
+
+    const controller = new AbortController()
+    answerAbortController.value = controller
+
+    try {
+      await streamSse(
+        `/v1/crm-customers/${customerId}/ai/messages/${messageId}/regenerate`,
+        {},
+        controller.signal,
+        (event, payload) => {
+          if (event === 'meta') {
+            if (payload.session_id) sessionId.value = payload.session_id
+            if (payload.message_id) assistantMessage.messageId = payload.message_id
+            return
+          }
+          if (event === 'loading') {
+            assistantMessage.loadingStage = payload.stage as 'prepare' | 'model_call'
+            return
+          }
+          if (event === 'delta' && payload.delta) {
+            assistantMessage.content += payload.delta
+            return
+          }
+          if (event === 'done') {
+            assistantMessage.streaming = false
+            assistantMessage.loadingStage = undefined
+            assistantMessage.tokenUsage = payload.token_usage
+            assistantMessage.safetyNotes = payload.safety_notes || []
+            assistantMessage.safetyResult = payload.safety_result || undefined
+            assistantMessage.requiresMedicalReview = payload.requires_medical_review
+            assistantMessage.thinkingVisible = false
+            assistantMessage.thinkingDone = true
+            if (payload.token_usage) {
+              lastTokenUsage.value = payload.token_usage
+            }
+            return
+          }
+          if (event === 'error') {
+            const err = new Error(payload?.message || '重新生成失败')
+            ;(err as any).code = payload?.code || 'unknown'
+            throw err
+          }
+        },
+      )
+      await loadSessionHistory(customerId, { silent: true })
+      return { session_id: sessionId.value, message_id: assistantMessage.messageId }
+    } catch (e: any) {
+      const msg = e?.message || '重新生成失败'
+      assistantMessage.streaming = false
+      assistantMessage.thinkingVisible = false
+      assistantMessage.errorCode = e?.code || 'unknown'
+      assistantMessage.errorMessage = msg
+      if (!assistantMessage.content) {
+        assistantMessage.content = ''
+      }
+      error.value = msg
+      return null
+    } finally {
+      loading.value = false
+      answerAbortController.value = null
+    }
+  }
+
   const uploadAttachment = async (customerId: number, file: File): Promise<AiAttachment> => {
     const formData = new FormData()
     formData.append('file', file)
@@ -601,10 +698,36 @@ export function useAiCoach() {
     return res
   }
 
+  const submitFeedback = async (
+    customerId: number,
+    messageId: string,
+    body: { rating: 'like' | 'dislike'; reason_category?: string; reason_text?: string; expected_answer?: string },
+  ) => {
+    const res: any = await request.post(
+      `/v1/crm-customers/${customerId}/ai/messages/${messageId}/feedback`,
+      body,
+    )
+    // Update local chatHistory
+    const msg = chatHistory.value.find(m => 'messageId' in m && m.messageId === messageId)
+    if (msg && 'feedback' in msg) {
+      msg.feedback = { rating: body.rating, feedbackId: res.feedback_id }
+    }
+    return res
+  }
+
+  const getMessageFeedback = async (customerId: number, messageId: string) => {
+    const res: any = await request.get(
+      `/v1/crm-customers/${customerId}/ai/messages/${messageId}/feedback`,
+    )
+    return res.feedback as { rating: string; feedback_id: string } | null
+  }
+
   return {
     loading, chatHistory, error, tokenDisplay, sessionId, sendChat, clearSession, retryLast,
     markMedicalReview, uploadAttachment,
-    scenes, currentScene, outputStyle, profileNote, profileNoteSaving, configLoaded,
+    submitFeedback, getMessageFeedback,
+    regenerate, quotedMessage, setQuote, clearQuote,
+    scenes, styles, currentScene, outputStyle, profileNote, profileNoteSaving, configLoaded,
     sessionHistory, sessionHistoryLoading, loadSessionHistory, openHistorySession,
     loadAiConfig, saveProfileNote, restoredSessionMeta,
     expansionOptions, selectedExpansions,

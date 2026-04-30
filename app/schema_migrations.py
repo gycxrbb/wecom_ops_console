@@ -397,6 +397,9 @@ def ensure_plan_schema(engine: Engine) -> None:
     # CRM AI attachments: ensure indexes (table created by ORM create_all)
     ensure_crm_ai_attachment_indexes(engine)
 
+    # CRM AI message feedback table
+    ensure_crm_ai_feedback_schema(engine)
+
 
 def ensure_crm_ai_indexes(engine: Engine) -> None:
     """Ensure indexes exist on CRM AI audit tables (tables created by ORM create_all)."""
@@ -604,3 +607,65 @@ def ensure_speech_category_schema(engine: Engine) -> None:
             db.commit()
     finally:
         db.close()
+
+
+def ensure_crm_ai_feedback_schema(engine: Engine) -> None:
+    """Ensure crm_ai_message_feedback table exists."""
+    autoincrement_kw = "AUTO_INCREMENT" if engine.dialect.name.lower() == "mysql" else "AUTOINCREMENT"
+    with engine.begin() as conn:
+        conn.execute(text(f"""
+            CREATE TABLE IF NOT EXISTS crm_ai_message_feedback (
+                id INTEGER PRIMARY KEY {autoincrement_kw},
+                feedback_id VARCHAR(64) NOT NULL,
+                session_id VARCHAR(64) NOT NULL,
+                message_id VARCHAR(64) NOT NULL,
+                user_message_id VARCHAR(64),
+                crm_customer_id INTEGER NOT NULL,
+                coach_user_id INTEGER NOT NULL,
+                crm_admin_id INTEGER,
+                rating VARCHAR(16) NOT NULL,
+                reason_category VARCHAR(64),
+                reason_text TEXT,
+                expected_answer TEXT,
+                user_question_snapshot TEXT,
+                ai_answer_snapshot TEXT,
+                customer_reply_snapshot TEXT,
+                scene_key VARCHAR(32),
+                output_style VARCHAR(32),
+                prompt_version VARCHAR(16),
+                prompt_hash VARCHAR(128),
+                model VARCHAR(64),
+                status VARCHAR(24) NOT NULL DEFAULT 'new',
+                admin_note TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+    inspector = inspect(engine)
+    if "crm_ai_message_feedback" in inspector.get_table_names():
+        idx_checks = [
+            ("ix_crm_feedback_fid", "crm_ai_message_feedback", ("feedback_id",), True),
+            ("ix_crm_feedback_sid", "crm_ai_message_feedback", ("session_id",), False),
+            ("ix_crm_feedback_mid", "crm_ai_message_feedback", ("message_id",), False),
+            ("ix_crm_feedback_cid", "crm_ai_message_feedback", ("crm_customer_id",), False),
+            ("ux_crm_feedback_mid_uid", "crm_ai_message_feedback", ("message_id", "coach_user_id"), True),
+        ]
+        with engine.begin() as conn:
+            for idx_name, table, columns, unique in idx_checks:
+                _ensure_named_index(conn, table, idx_name, columns, unique=unique)
+
+    # P1: regenerated_from_message_id + quoted_message_id on crm_ai_messages
+    ensure_crm_ai_message_p1_columns(engine)
+
+
+def ensure_crm_ai_message_p1_columns(engine: Engine) -> None:
+    """Add P1 columns to crm_ai_messages for regeneration and quote tracking."""
+    inspector = inspect(engine)
+    if "crm_ai_messages" not in inspector.get_table_names():
+        return
+    existing = {c["name"] for c in inspector.get_columns("crm_ai_messages")}
+    with engine.begin() as conn:
+        if "regenerated_from_message_id" not in existing:
+            conn.execute(text("ALTER TABLE crm_ai_messages ADD COLUMN regenerated_from_message_id VARCHAR(64)"))
+        if "quoted_message_id" not in existing:
+            conn.execute(text("ALTER TABLE crm_ai_messages ADD COLUMN quoted_message_id VARCHAR(64)"))

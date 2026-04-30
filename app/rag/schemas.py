@@ -13,6 +13,7 @@ class RagSource(BaseModel):
     content_kind: str
     tags: list[dict] = []
     safety_level: str = "general"
+    tag_boost: float = 0.0
     filter_reason: str | None = None
 
 

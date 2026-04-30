@@ -3,13 +3,9 @@
     <div class="page-header">
       <h2>提示词管理</h2>
       <div class="header-actions">
-        <el-select v-model="selectedSnapshot" placeholder="切换全局版本" size="small" style="width: 200px" @change="handleSnapshotChange">
-          <el-option v-for="s in snapshots" :key="s.id" :label="`${s.name}（${s.template_count} 条）`" :value="s.id" />
-        </el-select>
-        <el-button size="small" @click="handleCreateSnapshot">保存当前快照</el-button>
-        <el-button type="primary" size="small" @click="handleReseed" :loading="reseeding">
-          从文件重新导入
-        </el-button>
+        <el-button size="small" @click="snapshotLogVisible = true">版本记录</el-button>
+        <el-button size="small" type="success" @click="commitDialogVisible = true">提交快照</el-button>
+        <el-button size="small" @click="handleReseed" :loading="reseeding">从文件重新导入</el-button>
       </div>
     </div>
 
@@ -20,7 +16,7 @@
       style="margin-bottom: 16px"
     >
       <template #title>
-        数据库中的提示词即为 AI 实际使用的版本。通过上方快照切换或编辑保存后立即生效，无需重启服务，.md 文件仅作备份。
+        数据库中的提示词即为 AI 实际使用的版本。新建的场景/风格会自动注册到 AI 教练面板下拉列表中。
       </template>
     </el-alert>
 
@@ -35,10 +31,16 @@
           @node-click="onNodeClick"
         >
           <template #default="{ data }">
-            <span class="tree-node" :class="{ 'node-inactive': data.is_active === false }">
+            <span v-if="!data.children" class="tree-node" :class="{ 'node-inactive': data.is_active === false }">
               <span>{{ data.label }}</span>
               <el-tag v-if="data.is_active === false" size="small" type="info">未启用</el-tag>
               <el-tag v-else-if="data.version" size="small" type="success">{{ data.version }}</el-tag>
+            </span>
+            <span v-else class="tree-folder">
+              <span>{{ data.label }}</span>
+              <el-button class="folder-add-btn" size="small" link @click.stop="openCreateDialog(data.layer)">
+                <el-icon><Plus /></el-icon>
+              </el-button>
             </span>
           </template>
         </el-tree>
@@ -57,6 +59,7 @@
             <el-button size="small" @click="showVersions = !showVersions">
               {{ showVersions ? '隐藏版本' : '版本历史' }}
             </el-button>
+            <el-button type="danger" size="small" @click="handleDelete">删除</el-button>
             <el-button type="primary" size="small" @click="handleSave" :loading="saving">
               保存
             </el-button>
@@ -99,7 +102,7 @@
       </div>
 
       <div class="editor-panel empty-state" v-else>
-        <el-empty description="请从左侧选择一个提示词模板" />
+        <el-empty description="请从左侧选择一个提示词模板，或点击分组旁的 + 号新建" />
       </div>
     </div>
 
@@ -110,12 +113,116 @@
         <el-input type="textarea" :model-value="previewVersion.content" :rows="20" readonly />
       </div>
     </el-dialog>
+
+    <!-- Create template dialog -->
+    <el-dialog v-model="createDialogVisible" title="新建提示词模板" width="600px">
+      <el-form label-width="80px">
+        <el-form-item label="所属层">
+          <el-input :model-value="createLayerLabel" readonly />
+        </el-form-item>
+        <el-form-item label="标识符">
+          <el-input v-model="createForm.key" placeholder="英文标识，如 prescription_gen" />
+          <div class="form-hint">仅允许小写字母、数字、下划线，且以字母开头</div>
+        </el-form-item>
+        <el-form-item label="中文名">
+          <el-input v-model="createForm.label" placeholder="如：处方生成" />
+        </el-form-item>
+        <el-form-item label="内容">
+          <el-input v-model="createForm.content" type="textarea" :rows="12" placeholder="Markdown 提示词内容" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="createDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="handleCreate" :loading="creating">创建</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- Commit snapshot dialog (git commit) -->
+    <el-dialog v-model="commitDialogVisible" title="提交快照" width="500px">
+      <p style="color: var(--el-text-color-secondary); margin-bottom: 16px;">
+        将当前所有提示词状态保存为一个快照版本，类似于 git commit。
+      </p>
+      <el-form label-width="80px">
+        <el-form-item label="版本名">
+          <el-input v-model="commitForm.name" placeholder="如 v3.0（留空自动生成）" />
+        </el-form-item>
+        <el-form-item label="更新说明">
+          <el-input v-model="commitForm.description" type="textarea" :rows="4" placeholder="本次更新做了什么改动？如：新增处方生成场景、优化餐评 Few-shot 示例" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="commitDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="handleCommitSnapshot" :loading="committing">提交</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- Snapshot log dialog (git log) -->
+    <el-dialog v-model="snapshotLogVisible" title="版本记录" width="800px">
+      <div v-loading="loadingSnapshotLog">
+        <div v-for="snap in snapshots" :key="snap.id" class="snap-log-item">
+          <div class="snap-log-header">
+            <template v-if="editingSnapId === snap.id">
+              <el-input v-model="editingSnap.name" size="small" style="width: 140px" />
+              <el-button size="small" type="primary" link @click="handleSaveSnapEdit(snap)">保存</el-button>
+              <el-button size="small" link @click="editingSnapId = null">取消</el-button>
+            </template>
+            <template v-else>
+              <span class="snap-log-name">{{ snap.name }}</span>
+              <el-button size="small" link @click="startEditSnap(snap)" style="font-size: 12px">编辑</el-button>
+            </template>
+            <el-tag size="small" type="info">{{ snap.template_count }} 条模板</el-tag>
+            <span class="snap-log-meta">{{ snap.created_by }} · {{ formatTime(snap.created_at) }}</span>
+            <div class="snap-log-actions">
+              <el-button size="small" link @click="loadSnapshotDiff(snap.id)">查看变更</el-button>
+              <el-button size="small" link type="warning" @click="handleSnapshotChange(snap.id)">切换到此版本</el-button>
+            </div>
+          </div>
+          <div v-if="editingSnapId === snap.id" class="snap-edit-desc">
+            <el-input v-model="editingSnap.description" type="textarea" :rows="2" size="small" placeholder="更新说明" />
+          </div>
+          <div v-else-if="snap.description" class="snap-log-desc">{{ snap.description }}</div>
+
+          <!-- Diff panel for this snapshot -->
+          <div v-if="activeDiffId === snap.id && snapshotDiff" class="snap-diff-panel">
+            <div class="snap-diff-summary">
+              <el-tag v-if="snapshotDiff.summary.added" size="small" type="success">+{{ snapshotDiff.summary.added }} 新增</el-tag>
+              <el-tag v-if="snapshotDiff.summary.modified" size="small" type="warning">~{{ snapshotDiff.summary.modified }} 修改</el-tag>
+              <el-tag v-if="snapshotDiff.summary.removed" size="small" type="danger">-{{ snapshotDiff.summary.removed }} 删除</el-tag>
+              <el-tag v-if="snapshotDiff.summary.unchanged" size="small" type="info">{{ snapshotDiff.summary.unchanged }} 未变</el-tag>
+              <span v-if="snapshotDiff.previous_snapshot" class="snap-diff-vs">
+                对比 {{ snapshotDiff.previous_snapshot.name }}
+              </span>
+              <span v-else class="snap-diff-vs">初始快照</span>
+            </div>
+            <el-table :data="snapshotDiff.changes" size="small" class="snap-diff-table">
+              <el-table-column prop="key" label="模板" width="200" />
+              <el-table-column label="变更" width="80">
+                <template #default="{ row }">
+                  <el-tag v-if="row.change === 'added'" size="small" type="success">新增</el-tag>
+                  <el-tag v-else-if="row.change === 'modified'" size="small" type="warning">修改</el-tag>
+                  <el-tag v-else-if="row.change === 'removed'" size="small" type="danger">删除</el-tag>
+                  <el-tag v-else size="small" type="info">未变</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="版本">
+                <template #default="{ row }">
+                  <span v-if="row.change === 'modified'">{{ row.from_version }} → {{ row.to_version }}</span>
+                  <span v-else>{{ row.version }}</span>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+        </div>
+        <el-empty v-if="!snapshots.length" description="暂无快照记录" />
+      </div>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Plus } from '@element-plus/icons-vue'
 import request from '#/utils/request'
 
 interface TemplateItem {
@@ -139,6 +246,12 @@ interface VersionItem {
   created_at: string | null
 }
 
+const LAYER_LABELS: Record<string, string> = {
+  base: '基础层 (L1/L2)',
+  scene: '场景策略 (L3)',
+  style: '风格模板',
+}
+
 const treeData = ref<any[]>([])
 const current = ref<TemplateItem | null>(null)
 const editContent = ref('')
@@ -154,15 +267,35 @@ const versionDialogVisible = ref(false)
 const previewVersion = ref<any>(null)
 
 const snapshots = ref<any[]>([])
-const selectedSnapshot = ref<number | null>(null)
+
+const createDialogVisible = ref(false)
+const creating = ref(false)
+const createLayer = ref('')
+const createForm = ref({ key: '', label: '', content: '' })
+
+const commitDialogVisible = ref(false)
+const committing = ref(false)
+const commitForm = ref({ name: '', description: '' })
+
+const snapshotLogVisible = ref(false)
+const loadingSnapshotLog = ref(false)
+const activeDiffId = ref<number | null>(null)
+const snapshotDiff = ref<any>(null)
+
+const editingSnapId = ref<number | null>(null)
+const editingSnap = ref({ name: '', description: '' })
+
+const createLayerLabel = computed(() => LAYER_LABELS[createLayer.value] || createLayer.value)
 
 const formatTime = (t: string | null) => t ? t.replace('T', ' ').slice(0, 19) : '-'
 
 const buildTree = async () => {
   const res: any = await request.get('/v1/admin/prompt-templates/tree')
   const data = res as Record<string, any[]>
+  const layerKeyMap: Record<string, string> = { '基础层 (L1/L2)': 'base', '场景策略 (L3)': 'scene', '风格模板': 'style' }
   treeData.value = Object.entries(data).map(([layerLabel, items]) => ({
     label: layerLabel,
+    layer: layerKeyMap[layerLabel] || layerLabel,
     children: items.map((item: any) => ({
       label: item.label,
       id: item.id,
@@ -211,6 +344,47 @@ const handleSave = async () => {
   }
 }
 
+const handleDelete = async () => {
+  if (!current.value) return
+  await ElMessageBox.confirm(
+    `确定删除「${current.value.label}」（${current.value.key}）？删除后 AI 将不再使用此模板，相关版本历史也会清除。`,
+    '确认删除',
+    { type: 'warning' },
+  )
+  await request.delete(`/v1/admin/prompt-templates/${current.value.id}`)
+  ElMessage.success('已删除')
+  current.value = null
+  buildTree()
+}
+
+const openCreateDialog = (layer: string) => {
+  createLayer.value = layer
+  createForm.value = { key: '', label: '', content: '' }
+  createDialogVisible.value = true
+}
+
+const handleCreate = async () => {
+  if (!createForm.value.key || !createForm.value.label) {
+    ElMessage.warning('请填写标识符和中文名')
+    return
+  }
+  creating.value = true
+  try {
+    await request.post('/v1/admin/prompt-templates', {
+      layer: createLayer.value,
+      key: createForm.value.key,
+      label: createForm.value.label,
+      content: createForm.value.content,
+    })
+    ElMessage.success('创建成功')
+    createDialogVisible.value = false
+    current.value = null
+    buildTree()
+  } finally {
+    creating.value = false
+  }
+}
+
 const handlePreviewVersion = async (v: VersionItem) => {
   if (!current.value) return
   previewVersion.value = await request.get(
@@ -243,29 +417,71 @@ const handleReseed = async () => {
   }
 }
 
+// ── Snapshot management (git-like) ──────────────────────────────────────────
+
 const loadSnapshots = async () => {
   snapshots.value = await request.get('/v1/admin/prompt-templates/snapshots/list')
+}
+
+const handleCommitSnapshot = async () => {
+  committing.value = true
+  try {
+    const res: any = await request.post('/v1/admin/prompt-templates/snapshots/create', {
+      name: commitForm.value.name,
+      description: commitForm.value.description,
+    })
+    ElMessage.success(`已提交快照「${res.name}」，包含 ${res.template_count} 个模板`)
+    commitDialogVisible.value = false
+    commitForm.value = { name: '', description: '' }
+    loadSnapshots()
+  } finally {
+    committing.value = false
+  }
+}
+
+const loadSnapshotDiff = async (snapshotId: number) => {
+  if (activeDiffId.value === snapshotId) {
+    activeDiffId.value = null
+    snapshotDiff.value = null
+    return
+  }
+  activeDiffId.value = snapshotId
+  snapshotDiff.value = await request.get(`/v1/admin/prompt-templates/snapshots/${snapshotId}/diff`)
+}
+
+const startEditSnap = (snap: any) => {
+  editingSnapId.value = snap.id
+  editingSnap.value = {
+    name: snap.name || '',
+    description: snap.description || '',
+  }
+}
+
+const handleSaveSnapEdit = async (snap: any) => {
+  await request.put(`/v1/admin/prompt-templates/snapshots/${snap.id}`, {
+    name: editingSnap.value.name,
+    description: editingSnap.value.description,
+  })
+  snap.name = editingSnap.value.name
+  snap.description = editingSnap.value.description
+  editingSnapId.value = null
+  ElMessage.success('快照信息已更新')
 }
 
 const handleSnapshotChange = async (snapshotId: number) => {
   const snap = snapshots.value.find((s: any) => s.id === snapshotId)
   if (!snap) return
   await ElMessageBox.confirm(
-    `将把所有模板切换到快照「${snap.name}」的版本。不在该快照中的模板将保持当前内容。确定？`,
+    `将把所有模板切换到快照「${snap.name}」的版本。不在该快照中的模板将被停用。确定？`,
     '确认全局切换',
   )
   const res: any = await request.post('/v1/admin/prompt-templates/snapshots/switch', {
     snapshot_id: snapshotId,
   })
   ElMessage.success(res.message)
+  snapshotLogVisible.value = false
   current.value = null
   buildTree()
-}
-
-const handleCreateSnapshot = async () => {
-  const res: any = await request.post('/v1/admin/prompt-templates/snapshots/create')
-  ElMessage.success(`已创建快照「${res.name}」，包含 ${res.template_count} 个模板`)
-  loadSnapshots()
 }
 
 onMounted(() => { buildTree(); loadSnapshots() })
@@ -277,7 +493,7 @@ onMounted(() => { buildTree(); loadSnapshots() })
 .page-header h2 { margin: 0; font-size: 18px; }
 .header-actions { display: flex; gap: 8px; align-items: center; }
 .main-layout { display: flex; gap: 20px; min-height: 600px; }
-.tree-panel { width: 260px; flex-shrink: 0; background: var(--el-bg-color); border-radius: 8px; padding: 16px; border: 1px solid var(--el-border-color-lighter); }
+.tree-panel { width: 280px; flex-shrink: 0; background: var(--el-bg-color); border-radius: 8px; padding: 16px; border: 1px solid var(--el-border-color-lighter); }
 .editor-panel { flex: 1; background: var(--el-bg-color); border-radius: 8px; padding: 20px; border: 1px solid var(--el-border-color-lighter); }
 .editor-panel.empty-state { display: flex; align-items: center; justify-content: center; }
 .editor-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
@@ -288,5 +504,24 @@ onMounted(() => { buildTree(); loadSnapshots() })
 .version-panel { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--el-border-color-lighter); }
 .version-panel h4 { margin: 0 0 12px 0; }
 .tree-node { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.tree-folder { display: flex; align-items: center; gap: 6px; font-size: 13px; width: 100%; justify-content: space-between; }
+.tree-folder span:first-child { font-weight: 600; }
+.folder-add-btn { font-size: 14px; }
 .node-inactive { opacity: 0.5; }
+.form-hint { font-size: 12px; color: var(--el-text-color-secondary); margin-top: 4px; }
+
+/* Snapshot log (git log style) */
+.snap-log-item { padding: 12px 0; border-bottom: 1px solid var(--el-border-color-lighter); }
+.snap-log-item:last-child { border-bottom: none; }
+.snap-log-header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.snap-log-name { font-weight: 600; font-size: 15px; }
+.snap-log-meta { color: var(--el-text-color-secondary); font-size: 12px; }
+.snap-log-actions { margin-left: auto; }
+.snap-log-desc { color: var(--el-text-color-regular); font-size: 13px; margin-top: 6px; padding-left: 2px; white-space: pre-wrap; }
+
+/* Snapshot diff */
+.snap-diff-panel { margin-top: 10px; padding: 12px; background: var(--el-fill-color-lighter); border-radius: 6px; }
+.snap-diff-summary { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
+.snap-diff-vs { color: var(--el-text-color-secondary); font-size: 12px; margin-left: 8px; }
+.snap-diff-table { background: transparent; }
 </style>

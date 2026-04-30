@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import logging
 
-from fastapi import APIRouter, Body, Depends, File, Query, Request, UploadFile
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -25,6 +25,10 @@ from .schemas.api import (
     AiChatRequest, AiChatResponse,
     AiSessionListResponse, AiSessionDetailResponse,
     AiPreloadRequest, AiPreloadResponse, AiCacheStatusResponse,
+    AiFeedbackRequest, AiFeedbackResponse,
+    AiFeedbackListItem, AiFeedbackListResponse,
+    AiFeedbackDetailResponse, AiFeedbackStatusUpdateRequest,
+    AiFeedbackStatsResponse,
 )
 from .models import CustomerAiProfileNote
 from .services.permission import assert_can_view, resolve_visible_customers
@@ -408,14 +412,16 @@ def get_ai_config(
     require_permission(user, 'crm_profile')
     assert_can_view(user, customer_id)
 
-    from .prompts.registry import VALID_SCENES, get_version
+    from .prompts.registry import list_scenes, list_styles, get_version
     from .schemas.context import EXPANSION_MODULE_OPTIONS
 
-    scenes = [SceneOption(key=k, label=v) for k, v in VALID_SCENES.items()]
+    scenes = [SceneOption(key=k, label=l) for k, l in list_scenes()]
+    styles = [SceneOption(key=k, label=l) for k, l in list_styles()]
     note = db.query(CustomerAiProfileNote).filter_by(crm_customer_id=customer_id).first()
 
     return {
         "scenes": scenes,
+        "styles": styles,
         "profile_note": _note_to_response(note) if note else None,
         "prompt_version": get_version(),
         "expansion_options": EXPANSION_MODULE_OPTIONS,
@@ -541,6 +547,18 @@ def get_ai_session_detail(
     if not detail:
         from fastapi import HTTPException
         raise HTTPException(404, "未找到对应的历史对话")
+
+    # Attach feedback for assistant messages
+    from .services.feedback import load_feedbacks_for_messages
+    assistant_ids = [m["message_id"] for m in detail["messages"] if m["role"] == "assistant"]
+    feedbacks = load_feedbacks_for_messages(db, assistant_ids, user.id)
+    for m in detail["messages"]:
+        if m["role"] == "assistant":
+            fb = feedbacks.get(m["message_id"])
+            m["feedback"] = {"rating": fb.rating, "feedback_id": fb.feedback_id} if fb else None
+        else:
+            m["feedback"] = None
+
     return {
         "customer_id": customer_id,
         "session": detail["session"],
@@ -556,7 +574,7 @@ def get_ai_session_detail(
 _ai_coach_enabled = settings.ai_coach_enabled or (bool(settings.ai_api_key) and settings.crm_profile_enabled)
 
 if _ai_coach_enabled:
-    from .services.ai_coach import ask_ai_coach, stream_ai_coach_answer, stream_ai_coach_thinking
+    from .services.ai_coach import ask_ai_coach, stream_ai_coach_answer, stream_ai_coach_thinking, regenerate_ai_coach_answer
     from .services.ai_attachment import upload_attachment as _upload_attachment
     from .services.audit import mark_medical_review as _mark_medical_review
 
@@ -592,6 +610,7 @@ if _ai_coach_enabled:
             output_style=body.output_style,
             health_window_days=body.health_window_days,
             attachment_ids=body.attachment_ids,
+            quoted_message_id=body.quoted_message_id,
         )
         return result
 
@@ -625,6 +644,7 @@ if _ai_coach_enabled:
                 selected_expansions=body.selected_expansions,
                 health_window_days=body.health_window_days,
                 attachment_ids=body.attachment_ids,
+                quoted_message_id=body.quoted_message_id,
             ):
                 _sse_log.info("[SSE-ROUTE] chat-stream writing SSE event=%s at %.3fs", event.event, _time.time() - _t)
                 yield _sse(event.event, event.data)
@@ -691,6 +711,7 @@ if _ai_coach_enabled:
                 "filename": att.original_filename,
                 "mime_type": att.mime_type,
                 "file_size": att.file_size,
+                "url": att.storage_public_url or None,
             }
         except ValueError as e:
             from fastapi.responses import JSONResponse
@@ -713,6 +734,95 @@ if _ai_coach_enabled:
             raise HTTPException(404, "消息不存在")
         return {"ok": True}
 
+    @router.post("/{customer_id}/ai/messages/{message_id}/feedback")
+    def submit_ai_feedback(
+        customer_id: int,
+        message_id: str,
+        body: AiFeedbackRequest,
+        request: Request,
+        db: Session = Depends(get_db),
+    ):
+        """Submit or update feedback (like/dislike) for an AI message."""
+        user = get_current_user(request, db)
+        require_permission(user, 'crm_profile')
+        assert_can_view(user, customer_id)
+        from .services.feedback import submit_feedback
+        from fastapi import HTTPException
+        try:
+            fb = submit_feedback(
+                db,
+                customer_id=customer_id,
+                message_id=message_id,
+                coach_user_id=user.id,
+                crm_admin_id=getattr(user, 'crm_admin_id', None),
+                rating=body.rating,
+                reason_category=body.reason_category,
+                reason_text=body.reason_text,
+                expected_answer=body.expected_answer,
+            )
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        return AiFeedbackResponse(
+            feedback_id=fb.feedback_id,
+            message_id=fb.message_id,
+            rating=fb.rating,
+            status=fb.status,
+            created_at=str(fb.created_at) if fb.created_at else "",
+        )
+
+    @router.get("/{customer_id}/ai/messages/{message_id}/feedback")
+    def get_ai_feedback(
+        customer_id: int,
+        message_id: str,
+        request: Request,
+        db: Session = Depends(get_db),
+    ):
+        """Get current user's feedback for an AI message."""
+        user = get_current_user(request, db)
+        require_permission(user, 'crm_profile')
+        assert_can_view(user, customer_id)
+        from .services.feedback import get_message_feedback
+        fb = get_message_feedback(db, message_id, user.id)
+        if not fb:
+            return {"feedback": None}
+        return {
+            "feedback": {
+                "rating": fb.rating,
+                "feedback_id": fb.feedback_id,
+            }
+        }
+
+    @router.post("/{customer_id}/ai/messages/{message_id}/regenerate")
+    async def regenerate_ai_message(
+        customer_id: int,
+        message_id: str,
+        request: Request,
+        db: Session = Depends(get_db),
+    ):
+        """Regenerate an AI answer for the same question, keeping the old answer."""
+        user = get_current_user(request, db)
+        require_permission(user, 'crm_profile')
+        assert_can_view(user, customer_id)
+
+        import time as _time
+        _t = _time.time()
+
+        async def event_stream():
+            yield ": connected\n\n"
+            async for event in regenerate_ai_coach_answer(
+                customer_id,
+                message_id,
+                local_user_id=user.id,
+                crm_admin_id=getattr(user, 'crm_admin_id', None),
+            ):
+                yield _sse(event.event, event.data)
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers=_STREAM_HEADERS,
+        )
+
     # --- Debug: test SSE streaming directly ---
     @router.get("/_debug/sse-test")
     async def debug_sse_test():
@@ -723,3 +833,125 @@ if _ai_coach_enabled:
             async for evt in _debug_ai_stream_test():
                 yield _sse(evt.event, evt.data)
         return StreamingResponse(gen(), media_type="text/event-stream", headers=_STREAM_HEADERS)
+
+    # ------------------------------------------------------------------
+    # Admin feedback review endpoints
+    # ------------------------------------------------------------------
+
+    @router.get("/ai/feedback", tags=["ai-feedback-admin"])
+    def list_ai_feedback_admin(
+        request: Request,
+        db: Session = Depends(get_db),
+        page: int = Query(1, ge=1),
+        page_size: int = Query(20, ge=1, le=100),
+        rating: str | None = Query(None),
+        reason_category: str | None = Query(None),
+        status: str | None = Query(None),
+        scene_key: str | None = Query(None),
+        coach_user_id: int | None = Query(None),
+        date_start: str | None = Query(None),
+        date_end: str | None = Query(None),
+    ):
+        """Admin: list all AI message feedback with filters."""
+        user = get_current_user(request, db)
+        if user.role != "admin":
+            raise HTTPException(403, "仅管理员可访问")
+        from .services.feedback import list_feedbacks_admin
+        items, total = list_feedbacks_admin(
+            db, page=page, page_size=page_size,
+            rating=rating, reason_category=reason_category,
+            status=status, scene_key=scene_key,
+            coach_user_id=coach_user_id,
+            date_start=date_start, date_end=date_end,
+        )
+        return AiFeedbackListResponse(
+            items=[
+                AiFeedbackListItem(
+                    feedback_id=fb.feedback_id,
+                    message_id=fb.message_id,
+                    crm_customer_id=fb.crm_customer_id,
+                    coach_user_id=fb.coach_user_id,
+                    rating=fb.rating,
+                    reason_category=fb.reason_category,
+                    scene_key=fb.scene_key,
+                    status=fb.status,
+                    user_question_snapshot=(fb.user_question_snapshot or "")[:80],
+                    created_at=str(fb.created_at) if fb.created_at else None,
+                )
+                for fb in items
+            ],
+            total=total,
+            page=page,
+            page_size=page_size,
+        )
+
+    @router.get("/ai/feedback/stats", tags=["ai-feedback-admin"])
+    def get_ai_feedback_stats(
+        request: Request,
+        db: Session = Depends(get_db),
+        date_start: str | None = Query(None),
+        date_end: str | None = Query(None),
+    ):
+        """Admin: feedback statistics."""
+        user = get_current_user(request, db)
+        if user.role != "admin":
+            raise HTTPException(403, "仅管理员可访问")
+        from .services.feedback import get_feedback_stats as _stats
+        stats = _stats(db, date_start=date_start, date_end=date_end)
+        return AiFeedbackStatsResponse(**stats)
+
+    @router.get("/ai/feedback/{feedback_id}", tags=["ai-feedback-admin"])
+    def get_ai_feedback_detail(
+        feedback_id: str,
+        request: Request,
+        db: Session = Depends(get_db),
+    ):
+        """Admin: get feedback detail."""
+        user = get_current_user(request, db)
+        if user.role != "admin":
+            raise HTTPException(403, "仅管理员可访问")
+        from .services.feedback import get_feedback_detail
+        fb = get_feedback_detail(db, feedback_id)
+        if not fb:
+            raise HTTPException(404, "反馈不存在")
+        return AiFeedbackDetailResponse(
+            feedback_id=fb.feedback_id,
+            message_id=fb.message_id,
+            session_id=fb.session_id,
+            crm_customer_id=fb.crm_customer_id,
+            coach_user_id=fb.coach_user_id,
+            rating=fb.rating,
+            reason_category=fb.reason_category,
+            reason_text=fb.reason_text,
+            expected_answer=fb.expected_answer,
+            user_question_snapshot=fb.user_question_snapshot,
+            ai_answer_snapshot=fb.ai_answer_snapshot,
+            customer_reply_snapshot=fb.customer_reply_snapshot,
+            scene_key=fb.scene_key,
+            output_style=fb.output_style,
+            prompt_version=fb.prompt_version,
+            prompt_hash=fb.prompt_hash,
+            model=fb.model,
+            status=fb.status,
+            admin_note=fb.admin_note,
+            created_at=str(fb.created_at) if fb.created_at else None,
+            updated_at=str(fb.updated_at) if fb.updated_at else None,
+        )
+
+    @router.patch("/ai/feedback/{feedback_id}", tags=["ai-feedback-admin"])
+    def update_ai_feedback_status(
+        feedback_id: str,
+        body: AiFeedbackStatusUpdateRequest,
+        request: Request,
+        db: Session = Depends(get_db),
+    ):
+        """Admin: update feedback status and/or admin note."""
+        user = get_current_user(request, db)
+        if user.role != "admin":
+            raise HTTPException(403, "仅管理员可访问")
+        from .services.feedback import update_feedback_status
+        try:
+            fb = update_feedback_status(db, feedback_id, status=body.status, admin_note=body.admin_note)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        return {"ok": True, "status": fb.status}

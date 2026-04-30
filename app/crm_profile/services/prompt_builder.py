@@ -17,18 +17,16 @@ from dataclasses import dataclass, field
 
 from ..models import CustomerAiProfileNote
 from ..prompts.registry import (
-    get_platform_guardrails,
-    get_health_coach_core,
-    get_visible_thinking_core,
-    get_scene_prompt,
+    get_all_base_prompts,
     get_context_header,
     get_rag_header,
     get_scene_hint_header,
+    get_scene_prompt,
+    get_scene_label,
     get_style_prompt,
     get_version,
     get_system_prompt_hash,
     get_visible_thinking_prompt_hash,
-    get_scene_label,
 )
 
 _log = logging.getLogger(__name__)
@@ -92,9 +90,9 @@ def assemble_prompt(
         else "输出模式：简洁教练简报，结论优先。"
     )
 
-    # Layer 1 + 2: system prompt
-    system_text = get_platform_guardrails() + "\n\n" + get_health_coach_core()
-    used_layers = ["platform_guardrails", "health_coach_core"]
+    # Layer 1 + 2: base system prompt (all active base-layer templates)
+    system_text = get_all_base_prompts()
+    used_layers = ["base:all"]
 
     # Layer 3: scene
     scene_text = get_scene_prompt(scene_key)
@@ -163,8 +161,8 @@ def assemble_visible_thinking_prompt(
     rag_context_text: str = "",
 ) -> PromptAssembly:
     """Assemble a separate, UI-safe reasoning-summary prompt for the thinking box."""
-    system_text = get_platform_guardrails() + "\n\n" + get_visible_thinking_core()
-    used_layers = ["platform_guardrails", "visible_thinking_core"]
+    system_text = get_all_base_prompts()
+    used_layers = ["base:all"]
 
     scene_text = get_scene_prompt(scene_key)
     if scene_text:

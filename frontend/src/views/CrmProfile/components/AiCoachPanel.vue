@@ -102,10 +102,7 @@
                 <div class="ai-scene-bar">
                   <span class="ai-scene-label">输出模式</span>
                   <el-select v-model="outputStyle" size="small" class="ai-scene-select">
-                    <el-option label="客户话术" value="customer_reply" />
-                    <el-option label="教练简报" value="coach_brief" />
-                    <el-option label="交接备注" value="handoff_note" />
-                    <el-option label="详细报告" value="detailed_report" />
+                    <el-option v-for="s in styles" :key="s.key" :label="s.label" :value="s.key" />
                   </el-select>
                 </div>
                 <div class="ai-expansion-section" v-if="Object.keys(expansionOptions).length">
@@ -221,6 +218,9 @@
             @toggle-select="onToggleSelect"
             @send-to-center="sendAssetToCenter"
             @retry="onRetryLast"
+            @feedback="onFeedback"
+            @regenerate="onRegenerate"
+            @quote="onQuote"
           />
 
           <!-- Select mode action bar -->
@@ -240,7 +240,7 @@
             <!-- Attachment preview strip -->
             <div v-if="pendingAttachments.length" class="ai-attachment-strip">
               <div v-for="(att, idx) in pendingAttachments" :key="att.attachment_id" class="ai-attachment-thumb">
-                <img v-if="att.mime_type.startsWith('image/')" :src="getAttachmentPreviewUrl(att)" class="ai-att-img" />
+                <img v-if="att.mime_type.startsWith('image/')" :src="att.url" class="ai-att-img" />
                 <div v-else class="ai-att-file-icon">
                   <el-icon :size="20"><Document /></el-icon>
                 </div>
@@ -253,6 +253,14 @@
             </div>
             <input ref="fileInputRef" type="file" accept="image/jpeg,image/png,image/webp,application/pdf"
               style="display:none" @change="onFileSelected" />
+            <!-- Quote bar for follow-up questions -->
+            <div v-if="quotedMessage" class="ai-quote-bar">
+              <div class="ai-quote-bar-content">
+                <el-icon :size="14"><ChatLineRound /></el-icon>
+                <span>正在追问 AI 回复：{{ truncateText(quotedMessage.content, 60) }}</span>
+              </div>
+              <el-icon class="ai-quote-bar-close" @click="clearQuote"><Close /></el-icon>
+            </div>
             <div class="ai-input-card">
               <el-input v-model="input" type="textarea" :autosize="{ minRows: 1, maxRows: 8 }" placeholder="输入本次问题，例如：基于她最近一周血糖..." :disabled="loading || !!disabledReason || cacheSendBlocked" @keydown.enter.exact.prevent="send" class="ai-chat-input" />
               <div class="ai-input-toolbar">
@@ -268,6 +276,12 @@
       </div>
     </div>
   </el-drawer>
+  <AiCoachFeedbackDialog
+    ref="feedbackDialogRef"
+    :user-question="feedbackTargetMsg?.content || ''"
+    :ai-answer="feedbackTargetMsg?.content || ''"
+    @submit="onFeedbackDialogSubmit"
+  />
 </template>
 
 <script setup lang="ts">
@@ -298,6 +312,7 @@ import type { AiChatMessage, AiAttachment } from '../composables/useAiCoach'
 import type { AiProfileCacheStatus } from '../composables/useCrmProfile'
 import AiSessionHistoryList from './AiSessionHistoryList.vue'
 import AiCoachMessageList from './AiCoachMessageList.vue'
+import AiCoachFeedbackDialog from './AiCoachFeedbackDialog.vue'
 
 const userStore = useUserStore()
 const router = useRouter()
@@ -381,7 +396,10 @@ onBeforeUnmount(() => { resizing = false })
 const {
   loading, chatHistory, tokenDisplay, sessionId, sendChat, clearSession, retryLast,
   markMedicalReview: markReviewApi,
-  scenes, currentScene, outputStyle, profileNote, profileNoteSaving, configLoaded,
+  submitFeedback: submitFeedbackApi,
+  regenerate: regenerateApi,
+  quotedMessage, setQuote, clearQuote,
+  scenes, styles, currentScene, outputStyle, profileNote, profileNoteSaving, configLoaded,
   sessionHistory, sessionHistoryLoading, loadSessionHistory, openHistorySession,
   loadAiConfig, saveProfileNote, restoredSessionMeta,
   expansionOptions, selectedExpansions,
@@ -390,12 +408,13 @@ const {
 
 const input = ref('')
 const pendingAttachments = ref<AiAttachment[]>([])
-const attachmentPreviewUrls = ref<Map<string, string>>(new Map())
-const uploadingAttachment = ref(false)
+const uploadingCount = ref(0)
 const fileInputRef = ref<HTMLInputElement>()
 
+const uploadingAttachment = computed(() => uploadingCount.value > 0)
+
 const triggerFileInput = () => {
-  if (uploadingAttachment.value || loading.value) return
+  if (loading.value) return
   fileInputRef.value?.click()
 }
 
@@ -410,42 +429,49 @@ const onFileSelected = async (e: Event) => {
     return
   }
 
-  // Create local preview URL for images
-  let localPreviewUrl: string | undefined
-  if (file.type.startsWith('image/')) {
-    localPreviewUrl = URL.createObjectURL(file)
+  // Show local preview immediately
+  const isImage = file.type.startsWith('image/')
+  const localUrl = isImage ? URL.createObjectURL(file) : undefined
+  const tempId = 'temp_' + Date.now()
+  const localAtt: AiAttachment = {
+    attachment_id: tempId,
+    filename: file.name,
+    mime_type: file.type,
+    file_size: file.size,
+    url: localUrl,
   }
+  pendingAttachments.value.push(localAtt)
 
-  uploadingAttachment.value = true
+  // Upload in background
+  uploadingCount.value++
   try {
     const att = await uploadAttachment(props.customerId, file)
-    pendingAttachments.value.push(att)
-    if (localPreviewUrl && att.attachment_id) {
-      attachmentPreviewUrls.value.set(att.attachment_id, localPreviewUrl)
+    // Merge: keep local blob URL for images, use backend URL for files
+    att.url = localUrl || att.url
+    // Replace the temp entry with the real one
+    const idx = pendingAttachments.value.findIndex(a => a.attachment_id === tempId)
+    if (idx >= 0) {
+      pendingAttachments.value[idx] = att
     }
   } catch (err: any) {
-    if (localPreviewUrl) URL.revokeObjectURL(localPreviewUrl)
+    // Remove the failed entry
+    const idx = pendingAttachments.value.findIndex(a => a.attachment_id === tempId)
+    if (idx >= 0) pendingAttachments.value.splice(idx, 1)
+    if (localUrl) URL.revokeObjectURL(localUrl)
     ElMessage.error(err?.message || '附件上传失败')
   } finally {
-    uploadingAttachment.value = false
+    uploadingCount.value--
   }
 }
 
 const removeAttachment = (idx: number) => {
   const att = pendingAttachments.value[idx]
-  if (att?.attachment_id) {
-    const url = attachmentPreviewUrls.value.get(att.attachment_id)
-    if (url) {
-      URL.revokeObjectURL(url)
-      attachmentPreviewUrls.value.delete(att.attachment_id)
-    }
+  if (att?.url?.startsWith('blob:')) {
+    URL.revokeObjectURL(att.url)
   }
   pendingAttachments.value.splice(idx, 1)
 }
 
-const getAttachmentPreviewUrl = (att: AiAttachment): string => {
-  return attachmentPreviewUrls.value.get(att.attachment_id) || ''
-}
 const messageListRef = ref<InstanceType<typeof AiCoachMessageList>>()
 const sidebarTab = ref<'history' | 'context' | 'notes' | null>(null)
 const sidebarExpanded = ref(true)
@@ -739,6 +765,11 @@ const send = async () => {
     ElMessage.warning('客户档案正在准备，稍后再问')
     return
   }
+  // Wait for any in-progress uploads
+  if (uploadingAttachment.value) {
+    ElMessage.warning('附件上传中，请稍候...')
+    return
+  }
   input.value = ''
   visibleDataGaps.value = []
   const attachmentIds = pendingAttachments.value.map(a => a.attachment_id)
@@ -818,6 +849,59 @@ const onMarkMedicalReview = async (msg: any) => {
   } else {
     ElMessage.error('标记失败，请重试')
   }
+}
+
+const feedbackDialogRef = ref<InstanceType<typeof AiCoachFeedbackDialog>>()
+const feedbackTargetMsg = ref<any>(null)
+
+const onFeedback = async (msg: any, rating: 'like' | 'dislike') => {
+  if (!props.customerId || !msg.messageId) return
+  if (rating === 'like') {
+    try {
+      await submitFeedbackApi(props.customerId, msg.messageId, { rating: 'like' })
+      ElMessage.success('感谢反馈')
+    } catch {
+      ElMessage.error('反馈提交失败')
+    }
+  } else {
+    feedbackTargetMsg.value = msg
+    feedbackDialogRef.value?.open(props.customerId, msg.messageId)
+  }
+}
+
+const onFeedbackDialogSubmit = async (data: { reason_category: string; reason_text: string; expected_answer: string }) => {
+  const msg = feedbackTargetMsg.value
+  if (!props.customerId || !msg?.messageId) return
+  try {
+    await submitFeedbackApi(props.customerId, msg.messageId, {
+      rating: 'dislike',
+      reason_category: data.reason_category,
+      reason_text: data.reason_text,
+      expected_answer: data.expected_answer,
+    })
+    ElMessage.success('感谢反馈，我们会持续改进')
+  } catch {
+    ElMessage.error('反馈提交失败')
+  }
+}
+
+const onRegenerate = async (msg: any) => {
+  if (!props.customerId || !msg.messageId) return
+  await regenerateApi(props.customerId, msg.messageId)
+  await nextTick()
+  forceScrollBottom()
+}
+
+const onQuote = (msg: any) => {
+  setQuote(msg)
+  // Focus the input
+  const inputEl = document.querySelector('.ai-chat-input textarea') as HTMLElement
+  inputEl?.focus()
+}
+
+const truncateText = (text: string, limit: number) => {
+  if (!text) return ''
+  return text.length > limit ? text.slice(0, limit) + '...' : text
 }
 
 const onSelectHistorySession = async (targetSessionId: string) => {

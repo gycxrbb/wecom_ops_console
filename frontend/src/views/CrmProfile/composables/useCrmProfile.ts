@@ -62,9 +62,9 @@ export type FilterOptions = {
 
 export type ListFilters = {
   q: string
-  coach_id: number | null
-  group_id: number | null
-  channel_id: number | null
+  coach_id: number | '' | null
+  group_id: number | '' | null
+  channel_id: number | '' | null
 }
 
 type CrmProfileNavigationCache = {

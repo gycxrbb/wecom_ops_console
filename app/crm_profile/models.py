@@ -40,6 +40,8 @@ class CrmAiMessage(Base):
     latency_ms: Mapped[int] = mapped_column(Integer, default=0)
     requires_medical_review: Mapped[bool] = mapped_column(Boolean, default=False)
     safety_result: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    regenerated_from_message_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    quoted_message_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now())
 
 
@@ -110,6 +112,39 @@ class CrmAiAttachment(Base):
     vision_tokens: Mapped[int] = mapped_column(Integer, default=0)
     processing_status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
     created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now())
+
+
+class CrmAiMessageFeedback(Base):
+    """Coach feedback (like/dislike) on an AI assistant message."""
+    __tablename__ = "crm_ai_message_feedback"
+    __table_args__ = (
+        {"sqlite_autoincrement": True},
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    feedback_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    session_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    message_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    user_message_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    crm_customer_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    coach_user_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    crm_admin_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    rating: Mapped[str] = mapped_column(String(16), nullable=False)
+    reason_category: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    reason_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    expected_answer: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    user_question_snapshot: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    ai_answer_snapshot: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    customer_reply_snapshot: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    scene_key: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    output_style: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    prompt_version: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    prompt_hash: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    model: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="new")
+    admin_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
 class CrmAiProfileCache(Base):

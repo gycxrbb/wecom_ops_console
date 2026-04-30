@@ -719,3 +719,38 @@
 .ai-rag-dot--ok { background: #10b981; box-shadow: 0 0 6px rgba(16, 185, 129, 0.4); }
 .ai-rag-dot--off { background: #ef4444; }
 .ai-rag-result { margin-top: 8px; font-size: 12px; color: var(--text-muted); line-height: 1.6; }
+
+/* ==================== Quote Bar ==================== */
+.ai-quote-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  margin: 4px 0;
+  background: #f0f4ff;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+}
+.ai-quote-bar-content {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #475569;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+.ai-quote-bar-content .el-icon { color: #6366f1; flex-shrink: 0; }
+.ai-quote-bar-close {
+  cursor: pointer;
+  color: #9ca3af;
+  flex-shrink: 0;
+  margin-left: 8px;
+  transition: color 0.15s;
+}
+.ai-quote-bar-close:hover { color: #374151; }
+:global(html.dark) .ai-quote-bar { background: rgba(99, 102, 241, 0.08); border-color: rgba(99, 102, 241, 0.15); }
+:global(html.dark) .ai-quote-bar-content { color: #94a3b8; }
+:global(html.dark) .ai-quote-bar-close:hover { color: #e5e7eb; }

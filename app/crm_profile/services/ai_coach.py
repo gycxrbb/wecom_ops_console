@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -121,6 +122,27 @@ def _chunk_text(text: str, size: int = 28) -> list[str]:
     return [cleaned[i:i + size] for i in range(0, len(cleaned), size)]
 
 
+_TXT_FENCE_RE = re.compile(r"```txt\b")
+
+
+def _ensure_output_contract(answer: str) -> str:
+    """Guarantee the answer contains a ```txt code block for customer reply."""
+    if not answer or _TXT_FENCE_RE.search(answer):
+        return answer
+    # Fallback: wrap the last substantial paragraph into a txt code block
+    paragraphs = [p.strip() for p in re.split(r"\n{2,}", answer) if p.strip()]
+    # Find the best candidate: last paragraph that looks like natural language (not list/code)
+    candidate = ""
+    for p in reversed(paragraphs):
+        # Skip lines that look like headers, lists, or short fragments
+        if len(p) > 20 and not p.startswith("#") and not p.startswith("- ") * 3:
+            candidate = p
+            break
+    if not candidate:
+        candidate = paragraphs[-1] if paragraphs else answer
+    return answer.rstrip() + "\n\n```txt\n" + candidate + "\n```"
+
+
 async def _emit_text_chunks(text: str, *, size: int = 28, delay: float = 0.03) -> AsyncIterator[str]:
     for chunk in _chunk_text(text, size=size):
         yield chunk
@@ -155,7 +177,8 @@ def _load_profile_note(customer_id: int) -> CustomerAiProfileNote | None:
         db.close()
 
 
-def _compose_ai_messages(assembly, session_id: str, reuse_session: bool) -> list[dict[str, Any]]:
+def _compose_ai_messages(assembly, session_id: str, reuse_session: bool,
+                        quoted_content: str | None = None) -> list[dict[str, Any]]:
     ai_messages: list[dict[str, Any]] = []
     if assembly.messages:
         ai_messages.extend(msg for msg in assembly.messages[:-1] if msg.get("role") == "system")
@@ -164,6 +187,13 @@ def _compose_ai_messages(assembly, session_id: str, reuse_session: bool) -> list
         history = audit.load_session_messages(session_id, limit=10)
         for h in history:
             ai_messages.append({"role": h["role"], "content": h["content"]})
+
+    # Inject quoted context for follow-up questions
+    if quoted_content:
+        ai_messages.append({
+            "role": "user",
+            "content": f"[追问引用]\n以下是之前AI教练的回复：\n{quoted_content}\n\n基于以上内容，我的追问是：",
+        })
 
     user_msg = assembly.messages[-1] if assembly.messages else {"role": "user", "content": ""}
     ai_messages.append(user_msg)
@@ -205,6 +235,7 @@ class PreparedAiTurn:
     rag_context_text: str = ""
     rag_sources: list[dict] = field(default_factory=list)
     rag_recommended_assets: list[dict] = field(default_factory=list)
+    quoted_content: str | None = None
 
 
 @dataclass
@@ -243,8 +274,9 @@ _PREPARE_TTL = 15.0
 
 def _prepare_cache_key(customer_id: int, message: str, session_id: str | None,
                        scene_key: str, output_style: str, health_window_days: int,
-                       attachment_ids: tuple[str, ...] | None = None) -> tuple:
-    return (customer_id, message, session_id or "", scene_key, output_style, health_window_days, attachment_ids or ())
+                       attachment_ids: tuple[str, ...] | None = None,
+                       quoted_content_hash: str = "") -> tuple:
+    return (customer_id, message, session_id or "", scene_key, output_style, health_window_days, attachment_ids or (), quoted_content_hash)
 
 
 async def _prepare_ai_turn_cached(
@@ -258,10 +290,12 @@ async def _prepare_ai_turn_cached(
     prompt_mode: Literal["answer", "thinking"],
     selected_expansions: list[str] | None = None,
     attachment_ids: tuple[str, ...] | None = None,
+    quoted_content: str | None = None,
 ) -> PreparedAiTurn:
     """Prepare with turn-level cache. First call writes, second call reads within TTL."""
     window_days = normalize_window_days(health_window_days)
-    key = _prepare_cache_key(customer_id, message, session_id, scene_key, output_style, window_days, attachment_ids)
+    qch = hashlib.sha256((quoted_content or "").encode()).hexdigest()[:8] if quoted_content else ""
+    key = _prepare_cache_key(customer_id, message, session_id, scene_key, output_style, window_days, attachment_ids, qch)
     now = time.time()
     hit = _PREPARE_CACHE.get(key)
     if hit and now - hit[0] < _PREPARE_TTL:
@@ -285,7 +319,7 @@ async def _prepare_ai_turn_cached(
                 user_message=message,
                 output_style=output_style,
             )
-        ai_messages = _compose_ai_messages(assembly, cached.session_id, cached.reuse_session)
+        ai_messages = _compose_ai_messages(assembly, cached.session_id, cached.reuse_session, quoted_content=quoted_content)
         return PreparedAiTurn(
             session_id=cached.session_id,
             reuse_session=cached.reuse_session,
@@ -297,6 +331,7 @@ async def _prepare_ai_turn_cached(
             ai_messages=ai_messages,
             shortcut_answer=cached.shortcut_answer,
             shortcut_thinking=cached.shortcut_thinking,
+            quoted_content=quoted_content,
         )
 
     prepared = await _prepare_ai_turn_async(
@@ -304,6 +339,7 @@ async def _prepare_ai_turn_cached(
         session_id=session_id, scene_key=scene_key,
         output_style=output_style, health_window_days=window_days, prompt_mode=prompt_mode,
         selected_expansions=selected_expansions,
+        quoted_content=quoted_content,
     )
     _PREPARE_CACHE[key] = (now, prepared)
     return prepared
@@ -326,6 +362,7 @@ async def _prepare_ai_turn_async(
     health_window_days: int = 7,
     prompt_mode: Literal["answer", "thinking"],
     selected_expansions: list[str] | None = None,
+    quoted_content: str | None = None,
 ) -> PreparedAiTurn:
     """Async wrapper: runs RAG retrieval (async) then _prepare_ai_turn (sync via executor)."""
     rag_context_text = ""
@@ -357,6 +394,7 @@ async def _prepare_ai_turn_async(
             rag_context_text=rag_context_text,
             rag_sources=rag_sources,
             rag_recommended_assets=rag_recommended_assets,
+            quoted_content=quoted_content,
         ),
     )
 
@@ -374,6 +412,7 @@ def _prepare_ai_turn(
     rag_context_text: str = "",
     rag_sources: list[dict] | None = None,
     rag_recommended_assets: list[dict] | None = None,
+    quoted_content: str | None = None,
 ) -> PreparedAiTurn:
     reuse_session = bool(session_id) and audit.session_exists(session_id)
     if not session_id:
@@ -447,12 +486,13 @@ def _prepare_ai_turn(
         used_modules=used_modules,
         missing_notes=missing_notes,
         assembly=assembly,
-        ai_messages=_compose_ai_messages(assembly, session_id, reuse_session),
+        ai_messages=_compose_ai_messages(assembly, session_id, reuse_session, quoted_content=quoted_content),
         shortcut_answer=_try_answer_profile_fact_question(message, ctx),
         shortcut_thinking=_build_shortcut_thinking_text(message, ctx),
         rag_context_text=rag_context_text,
         rag_sources=rag_sources or [],
         rag_recommended_assets=rag_recommended_assets or [],
+        quoted_content=quoted_content,
     )
 
 
@@ -469,11 +509,18 @@ async def ask_ai_coach(
     output_style: str = "coach_brief",
     health_window_days: int = 7,
     attachment_ids: list[str] | None = None,
+    quoted_message_id: str | None = None,
 ) -> AiChatResult:
     """Non-streaming fallback entry for AI coach."""
     effective_message = message
     if attachment_ids:
         effective_message = await _resolve_attachment_descriptions(customer_id, attachment_ids, message)
+
+    quoted_content: str | None = None
+    if quoted_message_id:
+        qmsg = audit.find_message_by_id(quoted_message_id)
+        if qmsg and qmsg.role == "assistant":
+            quoted_content = qmsg.content
 
     prepared = _prepare_ai_turn(
         customer_id,
@@ -484,6 +531,7 @@ async def ask_ai_coach(
         health_window_days=health_window_days,
         prompt_mode="answer",
         selected_expansions=selected_expansions,
+        quoted_content=quoted_content,
     )
     user_message_id = str(uuid.uuid4())
 
@@ -498,7 +546,7 @@ async def ask_ai_coach(
         prompt_version=prepared.assembly.prompt_version,
         prompt_hash=prepared.assembly.prompt_hash,
     )
-    audit.write_message(prepared.session_id, user_message_id, "user", message)
+    audit.write_message(prepared.session_id, user_message_id, "user", message, quoted_message_id=quoted_message_id)
     audit.write_context_snapshot(
         prepared.session_id, build_context_text(prepared.ctx.cards, selected_expansions=selected_expansions), prepared.used_modules,
         prompt_version=prepared.assembly.prompt_version,
@@ -545,6 +593,7 @@ async def ask_ai_coach(
             )
 
     assistant_message_id = str(uuid.uuid4())
+    answer = _ensure_output_contract(answer)
     audit.write_message(
         prepared.session_id, assistant_message_id, "assistant", answer,
         model=settings.ai_model,
@@ -586,6 +635,8 @@ async def stream_ai_coach_answer(
     selected_expansions: list[str] | None = None,
     health_window_days: int = 7,
     attachment_ids: list[str] | None = None,
+    quoted_message_id: str | None = None,
+    regenerated_from_message_id: str | None = None,
 ) -> AsyncIterator[AiStreamEvent]:
     t_start = time.time()
     _sse.info("[SSE-TIMING] === answer-stream request arrived ===")
@@ -596,6 +647,13 @@ async def stream_ai_coach_answer(
     if attachment_ids:
         yield AiStreamEvent(event="analyzing", data={"status": "analyzing_attachments"})
         effective_message = await _resolve_attachment_descriptions(customer_id, attachment_ids, message)
+
+    # Resolve quoted content for follow-up
+    quoted_content: str | None = None
+    if quoted_message_id:
+        qmsg = audit.find_message_by_id(quoted_message_id)
+        if qmsg and qmsg.role == "assistant":
+            quoted_content = qmsg.content
 
     yield AiStreamEvent(event="loading", data={"stage": "prepare"})
 
@@ -611,6 +669,7 @@ async def stream_ai_coach_answer(
             prompt_mode="answer",
             selected_expansions=selected_expansions,
             attachment_ids=att_tuple,
+            quoted_content=quoted_content,
         )
     except ProfileCacheNotReady as exc:
         _sse.info("[SSE-TIMING] answer profile cache unready key=%s", exc.result.cache_key)
@@ -659,7 +718,7 @@ async def stream_ai_coach_answer(
                     prompt_version=prepared.assembly.prompt_version,
                     prompt_hash=prepared.assembly.prompt_hash,
                 ),
-                audit.write_message(prepared.session_id, user_message_id, "user", message),
+                audit.write_message(prepared.session_id, user_message_id, "user", message, quoted_message_id=quoted_message_id),
                 audit.write_context_snapshot(
                     prepared.session_id, build_context_text(prepared.ctx.cards, selected_expansions=selected_expansions), prepared.used_modules,
                     prompt_version=prepared.assembly.prompt_version,
@@ -717,6 +776,7 @@ async def stream_ai_coach_answer(
         _sse.info("[SSE-TIMING] AI stream done, %d chunks, total %.3fs", chunk_count, time.time() - t_start)
 
         answer_text = "".join(collected_chunks).strip()
+        answer_text = _ensure_output_contract(answer_text)
         latency_ms = int((time.time() - t0) * 1000)
         requires_review, safety_notes, safety_result = _check_safety_gates(answer_text, prepared.safety_card.payload or {})
 
@@ -738,6 +798,7 @@ async def stream_ai_coach_answer(
             latency_ms=latency_ms,
             requires_medical_review=requires_review,
             safety_result=safety_result,
+            regenerated_from_message_id=regenerated_from_message_id,
         )
         # Extract cache metrics from provider usage response
         cached_tokens = usage.get("prompt_cache_hit_tokens") or 0
@@ -871,3 +932,41 @@ async def _resolve_attachment_descriptions(
         descriptions.append((att.original_filename, desc))
 
     return build_user_message_with_attachments(original_message, descriptions)
+
+
+async def regenerate_ai_coach_answer(
+    customer_id: int,
+    original_message_id: str,
+    *,
+    local_user_id: int = 0,
+    crm_admin_id: int | None = None,
+) -> AsyncIterator[AiStreamEvent]:
+    """Regenerate an AI answer for the same question, preserving the old answer."""
+    ai_msg = audit.find_message_by_id(original_message_id)
+    if not ai_msg or ai_msg.role != "assistant":
+        yield AiStreamEvent(event="error", data={"message": "消息不存在或不是 AI 回复", "code": "not_found"})
+        return
+
+    session = audit.find_session_by_id(ai_msg.session_id)
+    if not session or session.crm_customer_id != customer_id:
+        yield AiStreamEvent(event="error", data={"message": "消息不属于该客户", "code": "not_found"})
+        return
+
+    user_msg = audit.find_preceding_user_message(ai_msg.session_id, original_message_id)
+    if not user_msg:
+        yield AiStreamEvent(event="error", data={"message": "找不到原始教练问题", "code": "not_found"})
+        return
+
+    async for event in stream_ai_coach_answer(
+        customer_id,
+        user_msg.content or "",
+        session_id=ai_msg.session_id,
+        local_user_id=local_user_id,
+        crm_admin_id=crm_admin_id,
+        scene_key=session.scene_key or "qa_support",
+        entry_scene=session.entry_scene or "customer_profile",
+        output_style=session.output_style or "coach_brief",
+        health_window_days=7,
+        regenerated_from_message_id=original_message_id,
+    ):
+        yield event

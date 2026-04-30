@@ -1,8 +1,8 @@
 <template>
-  <div class="md-code-block">
+  <div class="md-code-block" :class="{ 'md-code-block--customer-reply': isCustomerReplyBlock }">
     <div class="md-code-block__header" v-if="languageLabel">
       <span class="md-code-block__lang">{{ languageLabel }}</span>
-      <button class="md-code-block__copy" @click="copyCode" :title="copied ? '已复制' : '复制代码'">
+      <button class="md-code-block__copy" @click="copyCode" :title="copied ? '已复制' : copyTitle">
         <svg v-if="!copied" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
         <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
       </button>
@@ -39,14 +39,18 @@ const LANG_LABELS: Record<string, string> = {
   css: 'CSS', scss: 'SCSS', md: 'Markdown', vue: 'Vue',
 }
 
+const normalizedLanguage = computed(() => props.language?.trim().toLowerCase() || '')
+const isCustomerReplyBlock = computed(() => normalizedLanguage.value === 'txt')
+const copyTitle = computed(() => isCustomerReplyBlock.value ? '复制话术' : '复制代码')
 const languageLabel = computed(() => {
-  const lang = props.language?.trim().toLowerCase() || ''
+  if (isCustomerReplyBlock.value) return '客户话术'
+  const lang = normalizedLanguage.value
   return LANG_LABELS[lang] || (lang ? lang.charAt(0).toUpperCase() + lang.slice(1) : '')
 })
 
 const lines = computed(() => props.code.split('\n'))
 const totalLines = computed(() => lines.value.length)
-const isLong = computed(() => totalLines.value > COLLAPSE_THRESHOLD)
+const isLong = computed(() => !isCustomerReplyBlock.value && totalLines.value > COLLAPSE_THRESHOLD)
 const isCollapsed = ref(true)
 
 const displayCode = computed(() => {
@@ -88,7 +92,8 @@ function getHighlighter(): Promise<Highlighter> {
 }
 
 onMounted(async () => {
-  const lang = props.language?.trim().toLowerCase() || ''
+  if (isCustomerReplyBlock.value) return
+  const lang = normalizedLanguage.value
   if (!lang) return
   try {
     const highlighter = await getHighlighter()
@@ -105,11 +110,11 @@ onMounted(async () => {
 })
 
 watchEffect(() => {
-  if (highlightedHtml.value && isLong.value) {
+  if (highlightedHtml.value && isLong.value && !isCustomerReplyBlock.value) {
     // re-highlight when expanding
     getHighlighter().then((highlighter) => {
       const isDark = document.documentElement.classList.contains('dark')
-      const lang = props.language?.trim().toLowerCase() || 'text'
+      const lang = normalizedLanguage.value || 'text'
       const supportedLangs = highlighter.getLoadedLanguages()
       const resolvedLang = supportedLangs.includes(lang) ? lang : 'text'
       highlightedHtml.value = highlighter.codeToHtml(
@@ -190,6 +195,60 @@ watchEffect(() => {
   white-space: pre;
 }
 
+.md-code-block--customer-reply {
+  width: 100%;
+  margin: 1em 0 1.15em;
+  border-color: #dfe6ff;
+  background: #fbfcff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.md-code-block--customer-reply .md-code-block__header {
+  padding: 8px 14px;
+  background: #f3f6ff;
+  border-bottom-color: #dfe6ff;
+}
+
+.md-code-block--customer-reply .md-code-block__lang {
+  color: #4f5f83;
+  font-weight: 600;
+}
+
+.md-code-block--customer-reply .md-code-block__copy {
+  color: #6476d8;
+  padding: 4px;
+  border-radius: 6px;
+}
+
+.md-code-block--customer-reply .md-code-block__copy:hover {
+  color: #4f46e5;
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.md-code-block--customer-reply .md-code-block__body {
+  overflow: visible;
+  font-size: 14.5px;
+  line-height: 1.78;
+}
+
+.md-code-block--customer-reply .md-code-block__plain {
+  min-height: 132px;
+  padding: 18px 20px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(247, 249, 255, 0.92)),
+    #fbfcff;
+  color: #273244;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.md-code-block--customer-reply .md-code-block__plain code {
+  font-family: inherit;
+  font-size: inherit;
+  white-space: pre-wrap;
+}
+
 .md-code-block__expand {
   display: block;
   width: 100%;
@@ -221,5 +280,25 @@ watchEffect(() => {
   background: #111827;
   border-color: #374151;
   color: #818cf8;
+}
+
+:global(html.dark) .md-code-block--customer-reply {
+  border-color: rgba(129, 140, 248, 0.24);
+  background: rgba(99, 102, 241, 0.08);
+}
+
+:global(html.dark) .md-code-block--customer-reply .md-code-block__header {
+  background: rgba(99, 102, 241, 0.13);
+  border-color: rgba(129, 140, 248, 0.24);
+}
+
+:global(html.dark) .md-code-block--customer-reply .md-code-block__lang,
+:global(html.dark) .md-code-block--customer-reply .md-code-block__copy {
+  color: #c7d2fe;
+}
+
+:global(html.dark) .md-code-block--customer-reply .md-code-block__plain {
+  background: rgba(15, 23, 42, 0.38);
+  color: #e8ecff;
 }
 </style>

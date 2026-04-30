@@ -6,28 +6,38 @@
     </div>
     <div class="ai-msg-content">
       <div v-if="msg.attachments?.length" class="ai-msg-attachments">
-        <template v-for="(att, idx) in visibleAttachments" :key="idx">
-          <div class="ai-msg-att-chip">
-            <el-icon :size="14"><Document /></el-icon>
-            <span class="ai-msg-att-label">{{ att.filename }}</span>
+        <template v-for="(att, idx) in msg.attachments" :key="idx">
+          <!-- Image thumbnail -->
+          <div v-if="att.mime_type?.startsWith('image/')" class="ai-msg-att-image" @click="previewImage(att)">
+            <img :src="att.url" :alt="att.filename" class="ai-msg-att-img" />
           </div>
+          <!-- File chip -->
+          <a v-else :href="att.url" target="_blank" class="ai-msg-att-file">
+            <el-icon :size="16"><Document /></el-icon>
+            <span class="ai-msg-att-label">{{ att.filename }}</span>
+            <span class="ai-msg-att-size">{{ formatSize(att.file_size) }}</span>
+          </a>
         </template>
-        <span v-if="msg.attachments.length > 3" class="ai-msg-att-more">
-          +{{ msg.attachments.length - 3 }}
-        </span>
       </div>
       <div class="ai-msg-bubble">
         <MarkdownRenderer :content="msg.content" />
       </div>
     </div>
+    <!-- Image preview overlay -->
+    <el-image-viewer
+      v-if="previewVisible"
+      :url-list="previewUrls"
+      :initial-index="previewIndex"
+      @close="previewVisible = false"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { ref, computed } from 'vue'
 import { Document } from '@element-plus/icons-vue'
 import MarkdownRenderer from '#/components/markdown/MarkdownRenderer.vue'
-import type { AiChatMessage } from '../composables/useAiCoach'
+import type { AiAttachment, AiChatMessage } from '../composables/useAiCoach'
 
 type UserMsg = Extract<AiChatMessage, { role: 'user' }>
 
@@ -38,7 +48,27 @@ const props = defineProps<{
   isAdmin?: boolean
 }>()
 
-const visibleAttachments = computed(() => (props.msg.attachments || []).slice(0, 3))
+const previewVisible = ref(false)
+const previewIndex = ref(0)
+
+const imageAttachments = computed(() =>
+  (props.msg.attachments || []).filter(a => a.mime_type?.startsWith('image/') && a.url)
+)
+
+const previewUrls = computed(() => imageAttachments.value.map(a => a.url!))
+
+const previewImage = (att: AiAttachment) => {
+  if (!att.url) return
+  const idx = imageAttachments.value.findIndex(a => a.attachment_id === att.attachment_id)
+  previewIndex.value = idx >= 0 ? idx : 0
+  previewVisible.value = true
+}
+
+const formatSize = (bytes: number) => {
+  if (bytes < 1024) return bytes + 'B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + 'KB'
+  return (bytes / (1024 * 1024)).toFixed(1) + 'MB'
+}
 </script>
 
 <style scoped>
@@ -52,12 +82,23 @@ const visibleAttachments = computed(() => (props.msg.attachments || []).slice(0,
 .ai-msg--user .ai-msg-content { align-items: flex-end; }
 .ai-msg-bubble { padding: 14px 18px; font-size: 14.5px; line-height: 1.65; word-break: break-word; transition: all 0.2s; }
 .ai-msg--user .ai-msg-bubble { background: #eef2ff; color: #312e81; border-radius: 18px 4px 18px 18px; box-shadow: 0 4px 16px rgba(99,102,241,0.06); }
-.ai-msg-attachments { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
-.ai-msg-att-chip {
-  display: inline-flex; align-items: center; gap: 4px;
-  background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 6px;
-  padding: 2px 8px; font-size: 12px; color: #475569;
+.ai-msg-attachments { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.ai-msg-att-image {
+  width: 120px; height: 90px; border-radius: 10px; overflow: hidden; cursor: pointer;
+  border: 1px solid #e2e8f0; transition: all 0.2s; background: #f8fafc;
 }
-.ai-msg-att-label { max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ai-msg-att-more { font-size: 12px; color: #6366f1; align-self: center; }
+.ai-msg-att-image:hover { border-color: #6366f1; box-shadow: 0 4px 12px rgba(99,102,241,0.15); }
+.ai-msg-att-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ai-msg-att-file {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 8px;
+  padding: 6px 12px; font-size: 13px; color: #475569; text-decoration: none;
+  transition: all 0.15s;
+}
+.ai-msg-att-file:hover { border-color: #6366f1; color: #312e81; background: #eef2ff; }
+.ai-msg-att-label { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ai-msg-att-size { font-size: 11px; color: #94a3b8; }
+@media (max-width: 768px) {
+  .ai-msg-att-image { width: 100px; height: 75px; }
+}
 </style>

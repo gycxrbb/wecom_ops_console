@@ -943,3 +943,10 @@
 - **场景**: OpenAI-compatible 上游通过 `httpx.AsyncClient(http2=True)` 做流式输出，业务链路对首包稳定性敏感。
 - **经验内容**: HTTP/2 能改善并发和复用，但公司出口代理、CDN 或上游网关可能在响应头前直接断开，表现为 `RemoteProtocolError: Server disconnected without sending a response`。客户端应在“尚未向前端输出任何 chunk”时关闭当前连接池并用 HTTP/1.1 重试一次；一旦已经输出 chunk，则不能透明重放，必须暴露真实失败。启动预热和 keepalive 也要按当前 provider 选择 base url，否则预热了 support provider，却没有预热 live provider。
 - **验证状态**: 已验证
+
+## 经验 #127: Markdown fence 被组件化拆分后，特殊语言样式要落在组件分支里
+
+- **类别**: 前端 / Markdown 渲染 / UI
+- **场景**: `MarkdownRenderer.vue` 先 parse token，再把 fence token 拆成 Vue 组件渲染，业务希望某类 fence（如 ```txt 客户话术）有专用展示样式。
+- **经验内容**: 一旦 Markdown fence 被组件化拆分，`markdown-it` 的 `renderer.rules.fence` 只会影响留在 HTML batch 里的内容，不能覆盖已经被拆到 `CodeBlock.vue` 的 fence。特殊语言（客户话术、mermaid、math 等）的正式 UI 分支必须放在 token 分发层或对应组件内部，同时在组件内处理高亮、折叠、换行和复制行为，避免“样式代码存在但实际链路不经过”的真值漂移。
+- **验证状态**: 已验证

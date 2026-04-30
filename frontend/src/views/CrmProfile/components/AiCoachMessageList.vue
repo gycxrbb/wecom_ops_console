@@ -45,13 +45,13 @@
       >
         <el-checkbox :model-value="selectedIndices?.has(i)" @click.stop @change="emit('toggle-select', i)" class="ai-msg-checkbox" />
         <div class="ai-msg-content-wrap">
-          <AiCoachAssistantMessage v-if="msg.role === 'assistant'" :msg="msg" @copy="$emit('copy', $event)" @mark-medical-review="$emit('mark-medical-review', $event)" @retry="emit('retry')" />
+          <AiCoachAssistantMessage v-if="msg.role === 'assistant'" :msg="msg" @copy="$emit('copy', $event)" @mark-medical-review="$emit('mark-medical-review', $event)" @retry="emit('retry')" @feedback="(m, r) => emit('feedback', m, r)" @regenerate="emit('regenerate', $event)" @quote="emit('quote', $event)" />
           <AiCoachReferenceMessage v-else-if="msg.role === 'reference'" :msg="msg" @send-to-center="emit('send-to-center', $event)" />
           <AiCoachUserMessage v-else :msg="msg" :user-avatar="userAvatar" :user-display-name="userDisplayName" :is-admin="isAdmin" />
         </div>
       </div>
       <template v-else>
-        <AiCoachAssistantMessage v-if="msg.role === 'assistant'" :msg="msg" @copy="$emit('copy', $event)" @mark-medical-review="$emit('mark-medical-review', $event)" @retry="emit('retry')" />
+        <AiCoachAssistantMessage v-if="msg.role === 'assistant'" :msg="msg" @copy="$emit('copy', $event)" @mark-medical-review="$emit('mark-medical-review', $event)" @retry="emit('retry')" @feedback="(m, r) => emit('feedback', m, r)" @regenerate="emit('regenerate', $event)" @quote="emit('quote', $event)" />
         <AiCoachReferenceMessage v-else-if="msg.role === 'reference'" :msg="msg" @send-to-center="emit('send-to-center', $event)" />
         <AiCoachUserMessage v-else :msg="msg" :user-avatar="userAvatar" :user-display-name="userDisplayName" :is-admin="isAdmin" />
       </template>
@@ -89,6 +89,9 @@ const emit = defineEmits<{
   'dismiss-data-gap': [gap: string]
   'toggle-select': [index: number]
   'send-to-center': [msg: AiChatMessage]
+  feedback: [msg: AiChatMessage, rating: 'like' | 'dislike']
+  regenerate: [msg: AiChatMessage]
+  quote: [msg: AiChatMessage]
   retry: []
 }>()
 

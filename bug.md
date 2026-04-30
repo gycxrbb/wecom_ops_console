@@ -710,3 +710,21 @@
   4. 前端 `Login.vue`：增加"记住登录状态（7天）"复选框，勾选后登录请求带 `remember_me: true`，并持久化用户偏好到 `localStorage`。
   5. 前端 `request.ts`：响应拦截器捕获 HTTP 401，调用 `/v1/auth/refresh` 换取新 token，成功后重试原请求；并发 401 时只发一个刷新，其余排队等待。刷新失败则清空 token 跳转登录页。
 - **关联文件**: app/routers/api.py, app/security.py, frontend/src/views/Login.vue, frontend/src/utils/request.ts
+
+## Bug #70: AI 回复中的 ```txt 客户话术被普通代码块渲染，预览区域过小且出现滚动
+
+- **日期**: 2026-04-30
+- **现象**: AI 回复已按 Prompt 要求输出 ```txt 代码块，但前端展示成普通代码块，标题为 `Txt`，正文按代码样式处理，长话术容易横向滚动或折叠，不适合作为教练直接预览的客户沟通话术。
+- **根因**: `MarkdownRenderer.vue` 会先把 fence token 拆分成 `CodeBlock.vue` 组件，导致 `useMarkdownIt.ts` 中针对 `txt` fence 的自定义 renderer 不会在 AI 对话链路生效；`CodeBlock.vue` 对所有语言统一使用代码高亮、折叠和 `pre` 空白规则。
+- **复现条件**: AI 回复中包含 ```txt fenced block，进入 CRM 客户 AI 教练助手查看回复。
+- **解决方案**: 在 `CodeBlock.vue` 中将 `txt` 识别为客户话术块，显示“客户话术”标题，跳过 Shiki 高亮和长代码折叠，正文使用自然语言字体、自动换行、内容撑开；同时放宽 AI 助手消息气泡宽度，提升话术块可读面积。
+- **关联文件**: frontend/src/components/markdown/CodeBlock.vue, frontend/src/views/CrmProfile/components/AiCoachAssistantMessage.vue
+
+## Bug #71: 前端生产构建被既有 TypeScript 错误阻塞
+
+- **日期**: 2026-04-30
+- **现象**: 执行 `npm.cmd run build` 时，先后出现 `useCrmProfile.ts` 中 number 与 string 比较类型错误，以及 `PromptManage/index.vue` 模板引用未定义的快照编辑状态/方法，导致前端无法完成生产构建。
+- **根因**: CRM 筛选项类型没有覆盖 Element Plus clearable 可能产生的空字符串状态；提示词快照编辑 UI 已在模板中接入，但脚本层缺少 `startEditSnap` / `handleSaveSnapEdit` 等实现。
+- **复现条件**: 在 `frontend` 目录执行 `npm.cmd run build`。
+- **解决方案**: 将 CRM 列表筛选类型补齐为 `number | '' | null`；补齐提示词快照编辑状态、保存方法，并调用已有后端 `PUT /snapshots/{snapshot_id}` 更新快照名称和说明。
+- **关联文件**: frontend/src/views/CrmProfile/composables/useCrmProfile.ts, frontend/src/views/PromptManage/index.vue

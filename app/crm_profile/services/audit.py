@@ -41,7 +41,9 @@ def write_message(session_id: str, message_id: str, role: str,
                   content: str, model: str = "",
                   prompt_tokens: int = 0, completion_tokens: int = 0,
                   latency_ms: int = 0, requires_medical_review: bool = False,
-                  safety_result: dict | None = None):
+                  safety_result: dict | None = None,
+                  regenerated_from_message_id: str | None = None,
+                  quoted_message_id: str | None = None):
     db = SessionLocal()
     try:
         db.add(CrmAiMessage(
@@ -55,6 +57,8 @@ def write_message(session_id: str, message_id: str, role: str,
             latency_ms=latency_ms,
             requires_medical_review=requires_medical_review,
             safety_result=json.dumps(safety_result, ensure_ascii=False) if safety_result else None,
+            regenerated_from_message_id=regenerated_from_message_id,
+            quoted_message_id=quoted_message_id,
         ))
         db.commit()
     except Exception:
@@ -274,5 +278,51 @@ def mark_medical_review(message_id: str) -> bool:
         _log.exception("Failed to mark medical review")
         db.rollback()
         return False
+    finally:
+        db.close()
+
+
+def find_preceding_user_message(session_id: str, assistant_message_id: str) -> CrmAiMessage | None:
+    """Find the user message immediately before the given assistant message in a session."""
+    db = SessionLocal()
+    try:
+        target = db.query(CrmAiMessage).filter(
+            CrmAiMessage.message_id == assistant_message_id,
+            CrmAiMessage.session_id == session_id,
+            CrmAiMessage.role == "assistant",
+        ).first()
+        if not target:
+            return None
+        return (
+            db.query(CrmAiMessage)
+            .filter(
+                CrmAiMessage.session_id == session_id,
+                CrmAiMessage.role == "user",
+                CrmAiMessage.created_at < target.created_at,
+            )
+            .order_by(CrmAiMessage.created_at.desc())
+            .first()
+        )
+    except Exception:
+        _log.exception("Failed to find preceding user message")
+        return None
+    finally:
+        db.close()
+
+
+def find_message_by_id(message_id: str) -> CrmAiMessage | None:
+    """Look up a message by its message_id."""
+    db = SessionLocal()
+    try:
+        return db.query(CrmAiMessage).filter(CrmAiMessage.message_id == message_id).first()
+    finally:
+        db.close()
+
+
+def find_session_by_id(session_id: str) -> CrmAiSession | None:
+    """Look up a session by session_id."""
+    db = SessionLocal()
+    try:
+        return db.query(CrmAiSession).filter(CrmAiSession.session_id == session_id).first()
     finally:
         db.close()
