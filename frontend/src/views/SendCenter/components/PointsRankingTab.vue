@@ -51,6 +51,7 @@
               :value="s.key"
             />
           </el-select>
+          <el-checkbox v-model="config.includeLastWeekBreakdown" size="small">上周积分明细</el-checkbox>
         </div>
       </div>
 
@@ -247,6 +248,7 @@ const config = ref({
   includeWeekMonth: true,
   skipEmptyGroups: true,
   enabledScenes: [] as string[],
+  includeLastWeekBreakdown: false,
 })
 
 const insightScenes = ref<Array<{key: string; label: string}>>([])
@@ -363,7 +365,7 @@ const generateRanking = async () => {
   lastGenerateDiagnostics.value = null
   lastGenerateSummary.value = null
 
-  const reqConfig = { rank_metric: config.value.rankMetric, speech_style: config.value.speechStyle, include_week_month: config.value.includeWeekMonth, skip_empty_groups: config.value.skipEmptyGroups, top_n: config.value.topNEnabled ? config.value.topN : 9999, enabled_scenes: config.value.enabledScenes }
+  const reqConfig = { rank_metric: config.value.rankMetric, speech_style: config.value.speechStyle, include_week_month: config.value.includeWeekMonth, skip_empty_groups: config.value.skipEmptyGroups, top_n: config.value.topNEnabled ? config.value.topN : 9999, enabled_scenes: config.value.enabledScenes, include_last_week_breakdown: config.value.includeLastWeekBreakdown }
 
   try {
     const res: any = await request.post('/v1/crm-points/preview-ranking', {

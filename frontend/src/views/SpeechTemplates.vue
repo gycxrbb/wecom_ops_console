@@ -208,6 +208,7 @@
 </template>
 
 <script setup lang="ts">
+defineOptions({ name: 'SpeechTemplates' })
 import { ref, computed, reactive, watch, onMounted } from 'vue'
 import { ElMessage, type UploadFile } from 'element-plus'
 import { Upload } from '@element-plus/icons-vue'

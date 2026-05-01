@@ -262,3 +262,95 @@ def fetch_group_period_points_dual(
         if conn:
             _return_connection(conn)
     return week_result, month_result
+
+
+# ── 上周积分明细拆分查询 ─────────────────────────────────────
+
+def get_last_week_range() -> tuple[datetime, datetime]:
+    """返回上周起止时间（上周一 00:00 ~ 本周一 00:00，Asia/Shanghai）。"""
+    import zoneinfo
+    tz = zoneinfo.ZoneInfo('Asia/Shanghai')
+    now = datetime.now(tz)
+    this_monday = now.date() - timedelta(days=now.weekday())
+    last_monday = this_monday - timedelta(weeks=1)
+    start = datetime(last_monday.year, last_monday.month, last_monday.day, tzinfo=tz)
+    end = datetime(this_monday.year, this_monday.month, this_monday.day, tzinfo=tz)
+    return start.replace(tzinfo=None), end.replace(tzinfo=None)
+
+
+# 三大分类的 CASE WHEN 条件
+_APP_SQL = (
+    "SUM(CASE WHEN (pl.category = 1 AND pl.des LIKE '%%habit_checkin%%') "
+    "OR (pl.category = 1 AND pl.des LIKE '%%issue%%') "
+    "OR (pl.category = 1 AND pl.des LIKE '%%courseId%%') "
+    "OR (pl.category = 1 AND pl.des LIKE '%%weight_checkin%%') "
+    "OR (pl.category = 3 AND pl.des LIKE '%%meal_upload%%') "
+    "THEN CASE WHEN pl.type = 0 THEN COALESCE(pl.num, 0) "
+    "WHEN pl.type = 1 THEN -COALESCE(pl.num, 0) ELSE 0 END ELSE 0 END)"
+)
+
+_COMMUNITY_SQL = (
+    "SUM(CASE WHEN pl.category = 5 "
+    "THEN CASE WHEN pl.type = 0 THEN COALESCE(pl.num, 0) "
+    "WHEN pl.type = 1 THEN -COALESCE(pl.num, 0) ELSE 0 END ELSE 0 END)"
+)
+
+_LIVE_SQL = (
+    "SUM(CASE WHEN pl.category = 8 "
+    "THEN CASE WHEN pl.type = 0 THEN COALESCE(pl.num, 0) "
+    "WHEN pl.type = 1 THEN -COALESCE(pl.num, 0) ELSE 0 END ELSE 0 END)"
+)
+
+
+def fetch_customer_last_week_breakdown_bulk(
+    customer_ids: list[int],
+) -> dict[int, dict[str, float]]:
+    """批量查询指定客户上周积分的三大类拆分明细。
+
+    Returns:
+        {customer_id: {'app': float, 'community': float, 'live': float}}
+    """
+    if not customer_ids:
+        return {}
+
+    start, end = get_last_week_range()
+    result: dict[int, dict[str, float]] = {
+        cid: {'app': 0.0, 'community': 0.0, 'live': 0.0} for cid in customer_ids
+    }
+
+    conn = None
+    try:
+        conn = _get_connection()
+        with conn.cursor() as cur:
+            batch_size = 500
+            for i in range(0, len(customer_ids), batch_size):
+                batch = customer_ids[i:i + batch_size]
+                placeholders = ','.join(['%s'] * len(batch))
+                cur.execute(
+                    f"""
+                    SELECT
+                        pl.customer_id,
+                        {_APP_SQL} AS app_points,
+                        {_COMMUNITY_SQL} AS community_points,
+                        {_LIVE_SQL} AS live_points
+                    FROM point_logs pl
+                    WHERE pl.customer_id IN ({placeholders})
+                      AND pl.created_at >= %s AND pl.created_at < %s
+                      AND pl.category IN (1, 3, 5, 8)
+                    GROUP BY pl.customer_id
+                    """,
+                    (*batch, start, end),
+                )
+                for row in cur.fetchall():
+                    cid = row['customer_id']
+                    result[cid] = {
+                        'app': float(row.get('app_points') or 0),
+                        'community': float(row.get('community_points') or 0),
+                        'live': float(row.get('live_points') or 0),
+                    }
+    except Exception as exc:
+        _log.warning('CRM 客户上周积分明细查询失败: %s', exc)
+    finally:
+        if conn:
+            _return_connection(conn)
+    return result

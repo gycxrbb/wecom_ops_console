@@ -950,3 +950,17 @@
 - **场景**: `MarkdownRenderer.vue` 先 parse token，再把 fence token 拆成 Vue 组件渲染，业务希望某类 fence（如 ```txt 客户话术）有专用展示样式。
 - **经验内容**: 一旦 Markdown fence 被组件化拆分，`markdown-it` 的 `renderer.rules.fence` 只会影响留在 HTML batch 里的内容，不能覆盖已经被拆到 `CodeBlock.vue` 的 fence。特殊语言（客户话术、mermaid、math 等）的正式 UI 分支必须放在 token 分发层或对应组件内部，同时在组件内处理高亮、折叠、换行和复制行为，避免“样式代码存在但实际链路不经过”的真值漂移。
 - **验证状态**: 已验证
+
+## 经验 #128: 预加载缓存必须把 HTTP method 纳入门禁
+
+- **类别**: 前端 / 缓存 / 数据一致性
+- **场景**: 登录后预热侧边栏列表接口，页面随后可能对同一 URL 发起创建、编辑、删除等变更请求。
+- **经验内容**: 预加载缓存只能服务只读 GET 请求，不能只按 URL 透明命中所有请求。否则 `GET /resource` 的缓存可能被 `POST /resource` 消费，形成“前端提示成功、后端没有落库”的假成功；变更请求发出前还应清掉同 URL 预加载缓存，避免创建后列表首次读取旧快照。
+- **验证状态**: 已验证
+
+## 经验 #129: 启动迁移新增表时不要用一套原始 SQL 跨 SQLite 和 MySQL
+
+- **类别**: 数据库 / 启动迁移 / 环境兼容
+- **场景**: 新增业务表需要在应用启动时自动建表，同时本地可能使用 SQLite、生产使用 MySQL。
+- **经验内容**: SQLite 的 `AUTOINCREMENT` 和 MySQL 的 `AUTO_INCREMENT` 不能共用，MySQL 也不允许给 `TEXT/BLOB/JSON` 类字段随意声明默认值。启动迁移新增表时要么使用 SQLAlchemy metadata/DDL，要么显式按 dialect 分支；不能只在自增关键字上做字符串替换后继续保留 `TEXT DEFAULT`。
+- **验证状态**: 已验证

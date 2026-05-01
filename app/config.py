@@ -89,8 +89,9 @@ class Settings(BaseSettings):
     rag_chunk_size: int = 600
     rag_chunk_overlap: int = 80
     rag_min_score: float = 0.42
-    rag_relative_score_ratio: float = 0.72
-    rag_max_visible_sources: int = 3
+    rag_relative_score_ratio: float = 0.65
+    rag_max_visible_sources: int = 5
+    rag_max_source_chars: int = 800
     rag_points_operation_scenes: str = "top_leader,top_six,top_ten,surge,daily_remind,group_pk,lurker_remind"
 
 settings = Settings()

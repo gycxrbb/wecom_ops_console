@@ -669,3 +669,63 @@ def ensure_crm_ai_message_p1_columns(engine: Engine) -> None:
             conn.execute(text("ALTER TABLE crm_ai_messages ADD COLUMN regenerated_from_message_id VARCHAR(64)"))
         if "quoted_message_id" not in existing:
             conn.execute(text("ALTER TABLE crm_ai_messages ADD COLUMN quoted_message_id VARCHAR(64)"))
+
+
+def ensure_prompt_snapshot_is_current(engine: Engine) -> None:
+    """Add is_current column to prompt_snapshots for tracking active snapshot."""
+    inspector = inspect(engine)
+    if "prompt_snapshots" not in inspector.get_table_names():
+        return
+    existing = {c["name"] for c in inspector.get_columns("prompt_snapshots")}
+    with engine.begin() as conn:
+        if "is_current" not in existing:
+            conn.execute(text("ALTER TABLE prompt_snapshots ADD COLUMN is_current BOOLEAN DEFAULT 0"))
+
+
+def ensure_auto_ranking_config_schema(engine: Engine) -> None:
+    """Create auto_ranking_configs table if not exists."""
+    dialect = engine.dialect.name.lower()
+    with engine.begin() as conn:
+        if dialect == "mysql":
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS auto_ranking_configs (
+                    id INTEGER NOT NULL AUTO_INCREMENT,
+                    name VARCHAR(128) NOT NULL,
+                    enabled INTEGER DEFAULT 1,
+                    crm_group_ids_json TEXT,
+                    target_local_group_id INTEGER NOT NULL,
+                    must_scene_keys_json TEXT,
+                    extra_scene_pool_json TEXT,
+                    scene_count INTEGER DEFAULT 3,
+                    speech_style VARCHAR(32) DEFAULT 'professional',
+                    include_breakdown_on_monday INTEGER DEFAULT 1,
+                    skip_weekends INTEGER DEFAULT 0,
+                    skip_dates_json TEXT,
+                    last_run_at DATETIME,
+                    last_error TEXT,
+                    created_at DATETIME,
+                    updated_at DATETIME,
+                    PRIMARY KEY (id)
+                )
+            """))
+        else:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS auto_ranking_configs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name VARCHAR(128) NOT NULL,
+                    enabled INTEGER DEFAULT 1,
+                    crm_group_ids_json TEXT DEFAULT '[]',
+                    target_local_group_id INTEGER NOT NULL,
+                    must_scene_keys_json TEXT DEFAULT '["top_leader", "top_six"]',
+                    extra_scene_pool_json TEXT DEFAULT '[]',
+                    scene_count INTEGER DEFAULT 3,
+                    speech_style VARCHAR(32) DEFAULT 'professional',
+                    include_breakdown_on_monday INTEGER DEFAULT 1,
+                    skip_weekends INTEGER DEFAULT 0,
+                    skip_dates_json TEXT DEFAULT '[]',
+                    last_run_at DATETIME,
+                    last_error TEXT DEFAULT '',
+                    created_at DATETIME,
+                    updated_at DATETIME
+                )
+            """))

@@ -35,6 +35,7 @@ class RankingPreviewReq(BaseModel):
     include_week_month: bool = True
     skip_empty_groups: bool = True
     enabled_scenes: list[str] = []
+    include_last_week_breakdown: bool = False
 
 
 class GlobalRankingReq(BaseModel):
@@ -141,6 +142,7 @@ def preview_ranking(req: RankingPreviewReq, request: Request, db: Session = Depe
         speech_style=req.speech_style,
         skip_empty_groups=req.skip_empty_groups,
         enabled_scenes=req.enabled_scenes or None,
+        include_last_week_breakdown=req.include_last_week_breakdown,
     )
     items = preview_result.get('items', [])
     diagnostics = dict(preview_result.get('diagnostics') or {})
@@ -193,3 +195,97 @@ def preview_global_ranking(req: GlobalRankingReq, request: Request, db: Session 
     if not result:
         return {'ok': False, 'message': '无有效积分数据'}
     return {'ok': True, 'data': result}
+
+
+# ── 自动排行推送配置 ──────────────────────────────────────────
+
+class AutoRankingConfigReq(BaseModel):
+    id: int | None = None
+    name: str
+    enabled: bool = True
+    crm_group_ids: list[int]
+    target_local_group_id: int
+    must_scene_keys: list[str] = ['top_leader', 'top_six']
+    extra_scene_pool: list[str] = []
+    scene_count: int = 3
+    speech_style: str = 'professional'
+    include_breakdown_on_monday: bool = True
+    skip_weekends: bool = False
+    skip_dates: list[str] = []
+
+
+@router.get('/auto-ranking-configs')
+def list_auto_ranking_configs(request: Request, db: Session = Depends(get_db)):
+    get_current_user(request, db)
+    from ..models_auto_ranking import AutoRankingConfig
+    configs = db.query(AutoRankingConfig).order_by(AutoRankingConfig.id.desc()).all()
+    return {'items': [_serialize_config(c) for c in configs]}
+
+
+@router.post('/auto-ranking-configs')
+def upsert_auto_ranking_config(req: AutoRankingConfigReq, request: Request, db: Session = Depends(get_db)):
+    user = get_current_user(request, db)
+    if user.role != 'admin':
+        from fastapi import HTTPException
+        raise HTTPException(403, '仅管理员可配置')
+    import json
+    from ..models_auto_ranking import AutoRankingConfig
+    if req.id:
+        cfg = db.query(AutoRankingConfig).get(req.id)
+        if not cfg:
+            from fastapi import HTTPException
+            raise HTTPException(404, '配置不存在')
+    else:
+        cfg = AutoRankingConfig()
+        db.add(cfg)
+    cfg.name = req.name
+    cfg.enabled = 1 if req.enabled else 0
+    cfg.crm_group_ids_json = json.dumps(req.crm_group_ids)
+    cfg.target_local_group_id = req.target_local_group_id
+    cfg.must_scene_keys_json = json.dumps(req.must_scene_keys)
+    cfg.extra_scene_pool_json = json.dumps(req.extra_scene_pool)
+    cfg.scene_count = req.scene_count
+    cfg.speech_style = req.speech_style
+    cfg.include_breakdown_on_monday = 1 if req.include_breakdown_on_monday else 0
+    cfg.skip_weekends = 1 if req.skip_weekends else 0
+    cfg.skip_dates_json = json.dumps(req.skip_dates)
+    db.commit()
+    db.refresh(cfg)
+    # Re-register cron job to pick up changes
+    from ..services.scheduler_service import schedule_service
+    schedule_service._register_auto_ranking_job()
+    return _serialize_config(cfg)
+
+
+@router.delete('/auto-ranking-configs/{config_id}')
+def delete_auto_ranking_config(config_id: int, request: Request, db: Session = Depends(get_db)):
+    user = get_current_user(request, db)
+    if user.role != 'admin':
+        from fastapi import HTTPException
+        raise HTTPException(403, '仅管理员可操作')
+    from ..models_auto_ranking import AutoRankingConfig
+    cfg = db.query(AutoRankingConfig).get(config_id)
+    if cfg:
+        db.delete(cfg)
+        db.commit()
+    return {'ok': True}
+
+
+def _serialize_config(cfg):
+    import json
+    return {
+        'id': cfg.id,
+        'name': cfg.name,
+        'enabled': bool(cfg.enabled),
+        'crm_group_ids': json.loads(cfg.crm_group_ids_json or '[]'),
+        'target_local_group_id': cfg.target_local_group_id,
+        'must_scene_keys': json.loads(cfg.must_scene_keys_json or '[]'),
+        'extra_scene_pool': json.loads(cfg.extra_scene_pool_json or '[]'),
+        'scene_count': cfg.scene_count,
+        'speech_style': cfg.speech_style,
+        'include_breakdown_on_monday': bool(cfg.include_breakdown_on_monday),
+        'skip_weekends': bool(cfg.skip_weekends),
+        'skip_dates': json.loads(cfg.skip_dates_json or '[]'),
+        'last_run_at': str(cfg.last_run_at) if cfg.last_run_at else None,
+        'last_error': cfg.last_error or '',
+    }

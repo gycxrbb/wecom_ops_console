@@ -431,6 +431,7 @@
 </template>
 
 <script setup lang="ts">
+defineOptions({ name: 'SystemTeaching' })
 import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, ref, watch, type Component } from 'vue'
 import { ElMessage, ElMessageBox, type UploadFile } from 'element-plus'
 import {

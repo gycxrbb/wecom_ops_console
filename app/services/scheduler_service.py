@@ -41,6 +41,7 @@ class ScheduleService:
             logger.info(f'Scheduler has {len(registered)} registered job(s)')
         finally:
             db.close()
+        self._register_auto_ranking_job()
 
     def _build_trigger(self, job: models.Schedule):
         if not job.enabled:
@@ -134,6 +135,30 @@ class ScheduleService:
         scheduled_job = self.scheduler.add_job(execute_job, trigger=trigger, id=aps_id, args=[job.id], replace_existing=True, misfire_grace_time=300)
         job.next_run_at = scheduled_job.next_run_time
         logger.info(f'Job {job.id} registered: type={job.schedule_type} next_run={scheduled_job.next_run_time}')
+
+    def _register_auto_ranking_job(self):
+        """注册每日自动排行推送 cron job。"""
+        try:
+            self.scheduler.remove_job('auto-ranking-push')
+        except Exception:
+            pass
+        from .auto_ranking_push import run_all_auto_rankings
+
+        async def _auto_ranking_fire():
+            logger.info('Auto ranking push: firing')
+            results = await asyncio.get_event_loop().run_in_executor(None, run_all_auto_rankings)
+            for r in results:
+                logger.info('Auto ranking %s: sent=%d skipped=%d error=%s', r.get('name'), r.get('sent', 0), r.get('skipped', 0), r.get('error', '')[:80])
+
+        import asyncio
+        self.scheduler.add_job(
+            _auto_ranking_fire,
+            trigger=CronTrigger(minute='3', hour='0', timezone=ZoneInfo('Asia/Shanghai')),
+            id='auto-ranking-push',
+            replace_existing=True,
+            misfire_grace_time=300,
+        )
+        logger.info('Auto ranking cron job registered: 00:03 Asia/Shanghai daily')
 
 schedule_service = ScheduleService()
 

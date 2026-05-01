@@ -14,7 +14,6 @@ from pathlib import Path
 _log = logging.getLogger(__name__)
 
 _PROMPTS_DIR = Path(__file__).parent
-_PROMPT_VERSION = "v2.1"
 
 # ── TTL Cache ───────────────────────────────────────────────────────────────
 
@@ -212,7 +211,19 @@ def get_style_label(style_key: str) -> str:
 
 
 def get_version() -> str:
-    return _PROMPT_VERSION
+    """Return current active snapshot name, or 'custom' if none tracked."""
+    try:
+        from ...database import SessionLocal
+        from ...models_prompt import PromptSnapshot
+
+        db = SessionLocal()
+        try:
+            snap = db.query(PromptSnapshot).filter_by(is_current=True).first()
+            return snap.name if snap else "custom"
+        finally:
+            db.close()
+    except Exception:
+        return "custom"
 
 
 def get_system_prompt_hash(scene_key: str) -> str:

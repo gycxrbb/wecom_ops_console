@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
-import { getPreloaded } from './preloadCache'
+import { buildCacheKey, getPreloaded, invalidateTags } from './preloadCache'
+import { inferInvalidateTags } from './cacheTags'
 
 const service = axios.create({
   baseURL: '/api',
@@ -46,18 +47,22 @@ async function refreshAccessToken(): Promise<string> {
 // ── Request interceptor ──
 service.interceptors.request.use(
   (config) => {
-    // Return preloaded data if available (transparent cache hit)
+    const method = (config.method || 'get').toLowerCase()
     const url = config.url || ''
-    const cached = getPreloaded(url)
-    if (cached !== null) {
-      const adapter = config.adapter
-      config.adapter = () => Promise.resolve({
-        data: cached,
-        status: 200,
-        statusText: 'OK (preloaded)',
-        headers: {},
-        config,
-      })
+
+    // Return preloaded data only for GET requests. Mutations must always hit the backend.
+    if (method === 'get') {
+      const key = buildCacheKey(config)
+      const cached = getPreloaded(key)
+      if (cached !== null) {
+        config.adapter = () => Promise.resolve({
+          data: cached,
+          status: 200,
+          statusText: 'OK (preloaded)',
+          headers: {},
+          config,
+        })
+      }
     }
 
     const token = localStorage.getItem('access_token')
@@ -72,6 +77,14 @@ service.interceptors.request.use(
 // ── Response interceptor ──
 service.interceptors.response.use(
   (response) => {
+    // After a successful mutation, invalidate related cache tags
+    const method = (response.config?.method || 'get').toLowerCase()
+    const url = response.config?.url || ''
+    if (method !== 'get') {
+      const tags = inferInvalidateTags(method, url)
+      if (tags.length) invalidateTags(tags)
+    }
+
     const res = response.data
     // Backend V2 format compatibility
     if (res.code !== undefined) {

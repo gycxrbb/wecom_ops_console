@@ -9,11 +9,11 @@
     <div class="feedback-summaries">
       <div class="feedback-summary-item">
         <span class="feedback-summary-label">你的问题</span>
-        <p class="feedback-summary-text">{{ truncate(userQuestion, 100) }}</p>
+        <p class="feedback-summary-text line-clamp-3">{{ truncate(userQuestion, 300) }}</p>
       </div>
       <div class="feedback-summary-item">
         <span class="feedback-summary-label">AI 回复</span>
-        <p class="feedback-summary-text">{{ truncate(aiAnswer, 100) }}</p>
+        <p class="feedback-summary-text line-clamp-5">{{ truncate(aiAnswer, 600) }}</p>
       </div>
     </div>
 
@@ -120,7 +120,9 @@ defineExpose({ open })
 .feedback-summary-item { padding: 8px 12px; background: #f9fafb; border-radius: 8px; }
 :global(html.dark) .feedback-summary-item { background: rgba(255,255,255,0.06); }
 .feedback-summary-label { font-size: 11px; color: #9ca3af; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }
-.feedback-summary-text { margin: 4px 0 0; font-size: 13px; color: #374151; line-height: 1.5; }
+.feedback-summary-text { margin: 4px 0 0; font-size: 13px; color: #374151; line-height: 1.5; white-space: pre-wrap; }
+.line-clamp-3 { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; text-overflow: ellipsis; }
+.line-clamp-5 { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 5; overflow: hidden; text-overflow: ellipsis; }
 :global(html.dark) .feedback-summary-text { color: #d1d5db; }
 .feedback-form { margin-top: 4px; }
 </style>

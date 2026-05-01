@@ -3,6 +3,12 @@
     <div class="page-header">
       <h2>提示词管理</h2>
       <div class="header-actions">
+        <el-tag v-if="currentSnapshot" type="success" effect="dark" size="large" style="margin-right: 8px">
+          当前版本：{{ currentSnapshot }}
+        </el-tag>
+        <el-tag v-else type="warning" effect="dark" size="large" style="margin-right: 8px">
+          自定义版本（未关联快照）
+        </el-tag>
         <el-button size="small" @click="snapshotLogVisible = true">版本记录</el-button>
         <el-button size="small" type="success" @click="commitDialogVisible = true">提交快照</el-button>
         <el-button size="small" @click="handleReseed" :loading="reseeding">从文件重新导入</el-button>
@@ -168,6 +174,7 @@
             </template>
             <template v-else>
               <span class="snap-log-name">{{ snap.name }}</span>
+              <el-tag v-if="snap.is_current" size="small" type="success" effect="dark">当前版本</el-tag>
               <el-button size="small" link @click="startEditSnap(snap)" style="font-size: 12px">编辑</el-button>
             </template>
             <el-tag size="small" type="info">{{ snap.template_count }} 条模板</el-tag>
@@ -284,6 +291,7 @@ const snapshotDiff = ref<any>(null)
 
 const editingSnapId = ref<number | null>(null)
 const editingSnap = ref({ name: '', description: '' })
+const currentSnapshot = ref<string | null>(null)
 
 const createLayerLabel = computed(() => LAYER_LABELS[createLayer.value] || createLayer.value)
 
@@ -291,12 +299,18 @@ const formatTime = (t: string | null) => t ? t.replace('T', ' ').slice(0, 19) : 
 
 const buildTree = async () => {
   const res: any = await request.get('/v1/admin/prompt-templates/tree')
-  const data = res as Record<string, any[]>
+  const data = res as Record<string, any>
   const layerKeyMap: Record<string, string> = { '基础层 (L1/L2)': 'base', '场景策略 (L3)': 'scene', '风格模板': 'style' }
+
+  // Extract current snapshot info
+  const meta = data['__meta__']
+  currentSnapshot.value = meta?.current_snapshot?.name ?? null
+  delete data['__meta__']
+
   treeData.value = Object.entries(data).map(([layerLabel, items]) => ({
     label: layerLabel,
     layer: layerKeyMap[layerLabel] || layerLabel,
-    children: items.map((item: any) => ({
+    children: (items as any[]).map((item: any) => ({
       label: item.label,
       id: item.id,
       key: item.key,
@@ -482,6 +496,7 @@ const handleSnapshotChange = async (snapshotId: number) => {
   snapshotLogVisible.value = false
   current.value = null
   buildTree()
+  loadSnapshots()
 }
 
 onMounted(() => { buildTree(); loadSnapshots() })

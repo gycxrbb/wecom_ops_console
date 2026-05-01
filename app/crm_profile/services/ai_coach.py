@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import re
 import time
@@ -522,7 +523,7 @@ async def ask_ai_coach(
         if qmsg and qmsg.role == "assistant":
             quoted_content = qmsg.content
 
-    prepared = _prepare_ai_turn(
+    prepared = await _prepare_ai_turn_async(
         customer_id,
         effective_message,
         session_id=session_id,

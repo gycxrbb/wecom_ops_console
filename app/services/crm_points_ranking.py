@@ -10,6 +10,7 @@ from typing import Any
 
 from .crm_group_directory import fetch_crm_group_members, fetch_crm_group_members_bulk, crm_group_enabled
 from .crm_points_insights import detect_individual_insights_bulk
+from .crm_points_metrics import fetch_customer_last_week_breakdown_bulk
 from .crm_speech_templates import build_insight_speech, build_grouped_insight_speeches
 from .crm_1v1_actions import generate_1v1_actions
 
@@ -33,6 +34,21 @@ def _format_rank_line(rank: int, name: str, points: float, week_pts: float = 0) 
     prefix = medal if medal else f'{rank}.'
     week_info = f'（本周+{week_pts:.0f}）' if week_pts > 0 else ''
     return f'{prefix} {name} {points:.0f}分{week_info}'
+
+
+_BREAKDOWN_LABELS = {'app': 'APP内', 'community': '社群活跃', 'live': '直播积分'}
+
+
+def _format_breakdown_line(breakdown: dict[str, float] | None) -> str | None:
+    """格式化上周明细行，仅当有正数大类时返回。"""
+    if not breakdown:
+        return None
+    parts = []
+    for key, label in _BREAKDOWN_LABELS.items():
+        val = breakdown.get(key, 0)
+        if val > 0:
+            parts.append(f'{label}+{val:.0f}')
+    return f'[上周明细: {", ".join(parts)}]' if parts else None
 
 
 def _build_skipped_item(crm_group_id: int, crm_group_name: str, reason: str) -> dict[str, Any]:
@@ -59,6 +75,7 @@ def _generate_group_ranking_message_from_members(
     include_week_month: bool = True,
     speech_style: str = 'professional',
     insights: list[dict] | None = None,
+    breakdown_map: dict[int, dict[str, float]] | None = None,
 ) -> dict[str, Any] | None:
     if not members:
         return None
@@ -92,6 +109,10 @@ def _generate_group_ranking_message_from_members(
                 float(member.get('week_points', 0) or 0),
             )
         )
+        if breakdown_map:
+            bd_line = _format_breakdown_line(breakdown_map.get(member['id']))
+            if bd_line:
+                lines.append(f'    {bd_line}')
 
     speech = _SPEECH_TEMPLATES.get(speech_style, _SPEECH_TEMPLATES['professional'])
     if insights is None:
@@ -157,6 +178,7 @@ def preview_ranking_batch(
     speech_style: str = 'professional',
     skip_empty_groups: bool = True,
     enabled_scenes: list[str] | None = None,
+    include_last_week_breakdown: bool = False,
 ) -> dict[str, Any]:
     """批量预览积分排行消息。
 
@@ -225,6 +247,23 @@ def preview_ranking_batch(
     insights_ms = int((time.perf_counter() - insights_started_at) * 1000)
     _log.info('批量洞察耗时: %dms (groups=%d candidates=%d)', insights_ms, len(preprocessed), len(groups_candidates))
 
+    # ── 批量上周积分明细 ──
+    breakdown_map: dict[int, dict[str, float]] = {}
+    breakdown_ms = 0
+    if include_last_week_breakdown:
+        breakdown_started_at = time.perf_counter()
+        all_customer_ids = set()
+        for _, _, _, ranked in preprocessed:
+            for m in ranked:
+                all_customer_ids.add(m['id'])
+        if all_customer_ids:
+            try:
+                breakdown_map = fetch_customer_last_week_breakdown_bulk(list(all_customer_ids))
+            except Exception as exc:
+                _log.warning('上周积分明细查询失败: %s', exc)
+        breakdown_ms = int((time.perf_counter() - breakdown_started_at) * 1000)
+        _log.info('上周积分明细耗时: %dms (customers=%d)', breakdown_ms, len(all_customer_ids))
+
     # ── 生成消息 ──
     build_items_started_at = time.perf_counter()
     slow_groups: list[dict[str, Any]] = []
@@ -240,6 +279,7 @@ def preview_ranking_batch(
                 include_week_month=include_week_month,
                 speech_style=speech_style,
                 insights=bulk_insights_map.get(idx),
+                breakdown_map=breakdown_map if include_last_week_breakdown else None,
             )
             if msg is None:
                 items.append(_build_skipped_item(gid, group_name, '该群无正积分成员'))

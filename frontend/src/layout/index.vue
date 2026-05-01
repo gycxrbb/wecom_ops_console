@@ -49,8 +49,10 @@
         </div>
       </el-header>
       <el-main class="custom-main">
-        <router-view v-slot="{ Component }">
-          <component :is="Component" />
+        <router-view v-slot="{ Component, route }">
+          <KeepAlive :include="keepAliveList" :max="8">
+            <component :is="Component" :key="route.name" />
+          </KeepAlive>
         </router-view>
       </el-main>
     </el-container>
@@ -89,6 +91,12 @@ const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 const drawerVisible = ref(false)
+
+// Keep-alive: only low-risk list pages, not editors with complex state
+const keepAliveList = [
+  'Dashboard', 'Groups', 'Templates', 'Schedules',
+  'Assets', 'SpeechTemplates', 'SopDocsHome',
+]
 
 // Navigate时关闭 drawer
 watch(() => route.path, () => {
@@ -145,7 +153,8 @@ const getRouteName = () => {
     '/users': '用户管理',
     '/permissions': '权限管理',
     '/profile': '个人中心',
-    '/feedback-review': '反馈审核'
+    '/feedback-review': '反馈审核',
+    '/auto-ranking': '自动排行推送'
   }
   return map[route.path] || '页面'
 }

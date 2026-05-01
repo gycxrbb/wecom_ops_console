@@ -113,6 +113,14 @@ def get_template_tree(request: Request, db: Session = Depends(get_db)):
             "version": r.version,
             "is_active": r.is_active,
         })
+    # Also return current snapshot info
+    current_snap = db.query(PromptSnapshot).filter_by(is_current=True).first()
+    tree["__meta__"] = {
+        "current_snapshot": {
+            "id": current_snap.id,
+            "name": current_snap.name,
+        } if current_snap else None,
+    }
     return tree
 
 
@@ -327,6 +335,7 @@ def list_snapshots(request: Request, db: Session = Depends(get_db)):
             "id": s.id,
             "name": s.name,
             "description": s.description,
+            "is_current": bool(s.is_current),
             "template_count": item_count,
             "created_by": s.created_by,
             "created_at": s.created_at.isoformat() if s.created_at else None,
@@ -461,9 +470,16 @@ def switch_snapshot(
     items = db.query(PromptSnapshotItem).filter_by(snapshot_id=req.snapshot_id).all()
     item_map = {i.template_key: i for i in items}
 
+    if not item_map:
+        raise HTTPException(400, "快照为空（无模板），无法切换")
+
     all_templates = db.query(PromptTemplate).all()
     switched = []
     skipped = []
+
+    # Mark all snapshots as not current, then mark the target
+    db.query(PromptSnapshot).update({PromptSnapshot.is_current: False})
+    snap.is_current = True
 
     for tpl in all_templates:
         if tpl.key in item_map:
@@ -518,10 +534,15 @@ def create_current_snapshot(
     snap = PromptSnapshot(
         name=name,
         description=req.description or "",
+        is_current=True,
         created_by=user.username,
     )
     db.add(snap)
     db.flush()
+    # Clear is_current on all previous snapshots
+    db.query(PromptSnapshot).filter(PromptSnapshot.id != snap.id).update(
+        {PromptSnapshot.is_current: False}
+    )
 
     for tpl in all_templates:
         db.add(PromptSnapshotItem(

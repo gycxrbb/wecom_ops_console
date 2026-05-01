@@ -278,7 +278,7 @@
   </el-drawer>
   <AiCoachFeedbackDialog
     ref="feedbackDialogRef"
-    :user-question="feedbackTargetMsg?.content || ''"
+    :user-question="feedbackTargetQuestion"
     :ai-answer="feedbackTargetMsg?.content || ''"
     @submit="onFeedbackDialogSubmit"
   />
@@ -853,6 +853,18 @@ const onMarkMedicalReview = async (msg: any) => {
 
 const feedbackDialogRef = ref<InstanceType<typeof AiCoachFeedbackDialog>>()
 const feedbackTargetMsg = ref<any>(null)
+const feedbackTargetQuestion = computed(() => {
+  if (!feedbackTargetMsg.value) return ''
+  const idx = chatHistory.value.findIndex((m: any) => m === feedbackTargetMsg.value)
+  if (idx > 0) {
+    for (let i = idx - 1; i >= 0; i--) {
+      if (chatHistory.value[i].role === 'user') {
+        return (chatHistory.value[i] as any).content
+      }
+    }
+  }
+  return ''
+})
 
 const onFeedback = async (msg: any, rating: 'like' | 'dislike') => {
   if (!props.customerId || !msg.messageId) return

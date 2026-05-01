@@ -35,6 +35,7 @@ const router = createRouter({
         { path: 'permissions', name: 'Permissions', component: () => import('#/views/Permissions.vue'), meta: { requiresAuth: true, title: '权限管理', role: 'admin' } },
         { path: 'prompt-manage', name: 'PromptManage', component: () => import('#/views/PromptManage/index.vue'), meta: { requiresAuth: true, title: '提示词管理', role: 'admin' } },
         { path: 'feedback-review', name: 'FeedbackReview', component: () => import('#/views/FeedbackReview/index.vue'), meta: { requiresAuth: true, title: '反馈审核', role: 'admin' } },
+        { path: 'auto-ranking', name: 'AutoRanking', component: () => import('#/views/AutoRanking/index.vue'), meta: { requiresAuth: true, title: '自动排行推送', role: 'admin' } },
         { path: 'profile', name: 'Profile', component: () => import('#/views/Profile.vue'), meta: { requiresAuth: true, title: '个人中心' } }
       ]
     }

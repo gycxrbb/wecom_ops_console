@@ -147,10 +147,11 @@ def _seed_snapshots(db: Session, v1_snapshot_items: list[tuple[str, str, str]]) 
                     template_key=key, version="v1.0", content=v1_content,
                 ))
 
-    # v2.1 snapshot — all current templates
+    # v2.1 snapshot — all current templates, marked as current
     snap_v2 = PromptSnapshot(
         name="v2.1",
         description="v2.1 优化版（含话术规范、称呼规则、Few-shot、风格模板、Header）",
+        is_current=True,
         created_by="system",
     )
     db.add(snap_v2)

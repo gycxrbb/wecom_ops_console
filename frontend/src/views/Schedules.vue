@@ -248,6 +248,7 @@
 </template>
 
 <script setup lang="ts">
+defineOptions({ name: 'Schedules' })
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'

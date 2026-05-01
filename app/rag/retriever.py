@@ -244,7 +244,7 @@ async def _do_retrieve(
             resource = db.query(RagResource).filter_by(id=resource_id).first() if resource_id else None
             snippet = ""
             if resource and resource.semantic_text:
-                snippet = resource.semantic_text[:200]
+                snippet = resource.semantic_text[:settings.rag_max_source_chars]
 
             sources.append(RagSource(
                 resource_id=resource_id,

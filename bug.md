@@ -728,3 +728,21 @@
 - **复现条件**: 在 `frontend` 目录执行 `npm.cmd run build`。
 - **解决方案**: 将 CRM 列表筛选类型补齐为 `number | '' | null`；补齐提示词快照编辑状态、保存方法，并调用已有后端 `PUT /snapshots/{snapshot_id}` 更新快照名称和说明。
 - **关联文件**: frontend/src/views/CrmProfile/composables/useCrmProfile.ts, frontend/src/views/PromptManage/index.vue
+
+## Bug #72: 发送中心队列定时发送被预加载缓存假成功
+
+- **日期**: 2026-05-01
+- **现象**: 登录后首次在发送中心对已有队列点击“队列定时发送”时，前端很快提示创建成功，但定时任务列表没有新任务；点击队列项后再次创建会出现正常加载并成功落到定时任务列表。
+- **根因**: 前端统一 `request` 拦截器按 URL 命中预加载缓存，没有区分 HTTP method。登录预热写入的 `GET /v1/schedules` 缓存会被后续 `POST /v1/schedules` 消费，导致创建请求没有真正发到后端，前端却把缓存响应当成成功结果。
+- **复现条件**: 登录后存在未消费的 `/v1/schedules` 预加载缓存，直接在发送中心调用 `POST /v1/schedules` 创建队列定时任务。
+- **解决方案**: 预加载缓存只允许 `GET` 请求消费；`POST/PUT/PATCH/DELETE` 等变更请求必须真实访问后端，并删除同 URL 的预加载缓存，避免后续列表读取旧数据。
+- **关联文件**: frontend/src/utils/request.ts, frontend/src/utils/preloadCache.ts
+
+## Bug #73: 自动积分排行配置迁移使用 SQLite 建表语法导致 MySQL 启动失败
+
+- **日期**: 2026-05-01
+- **现象**: 后端启动执行 `ensure_auto_ranking_config_schema()` 时，MySQL 报 `1064` 语法错误，SQL 停在 `AUTOINCREMENT` 附近，应用无法完成启动。
+- **根因**: `auto_ranking_configs` 启动迁移沿用了 SQLite 的 `AUTOINCREMENT` 语法；同时建表 SQL 给多个 `TEXT` 列设置默认值，这在 MySQL 下也不兼容，会在修掉自增语法后继续阻断启动。
+- **复现条件**: 使用 MySQL / PyMySQL 数据库启动应用，且库内尚未存在 `auto_ranking_configs` 表。
+- **解决方案**: `ensure_auto_ranking_config_schema()` 按数据库 dialect 分支建表：MySQL 使用 `AUTO_INCREMENT + PRIMARY KEY (id)`，并移除 `TEXT DEFAULT`；SQLite 保留 `AUTOINCREMENT` 与本地默认值。
+- **关联文件**: app/schema_migrations.py

@@ -246,6 +246,7 @@
 </template>
 
 <script setup lang="ts">
+defineOptions({ name: 'Assets' })
 import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
 import { FolderAdd, FolderOpened, Upload, Operation, Picture } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
