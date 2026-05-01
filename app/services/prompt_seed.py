@@ -113,6 +113,9 @@ def _seed_snapshots(db: Session, v1_snapshot_items: list[tuple[str, str, str]]) 
 
     _log.info("Creating prompt snapshots ...")
 
+    # Build a lookup: key → (layer, label) from template definitions
+    _key_meta = {key: (layer, label) for layer, key, label, _, _ in _TEMPLATE_DEFS}
+
     # v1.0 snapshot — only templates that existed in v1.0
     if v1_snapshot_items:
         snap_v1 = PromptSnapshot(
@@ -123,9 +126,11 @@ def _seed_snapshots(db: Session, v1_snapshot_items: list[tuple[str, str, str]]) 
         db.add(snap_v1)
         db.flush()
         for key, ver, content in v1_snapshot_items:
+            layer, label = _key_meta.get(key, ("unknown", key))
             db.add(PromptSnapshotItem(
                 snapshot_id=snap_v1.id,
-                template_key=key, version=ver, content=content,
+                template_key=key, layer=layer, label=label,
+                version=ver, content=content,
             ))
     else:
         # Templates existed before snapshots were added — rebuild v1.0 from git
@@ -144,7 +149,8 @@ def _seed_snapshots(db: Session, v1_snapshot_items: list[tuple[str, str, str]]) 
             if v1_content:
                 db.add(PromptSnapshotItem(
                     snapshot_id=snap_v1.id,
-                    template_key=key, version="v1.0", content=v1_content,
+                    template_key=key, layer=layer, label=label,
+                    version="v1.0", content=v1_content,
                 ))
 
     # v2.1 snapshot — all current templates, marked as current
@@ -161,7 +167,8 @@ def _seed_snapshots(db: Session, v1_snapshot_items: list[tuple[str, str, str]]) 
         if v2_content:
             db.add(PromptSnapshotItem(
                 snapshot_id=snap_v2.id,
-                template_key=key, version="v2.1", content=v2_content,
+                template_key=key, layer=layer, label=label,
+                version="v2.1", content=v2_content,
             ))
 
     db.commit()

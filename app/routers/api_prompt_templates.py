@@ -458,8 +458,8 @@ def switch_snapshot(
     """Switch all templates to a snapshot version.
 
     For templates present in the snapshot: restore their content.
-    For templates NOT in the snapshot (e.g. new in v2.1 but absent in v1.0):
-    keep current content but log a warning.
+    For templates NOT in the snapshot: deactivate them.
+    For snapshot items with no matching template (deleted): recreate from snapshot.
     """
     user = get_current_user(request, db)
     require_role(user, "admin")
@@ -474,16 +474,20 @@ def switch_snapshot(
         raise HTTPException(400, "快照为空（无模板），无法切换")
 
     all_templates = db.query(PromptTemplate).all()
+    tpl_map = {t.key: t for t in all_templates}
     switched = []
+    recreated = []
     skipped = []
 
     # Mark all snapshots as not current, then mark the target
     db.query(PromptSnapshot).update({PromptSnapshot.is_current: False})
     snap.is_current = True
 
-    for tpl in all_templates:
-        if tpl.key in item_map:
-            item = item_map[tpl.key]
+    # Process snapshot items — update existing or recreate deleted
+    for key, item in item_map.items():
+        if key in tpl_map:
+            # Template exists — update content and activate
+            tpl = tpl_map[key]
             old_ver = tpl.version
             tpl.content = item.content
             tpl.version = item.version
@@ -495,23 +499,51 @@ def switch_snapshot(
                 change_note=f"全局切换到快照「{snap.name}」（从 {old_ver} 到 {item.version}）",
                 created_by=user.username,
             ))
-            switched.append(tpl.key)
+            switched.append(key)
         else:
+            # Template was deleted — recreate from snapshot
+            layer = item.layer or "unknown"
+            label = item.label or key
+            tpl = PromptTemplate(
+                layer=layer,
+                key=key,
+                label=label,
+                content=item.content,
+                version=item.version,
+                is_active=True,
+                updated_by=f"snapshot:{snap.name}",
+            )
+            db.add(tpl)
+            db.flush()
+
+            db.add(PromptTemplateVersion(
+                template_id=tpl.id, content=item.content, version=item.version,
+                change_note=f"从快照「{snap.name}」重建已删除的模板",
+                created_by=user.username,
+            ))
+            recreated.append(key)
+
+    # Deactivate templates not in snapshot
+    for tpl in all_templates:
+        if tpl.key not in item_map:
             tpl.is_active = False
             skipped.append(tpl.key)
 
     db.commit()
     reload_all()
 
+    parts = [f"已切换 {len(switched)} 个模板到快照「{snap.name}」"]
+    if recreated:
+        parts.append(f"重建 {len(recreated)} 个已删除的模板")
+    if skipped:
+        parts.append(f"{len(skipped)} 个模板在该快照中不存在，已停用")
     return {
         "ok": True,
         "snapshot": snap.name,
         "switched": switched,
+        "recreated": recreated,
         "skipped": skipped,
-        "message": (
-            f"已切换 {len(switched)} 个模板到快照「{snap.name}」"
-            + (f"，{len(skipped)} 个模板在该快照中不存在，保持当前内容" if skipped else "")
-        ),
+        "message": "，".join(parts),
     }
 
 
@@ -548,6 +580,8 @@ def create_current_snapshot(
         db.add(PromptSnapshotItem(
             snapshot_id=snap.id,
             template_key=tpl.key,
+            layer=tpl.layer,
+            label=tpl.label,
             version=tpl.version,
             content=tpl.content,
         ))

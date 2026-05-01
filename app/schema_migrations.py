@@ -681,6 +681,15 @@ def ensure_prompt_snapshot_is_current(engine: Engine) -> None:
         if "is_current" not in existing:
             conn.execute(text("ALTER TABLE prompt_snapshots ADD COLUMN is_current BOOLEAN DEFAULT 0"))
 
+    # Add layer/label to snapshot items for recreating deleted templates
+    if "prompt_snapshot_items" in inspector.get_table_names():
+        existing = {c["name"] for c in inspector.get_columns("prompt_snapshot_items")}
+        with engine.begin() as conn:
+            if "layer" not in existing:
+                conn.execute(text("ALTER TABLE prompt_snapshot_items ADD COLUMN layer VARCHAR(32)"))
+            if "label" not in existing:
+                conn.execute(text("ALTER TABLE prompt_snapshot_items ADD COLUMN label VARCHAR(64)"))
+
 
 def ensure_auto_ranking_config_schema(engine: Engine) -> None:
     """Create auto_ranking_configs table if not exists."""

@@ -32,6 +32,8 @@ class PromptSnapshotItem(Base):
         ForeignKey("prompt_snapshots.id", ondelete="CASCADE"), nullable=False, index=True
     )
     template_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    layer: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    label: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     version: Mapped[str] = mapped_column(String(16), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
 
