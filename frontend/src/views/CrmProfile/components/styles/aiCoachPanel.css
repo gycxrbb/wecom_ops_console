@@ -754,3 +754,38 @@
 :global(html.dark) .ai-quote-bar { background: rgba(99, 102, 241, 0.08); border-color: rgba(99, 102, 241, 0.15); }
 :global(html.dark) .ai-quote-bar-content { color: #94a3b8; }
 :global(html.dark) .ai-quote-bar-close:hover { color: #e5e7eb; }
+
+/* ==================== Mobile ==================== */
+@media (max-width: 767px) {
+  .ai-sidebar {
+    display: none;
+  }
+  .ai-sidebar-panel {
+    display: none;
+  }
+  .ai-panel-body {
+    flex-direction: column;
+  }
+  .ai-main {
+    width: 100%;
+  }
+  .ai-input-wrapper {
+    padding: 0 12px;
+    margin-bottom: 12px;
+  }
+  .ai-select-action-bar {
+    margin: 0 12px 8px;
+  }
+  .ai-input-card {
+    border-radius: 16px;
+  }
+}
+@media (max-width: 480px) {
+  .ai-input-wrapper {
+    padding: 0 8px;
+  }
+  .ai-select-action-bar {
+    margin: 0 8px 8px;
+    gap: 8px;
+  }
+}

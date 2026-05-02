@@ -137,28 +137,68 @@ class ScheduleService:
         logger.info(f'Job {job.id} registered: type={job.schedule_type} next_run={scheduled_job.next_run_time}')
 
     def _register_auto_ranking_job(self):
-        """注册每日自动排行推送 cron job。"""
-        try:
-            self.scheduler.remove_job('auto-ranking-push')
-        except Exception:
-            pass
-        from .auto_ranking_push import run_all_auto_rankings
-
-        async def _auto_ranking_fire():
-            logger.info('Auto ranking push: firing')
-            results = await asyncio.get_event_loop().run_in_executor(None, run_all_auto_rankings)
-            for r in results:
-                logger.info('Auto ranking %s: sent=%d skipped=%d error=%s', r.get('name'), r.get('sent', 0), r.get('skipped', 0), r.get('error', '')[:80])
-
+        """为每个 enabled 的自动排行配置注册独立的 cron job。"""
         import asyncio
-        self.scheduler.add_job(
-            _auto_ranking_fire,
-            trigger=CronTrigger(minute='3', hour='0', timezone=ZoneInfo('Asia/Shanghai')),
-            id='auto-ranking-push',
-            replace_existing=True,
-            misfire_grace_time=300,
-        )
-        logger.info('Auto ranking cron job registered: 00:03 Asia/Shanghai daily')
+        from .auto_ranking_push import execute_auto_ranking
+
+        # 移除所有旧的 auto-ranking-* job
+        for job in self.scheduler.get_jobs():
+            if job.id.startswith('auto-ranking-'):
+                self.scheduler.remove_job(job.id)
+
+        db = SessionLocal()
+        try:
+            from ..models_auto_ranking import AutoRankingConfig
+            configs = db.query(AutoRankingConfig).filter(AutoRankingConfig.enabled == 1).all()
+        finally:
+            db.close()
+
+        tz = ZoneInfo('Asia/Shanghai')
+
+        def _make_fire(cfg_id: int, cfg_name: str):
+            async def _fire():
+                logger.info('Auto ranking push: firing config %s (%s)', cfg_id, cfg_name)
+                db2 = SessionLocal()
+                try:
+                    cfg = db2.query(AutoRankingConfig).get(cfg_id)
+                    if not cfg or not cfg.enabled:
+                        logger.info('Auto ranking %s skipped: not found or disabled', cfg_id)
+                        return
+                    result = await asyncio.get_event_loop().run_in_executor(None, execute_auto_ranking, cfg)
+                    logger.info('Auto ranking %s: sent=%d skipped=%d error=%s', cfg_name, result.get('sent', 0), result.get('skipped', 0), str(result.get('error', ''))[:80])
+                    # update last_run_at / last_error
+                    from datetime import datetime as _dt
+                    cfg.last_run_at = _dt.now(tz)
+                    cfg.last_error = result.get('error', '')
+                    db2.commit()
+                except Exception as exc:
+                    logger.exception('Auto ranking %s failed', cfg_name)
+                    try:
+                        cfg = db2.query(AutoRankingConfig).get(cfg_id)
+                        if cfg:
+                            cfg.last_error = str(exc)[:200]
+                            db2.commit()
+                    except Exception:
+                        pass
+                finally:
+                    db2.close()
+            return _fire
+
+        for cfg in configs:
+            job_id = f'auto-ranking-{cfg.id}'
+            hour = cfg.push_hour or 0
+            minute = cfg.push_minute or 0
+            self.scheduler.add_job(
+                _make_fire(cfg.id, cfg.name),
+                trigger=CronTrigger(minute=str(minute), hour=str(hour), timezone=tz),
+                id=job_id,
+                replace_existing=True,
+                misfire_grace_time=300,
+            )
+            logger.info('Auto ranking cron job registered: %s → %02d:%02d Asia/Shanghai daily', cfg.name, hour, minute)
+
+        if not configs:
+            logger.info('No enabled auto ranking configs found')
 
 schedule_service = ScheduleService()
 

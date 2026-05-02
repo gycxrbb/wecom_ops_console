@@ -320,7 +320,7 @@ const isAdmin = computed(() => userStore.user?.role === 'admin')
 
 const DRAWER_WIDTH_KEY = 'ai-coach-drawer-width'
 const DEFAULT_WIDTH = 560
-const MIN_WIDTH = 400
+const MIN_WIDTH = Math.min(400, window.innerWidth - 16)
 const MAX_WIDTH = 1200
 
 const props = withDefaults(defineProps<{

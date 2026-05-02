@@ -26,5 +26,7 @@ class AutoRankingConfig(Base, TimestampMixinAuto):
     include_breakdown_on_monday: Mapped[int] = mapped_column(Integer, default=1)
     skip_weekends: Mapped[int] = mapped_column(Integer, default=0)
     skip_dates_json: Mapped[str] = mapped_column(Text, default='[]')
+    push_hour: Mapped[int] = mapped_column(Integer, default=0)
+    push_minute: Mapped[int] = mapped_column(Integer, default=0)
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_error: Mapped[str] = mapped_column(Text, default='')

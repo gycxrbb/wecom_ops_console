@@ -30,20 +30,20 @@
     <el-card class="table-card">
       <!-- Filters -->
       <div class="toolbar">
-        <el-select v-model="filters.rating" placeholder="评分" clearable style="width: 120px" @change="fetchList">
+        <el-select v-model="filters.rating" placeholder="评分" clearable class="toolbar-select" @change="fetchList">
           <el-option label="有帮助" value="like" />
           <el-option label="没帮助" value="dislike" />
         </el-select>
-        <el-select v-model="filters.reason_category" placeholder="原因分类" clearable style="width: 140px" @change="fetchList">
+        <el-select v-model="filters.reason_category" placeholder="原因分类" clearable class="toolbar-select" @change="fetchList">
           <el-option v-for="r in reasonOptions" :key="r" :label="r" :value="r" />
         </el-select>
-        <el-select v-model="filters.status" placeholder="处理状态" clearable style="width: 130px" @change="fetchList">
+        <el-select v-model="filters.status" placeholder="处理状态" clearable class="toolbar-select" @change="fetchList">
           <el-option label="待处理" value="new" />
           <el-option label="已审阅" value="reviewed" />
           <el-option label="已用于优化" value="used_for_prompt" />
           <el-option label="已忽略" value="ignored" />
         </el-select>
-        <el-select v-model="filters.scene_key" placeholder="场景" clearable style="width: 120px" @change="fetchList">
+        <el-select v-model="filters.scene_key" placeholder="场景" clearable class="toolbar-select" @change="fetchList">
           <el-option v-for="s in sceneOptions" :key="s" :label="s" :value="s" />
         </el-select>
         <el-date-picker
@@ -53,7 +53,7 @@
           start-placeholder="开始日期"
           end-placeholder="结束日期"
           value-format="YYYY-MM-DD"
-          style="width: 260px"
+          class="toolbar-date"
           @change="fetchList"
         />
       </div>
@@ -156,7 +156,7 @@
 
         <!-- Admin actions -->
         <div class="detail-actions">
-          <el-select v-model="detailForm.status" style="width: 150px">
+          <el-select v-model="detailForm.status" class="detail-status-select">
             <el-option label="待处理" value="new" />
             <el-option label="已审阅" value="reviewed" />
             <el-option label="已用于优化" value="used_for_prompt" />
@@ -366,4 +366,20 @@ onMounted(() => {
 :global(html.dark) .detail-content--code { background: rgba(34,197,94,0.1); color: #86efac; }
 .detail-meta { margin-top: 20px; }
 .detail-actions { display: flex; align-items: flex-start; margin-top: 20px; gap: 0; }
+.toolbar-select { width: 140px; }
+.toolbar-date { width: 260px; }
+.detail-status-select { width: 150px; }
+
+/* ---- Mobile ---- */
+@media (max-width: 767px) {
+  .stats-row { flex-wrap: wrap; }
+  .stat-card { flex: 1 1 calc(50% - 12px); min-width: 140px; }
+  .toolbar-select { width: 100%; }
+  .toolbar-date { width: 100%; }
+  .detail-actions { flex-direction: column; gap: 12px; }
+  .detail-status-select { width: 100%; }
+}
+@media (max-width: 480px) {
+  .stat-card { flex: 1 1 100%; }
+}
 </style>

@@ -370,4 +370,11 @@ const simpleRows = computed(() => {
 :global(html.dark) .mod-detail__label-chip strong {
   color: #a78bfa;
 }
+
+/* ---- Mobile ---- */
+@media (max-width: 600px) {
+  .mod-detail__grid {
+    grid-template-columns: 1fr;
+  }
+}
 </style>

@@ -81,7 +81,7 @@
         />
 
         <div class="save-bar" v-if="editContent !== current.content">
-          <el-input v-model="changeNote" placeholder="变更说明（可选）" size="small" style="width: 300px" />
+          <el-input v-model="changeNote" placeholder="变更说明（可选）" size="small" class="save-bar__input" />
           <el-button type="primary" size="small" @click="handleSave" :loading="saving">
             保存为新版本
           </el-button>
@@ -178,8 +178,10 @@
               <el-button size="small" link @click="startEditSnap(snap)" style="font-size: 12px">编辑</el-button>
             </template>
             <el-tag size="small" type="info">{{ snap.template_count }} 条模板</el-tag>
+            <el-tag v-if="snap.template_count === 0" size="small" type="danger">空快照</el-tag>
             <span class="snap-log-meta">{{ snap.created_by }} · {{ formatTime(snap.created_at) }}</span>
             <div class="snap-log-actions">
+              <el-button v-if="snap.template_count === 0" size="small" link type="success" @click="handleRebuildSnapshot(snap)">重建</el-button>
               <el-button size="small" link @click="loadSnapshotDiff(snap.id)">查看变更</el-button>
               <el-button size="small" link type="warning" @click="handleSnapshotChange(snap.id)">切换到此版本</el-button>
             </div>
@@ -499,6 +501,16 @@ const handleSnapshotChange = async (snapshotId: number) => {
   loadSnapshots()
 }
 
+const handleRebuildSnapshot = async (snap: any) => {
+  await ElMessageBox.confirm(
+    `将尝试从版本历史重建快照「${snap.name}」的模板记录。重建后可以正常切换到此版本。确定？`,
+    '确认重建',
+  )
+  const res: any = await request.post(`/v1/admin/prompt-templates/snapshots/${snap.id}/rebuild`)
+  ElMessage.success(res.message)
+  loadSnapshots()
+}
+
 onMounted(() => { buildTree(); loadSnapshots() })
 </script>
 
@@ -539,4 +551,20 @@ onMounted(() => { buildTree(); loadSnapshots() })
 .snap-diff-summary { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
 .snap-diff-vs { color: var(--el-text-color-secondary); font-size: 12px; margin-left: 8px; }
 .snap-diff-table { background: transparent; }
+.save-bar__input { max-width: 300px; }
+
+/* ---- Mobile ---- */
+@media (max-width: 767px) {
+  .page-header { flex-direction: column; gap: 12px; align-items: flex-start; }
+  .header-actions { flex-wrap: wrap; }
+  .main-layout { flex-direction: column; }
+  .tree-panel { width: 100%; max-height: 200px; overflow-y: auto; border-right: none; border-bottom: 1px solid var(--el-border-color-lighter); }
+  .editor-header { flex-direction: column; gap: 8px; align-items: flex-start; }
+  .save-bar { flex-direction: column; align-items: stretch; }
+  .save-bar__input { max-width: 100%; }
+}
+@media (max-width: 480px) {
+  .prompt-manage-page { padding: 12px; }
+  .tree-panel, .editor-panel { padding: 12px; }
+}
 </style>

@@ -710,6 +710,8 @@ def ensure_auto_ranking_config_schema(engine: Engine) -> None:
                     include_breakdown_on_monday INTEGER DEFAULT 1,
                     skip_weekends INTEGER DEFAULT 0,
                     skip_dates_json TEXT,
+                    push_hour INTEGER DEFAULT 0,
+                    push_minute INTEGER DEFAULT 0,
                     last_run_at DATETIME,
                     last_error TEXT,
                     created_at DATETIME,
@@ -732,9 +734,20 @@ def ensure_auto_ranking_config_schema(engine: Engine) -> None:
                     include_breakdown_on_monday INTEGER DEFAULT 1,
                     skip_weekends INTEGER DEFAULT 0,
                     skip_dates_json TEXT DEFAULT '[]',
+                    push_hour INTEGER DEFAULT 0,
+                    push_minute INTEGER DEFAULT 0,
                     last_run_at DATETIME,
                     last_error TEXT DEFAULT '',
                     created_at DATETIME,
                     updated_at DATETIME
                 )
             """))
+    # 补列兜底：表已存在但缺少新字段
+    inspector = inspect(engine)
+    if "auto_ranking_configs" in inspector.get_table_names():
+        cols = {c["name"] for c in inspector.get_columns("auto_ranking_configs")}
+        with engine.begin() as conn:
+            if "push_hour" not in cols:
+                conn.execute(text("ALTER TABLE auto_ranking_configs ADD COLUMN push_hour INTEGER DEFAULT 0"))
+            if "push_minute" not in cols:
+                conn.execute(text("ALTER TABLE auto_ranking_configs ADD COLUMN push_minute INTEGER DEFAULT 0"))

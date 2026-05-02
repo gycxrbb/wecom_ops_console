@@ -133,8 +133,8 @@ def _seed_snapshots(db: Session, v1_snapshot_items: list[tuple[str, str, str]]) 
                 version=ver, content=content,
             ))
     else:
-        # Templates existed before snapshots were added — rebuild v1.0 from git
-        _log.info("Rebuilding v1.0 snapshot from git history ...")
+        # Templates existed before snapshots were added — rebuild v1.0
+        _log.info("Rebuilding v1.0 snapshot ...")
         snap_v1 = PromptSnapshot(
             name="v1.0",
             description="初始版本（9 条模板，无风格模板和 Header）",
@@ -145,7 +145,16 @@ def _seed_snapshots(db: Session, v1_snapshot_items: list[tuple[str, str, str]]) 
         for layer, key, label, has_v1, v2_path in _TEMPLATE_DEFS:
             if not has_v1:
                 continue
+            # Try git history first, fall back to current .md content
             v1_content = _read_v1(v2_path)
+            if not v1_content:
+                v2_content = _read_current(v2_path)
+                if v2_content:
+                    _log.warning(
+                        "git v1.0 unavailable for %s, using current content as fallback",
+                        key,
+                    )
+                    v1_content = v2_content
             if v1_content:
                 db.add(PromptSnapshotItem(
                     snapshot_id=snap_v1.id,

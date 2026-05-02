@@ -590,6 +590,95 @@ def create_current_snapshot(
     return {"ok": True, "snapshot_id": snap.id, "name": name, "template_count": len(all_templates)}
 
 
+# ── Rebuild snapshot ─────────────────────────────────────────────────────────
+
+@router.post("/snapshots/{snapshot_id}/rebuild")
+def rebuild_snapshot(
+    snapshot_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Rebuild a snapshot's items from template version history.
+
+    For each template in the DB that has a matching version record,
+    restore the snapshot item. Useful for fixing empty snapshots
+    (e.g. v1.0 on servers without git history).
+    """
+    user = get_current_user(request, db)
+    require_role(user, "admin")
+    snap = db.query(PromptSnapshot).get(snapshot_id)
+    if not snap:
+        raise HTTPException(404, "Snapshot not found")
+
+    # Determine which templates should be in this snapshot
+    # Strategy: find version records whose version matches the snapshot name
+    snap_ver = snap.name  # e.g. "v1.0" or "v2.1"
+    existing_items = db.query(PromptSnapshotItem).filter_by(snapshot_id=snapshot_id).all()
+    existing_keys = {i.template_key for i in existing_items}
+
+    # Collect version-matched content from template version history
+    version_rows = db.query(PromptTemplateVersion).filter(
+        PromptTemplateVersion.version == snap_ver
+    ).all()
+
+    # Also try to match templates directly by version field
+    template_rows = db.query(PromptTemplate).filter(
+        PromptTemplate.version == snap_ver
+    ).all()
+
+    # Build map: key → (layer, label, content, version)
+    rebuild_map: dict[str, tuple[str, str, str, str]] = {}
+    for v in version_rows:
+        tpl = db.query(PromptTemplate).get(v.template_id)
+        if tpl:
+            rebuild_map[tpl.key] = (tpl.layer, tpl.label, v.content, v.version)
+
+    for t in template_rows:
+        if t.key not in rebuild_map:
+            rebuild_map[t.key] = (t.layer, t.label, t.content, t.version)
+
+    # If snapshot name is v1.0 and we still have nothing, try seed definitions
+    if not rebuild_map and snap_ver == "v1.0":
+        from ..services.prompt_seed import _TEMPLATE_DEFS, _read_current
+        for layer, key, label, has_v1, v2_path in _TEMPLATE_DEFS:
+            if not has_v1:
+                continue
+            if key in existing_keys:
+                continue
+            content = _read_current(v2_path)
+            if content:
+                rebuild_map[key] = (layer, label, content, "v1.0")
+
+    if not rebuild_map and not existing_items:
+        raise HTTPException(400, f"无法重建快照「{snap.name}」：找不到版本匹配的模板记录")
+
+    added = 0
+    for key, (layer, label, content, version) in rebuild_map.items():
+        if key in existing_keys:
+            continue
+        db.add(PromptSnapshotItem(
+            snapshot_id=snapshot_id,
+            template_key=key,
+            layer=layer,
+            label=label,
+            version=version,
+            content=content,
+        ))
+        added += 1
+
+    db.commit()
+
+    total = existing_items.count if hasattr(existing_items, '__len__') else len(existing_items)
+    total += added
+    return {
+        "ok": True,
+        "snapshot": snap.name,
+        "added": added,
+        "total": total,
+        "message": f"快照「{snap.name}」重建完成，新增 {added} 条记录，共 {total} 条",
+    }
+
+
 # ── Reseed ───────────────────────────────────────────────────────────────────
 
 @router.post("/seed")

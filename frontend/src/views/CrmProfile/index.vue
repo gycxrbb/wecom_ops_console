@@ -27,7 +27,7 @@
           placeholder="教练/医生"
           clearable
           filterable
-          style="width: 160px"
+          class="crm-filter-select"
           @change="onFilterChange"
         >
           <el-option
@@ -43,7 +43,7 @@
           placeholder="所在群组"
           clearable
           filterable
-          style="width: 160px"
+          class="crm-filter-select"
           @change="onFilterChange"
         >
           <el-option
@@ -59,7 +59,7 @@
           placeholder="渠道来源"
           clearable
           filterable
-          style="width: 160px"
+          class="crm-filter-select"
           @change="onFilterChange"
         >
           <el-option

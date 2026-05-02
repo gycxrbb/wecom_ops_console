@@ -568,6 +568,10 @@
   position: relative;
 }
 
+.crm-filter-select {
+  width: 160px;
+}
+
 /* ---- Search Spinner ---- */
 .crm-search-spinner {
   display: inline-block;
@@ -792,6 +796,9 @@
   }
   .crm-safety-history-picker__select {
     width: 160px;
+  }
+  .crm-filter-select {
+    width: 100% !important;
   }
 }
 

@@ -212,6 +212,8 @@ class AutoRankingConfigReq(BaseModel):
     include_breakdown_on_monday: bool = True
     skip_weekends: bool = False
     skip_dates: list[str] = []
+    push_hour: int = 0
+    push_minute: int = 0
 
 
 @router.get('/auto-ranking-configs')
@@ -249,6 +251,8 @@ def upsert_auto_ranking_config(req: AutoRankingConfigReq, request: Request, db: 
     cfg.include_breakdown_on_monday = 1 if req.include_breakdown_on_monday else 0
     cfg.skip_weekends = 1 if req.skip_weekends else 0
     cfg.skip_dates_json = json.dumps(req.skip_dates)
+    cfg.push_hour = req.push_hour
+    cfg.push_minute = req.push_minute
     db.commit()
     db.refresh(cfg)
     # Re-register cron job to pick up changes
@@ -286,6 +290,8 @@ def _serialize_config(cfg):
         'include_breakdown_on_monday': bool(cfg.include_breakdown_on_monday),
         'skip_weekends': bool(cfg.skip_weekends),
         'skip_dates': json.loads(cfg.skip_dates_json or '[]'),
+        'push_hour': cfg.push_hour or 0,
+        'push_minute': cfg.push_minute or 0,
         'last_run_at': str(cfg.last_run_at) if cfg.last_run_at else None,
         'last_error': cfg.last_error or '',
     }

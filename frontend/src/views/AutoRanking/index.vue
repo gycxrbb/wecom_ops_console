@@ -2,7 +2,7 @@
   <div class="page-container">
     <div class="page-header">
       <h2 class="page-title">自动排行推送</h2>
-      <p class="page-desc">配置每日自动积分排行推送，每天 00:03 自动生成排行消息并推送到目标群。</p>
+      <p class="page-desc">配置每日自动积分排行推送，按设定时间自动生成排行消息并推送到目标群。</p>
     </div>
 
     <div class="toolbar">
@@ -26,6 +26,9 @@
         <template #default="{ row }">
           <el-tag v-for="k in row.must_scene_keys" :key="k" size="small" class="scene-tag">{{ sceneLabel(k) }}</el-tag>
         </template>
+      </el-table-column>
+      <el-table-column label="推送时间" width="90" align="center">
+        <template #default="{ row }">{{ String(row.push_hour ?? 0).padStart(2, '0') }}:{{ String(row.push_minute ?? 0).padStart(2, '0') }}</template>
       </el-table-column>
       <el-table-column label="启用" width="80" align="center">
         <template #default="{ row }">
@@ -89,6 +92,11 @@
           </el-select>
         </el-form-item>
 
+        <el-form-item label="推送时间" required>
+          <el-time-picker v-model="form.push_time" format="HH:mm" placeholder="选择推送时间" style="width: 200px" />
+          <div class="form-tip">每天在此时间自动执行推送</div>
+        </el-form-item>
+
         <el-form-item label="必选场景" required>
           <el-checkbox-group v-model="form.must_scene_keys">
             <el-checkbox v-for="s in insightScenes" :key="s.key" :value="s.key">{{ s.label }}</el-checkbox>
@@ -109,7 +117,7 @@
         </el-form-item>
 
         <el-form-item label="话术风格">
-          <el-select v-model="form.speech_style" style="width: 200px">
+          <el-select v-model="form.speech_style" style="width: 100%">
             <el-option label="专业" value="professional" />
             <el-option label="鼓励" value="encouraging" />
             <el-option label="竞技" value="competitive" />
@@ -164,6 +172,8 @@ interface Config {
   include_breakdown_on_monday: boolean
   skip_weekends: boolean
   skip_dates: string[]
+  push_hour: number
+  push_minute: number
   last_run_at: string | null
   last_error: string
 }
@@ -196,6 +206,7 @@ const form = reactive({
   name: '',
   crm_group_ids: [] as number[],
   target_local_group_id: null as number | null,
+  push_time: new Date(2024, 0, 1, 0, 0) as Date | null,
   must_scene_keys: ['top_leader', 'top_six'] as string[],
   extra_scene_pool: [] as string[],
   scene_count: 3,
@@ -251,6 +262,7 @@ const openDialog = (row?: Config) => {
     form.name = row.name
     form.crm_group_ids = [...row.crm_group_ids]
     form.target_local_group_id = row.target_local_group_id
+    form.push_time = new Date(2024, 0, 1, row.push_hour ?? 0, row.push_minute ?? 0)
     form.must_scene_keys = [...row.must_scene_keys]
     form.extra_scene_pool = [...row.extra_scene_pool]
     form.scene_count = row.scene_count
@@ -263,6 +275,7 @@ const openDialog = (row?: Config) => {
     form.name = ''
     form.crm_group_ids = []
     form.target_local_group_id = null
+    form.push_time = new Date(2024, 0, 1, 0, 0)
     form.must_scene_keys = ['top_leader', 'top_six']
     form.extra_scene_pool = []
     form.scene_count = 3
@@ -282,12 +295,16 @@ const saveConfig = async () => {
 
   saving.value = true
   try {
+    const pushHour = form.push_time ? form.push_time.getHours() : 0
+    const pushMinute = form.push_time ? form.push_time.getMinutes() : 0
     await request.post('/v1/crm-points/auto-ranking-configs', {
       id: editingId.value,
       name: form.name,
       enabled: true,
       crm_group_ids: form.crm_group_ids,
       target_local_group_id: form.target_local_group_id,
+      push_hour: pushHour,
+      push_minute: pushMinute,
       must_scene_keys: form.must_scene_keys,
       extra_scene_pool: form.extra_scene_pool,
       scene_count: form.scene_count,
@@ -364,5 +381,10 @@ onMounted(() => {
   font-size: 12px;
   color: var(--text-muted);
   margin-top: 4px;
+}
+
+/* ---- Mobile ---- */
+@media (max-width: 767px) {
+  .toolbar { justify-content: flex-start; }
 }
 </style>
