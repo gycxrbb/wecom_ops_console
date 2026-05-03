@@ -264,6 +264,13 @@ export function useAiCoach() {
       const res: any = await request.get(`/v1/crm-customers/${customerId}/ai/config`)
       scenes.value = res.scenes || []
       styles.value = res.styles || []
+      if (styles.value.length) {
+        if (!styles.value.some(s => s.key === outputStyle.value)) {
+          outputStyle.value = styles.value[0].key
+        }
+      } else {
+        outputStyle.value = ''
+      }
       expansionOptions.value = res.expansion_options || {}
       profileNote.value = res.profile_note || { crm_customer_id: customerId }
       if (res.profile_note?.preferred_scene_hint) {

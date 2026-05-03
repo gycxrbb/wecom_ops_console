@@ -216,6 +216,13 @@ class AutoRankingConfigReq(BaseModel):
     push_minute: int = 0
 
 
+class AutoRankingPreviewReq(BaseModel):
+    push_hour: int = 0
+    push_minute: int = 0
+    skip_weekends: bool = False
+    skip_dates: list[str] = []
+
+
 @router.get('/auto-ranking-configs')
 def list_auto_ranking_configs(request: Request, db: Session = Depends(get_db)):
     get_current_user(request, db)
@@ -273,6 +280,20 @@ def delete_auto_ranking_config(config_id: int, request: Request, db: Session = D
         db.delete(cfg)
         db.commit()
     return {'ok': True}
+
+
+@router.post('/auto-ranking-preview-runs')
+def preview_auto_ranking_runs(req: AutoRankingPreviewReq, request: Request, db: Session = Depends(get_db)):
+    get_current_user(request, db)
+    from ..services.auto_ranking_push import compute_next_runs_for_config
+    runs = compute_next_runs_for_config(
+        push_hour=req.push_hour,
+        push_minute=req.push_minute,
+        skip_weekends=req.skip_weekends,
+        skip_dates=req.skip_dates,
+        count=3,
+    )
+    return {'next_runs': runs}
 
 
 def _serialize_config(cfg):

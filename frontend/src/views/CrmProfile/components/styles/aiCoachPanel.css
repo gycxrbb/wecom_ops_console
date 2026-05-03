@@ -755,16 +755,63 @@
 :global(html.dark) .ai-quote-bar-content { color: #94a3b8; }
 :global(html.dark) .ai-quote-bar-close:hover { color: #e5e7eb; }
 
+/* ==================== Mobile Menu ==================== */
+.ai-floating-left {
+  position: absolute;
+  left: 12px;
+  top: 10px;
+  display: flex;
+  align-items: center;
+  pointer-events: auto;
+}
+.ai-mobile-tab-bar {
+  display: flex;
+  background: #fff;
+  border-bottom: 1px solid #eeeef2;
+  flex-shrink: 0;
+}
+.ai-mobile-tab-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 10px 0 8px;
+  color: #9ca3af;
+  cursor: pointer;
+  font-size: 11px;
+  transition: color 0.15s;
+}
+.ai-mobile-tab-item:active,
+.ai-mobile-tab-item.is-active {
+  color: #6366f1;
+}
+.ai-mobile-menu-enter-active,
+.ai-mobile-menu-leave-active {
+  transition: all 0.2s ease;
+}
+.ai-mobile-menu-enter-from,
+.ai-mobile-menu-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
 /* ==================== Mobile ==================== */
 @media (max-width: 767px) {
   .ai-sidebar {
     display: none;
   }
   .ai-sidebar-panel {
-    display: none;
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    border: none;
+    z-index: 50;
+    border-radius: 0;
   }
   .ai-panel-body {
     flex-direction: column;
+    position: relative;
   }
   .ai-main {
     width: 100%;

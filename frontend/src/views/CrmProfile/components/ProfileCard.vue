@@ -29,7 +29,7 @@
     <div v-else-if="card?.status === 'error'" class="crm-card-empty">数据加载失败</div>
     <div v-else-if="card?.status === 'timeout'" class="crm-card-empty">查询超时</div>
 
-    <div v-if="$slots.footer && (card?.status === 'ok' || card?.status === 'partial')" class="crm-card__footer">
+    <div v-if="$slots.footer" class="crm-card__footer">
       <slot name="footer" />
     </div>
   </div>

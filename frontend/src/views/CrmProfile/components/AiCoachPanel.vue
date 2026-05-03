@@ -2,7 +2,7 @@
   <el-drawer
     v-model="visible"
     direction="rtl"
-    :size="drawerWidth + 'px'"
+    :size="isMobile ? '100%' : drawerWidth + 'px'"
     :show-close="false"
     :with-header="false"
     class="ai-coach-drawer"
@@ -99,7 +99,7 @@
                     <el-option v-for="s in scenes" :key="s.key" :label="s.label" :value="s.key" />
                   </el-select>
                 </div>
-                <div class="ai-scene-bar">
+                <div class="ai-scene-bar" v-if="styles.length">
                   <span class="ai-scene-label">输出模式</span>
                   <el-select v-model="outputStyle" size="small" class="ai-scene-select">
                     <el-option v-for="s in styles" :key="s.key" :label="s.label" :value="s.key" />
@@ -176,6 +176,11 @@
         <div class="ai-main">
           <!-- Floating top bar (ChatGPT style) -->
           <div class="ai-floating-top">
+            <div v-if="isMobile" class="ai-floating-left">
+              <button class="ai-action-btn" @click="mobileMenuOpen = !mobileMenuOpen" title="菜单">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 3.5h12M1 7h12M1 10.5h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+              </button>
+            </div>
             <span class="ai-floating-title">AI 教练助手</span>
             <div class="ai-floating-actions">
               <button class="ai-action-btn" :class="{ 'is-active': selectMode }" @click="toggleSelectMode" :title="selectMode ? '退出选择' : '选择消息发送'">
@@ -192,6 +197,24 @@
               </button>
             </div>
           </div>
+
+          <!-- Mobile tab bar -->
+          <transition name="ai-mobile-menu">
+            <div v-if="isMobile && mobileMenuOpen" class="ai-mobile-tab-bar">
+              <div class="ai-mobile-tab-item" :class="{ 'is-active': sidebarTab === 'history' }" @click="setMobileTab('history')">
+                <el-icon :size="16"><Clock /></el-icon>
+                <span>历史</span>
+              </div>
+              <div class="ai-mobile-tab-item" :class="{ 'is-active': sidebarTab === 'context' }" @click="setMobileTab('context')">
+                <el-icon :size="16"><Document /></el-icon>
+                <span>参考</span>
+              </div>
+              <div class="ai-mobile-tab-item" :class="{ 'is-active': sidebarTab === 'notes' }" @click="setMobileTab('notes')">
+                <el-icon :size="16"><Setting /></el-icon>
+                <span>配置</span>
+              </div>
+            </div>
+          </transition>
 
           <div v-if="disabledReason" class="ai-disabled-state">
             <el-alert :title="disabledReason" type="warning" :closable="false" show-icon />
@@ -317,6 +340,7 @@ import AiCoachFeedbackDialog from './AiCoachFeedbackDialog.vue'
 const userStore = useUserStore()
 const router = useRouter()
 const isAdmin = computed(() => userStore.user?.role === 'admin')
+const isMobile = computed(() => window.innerWidth < 768)
 
 const DRAWER_WIDTH_KEY = 'ai-coach-drawer-width'
 const DEFAULT_WIDTH = 560
@@ -351,7 +375,8 @@ watch(visible, v => { emit('update:modelValue', v) })
 
 // --- Resizable drawer ---
 const savedWidth = Number(localStorage.getItem(DRAWER_WIDTH_KEY)) || DEFAULT_WIDTH
-const drawerWidth = ref(Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, savedWidth)))
+const maxAllowed = Math.min(MAX_WIDTH, window.innerWidth)
+const drawerWidth = ref(Math.max(MIN_WIDTH, Math.min(maxAllowed, savedWidth)))
 const isFullscreen = ref(false)
 let resizing = false
 
@@ -485,8 +510,18 @@ const onSidebarLeave = () => {
   if (sidebarHoverTimer) { clearTimeout(sidebarHoverTimer); sidebarHoverTimer = null }
 }
 
+const mobileMenuOpen = ref(false)
 const selectMode = ref(false)
 const selectedIndices = ref<Set<number>>(new Set())
+
+const setMobileTab = (tab: 'history' | 'context' | 'notes') => {
+  if (sidebarTab.value === tab) {
+    sidebarTab.value = null
+  } else {
+    sidebarTab.value = tab
+  }
+  mobileMenuOpen.value = false
+}
 
 const toggleSelectMode = () => {
   selectMode.value = !selectMode.value
@@ -696,6 +731,8 @@ watch(() => props.customerId, (id) => {
     loadSessionHistory(id)
   }
 })
+
+watch(sidebarTab, () => { mobileMenuOpen.value = false })
 
 watch(visible, (v) => {
   if (!v) {

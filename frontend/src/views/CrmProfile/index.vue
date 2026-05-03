@@ -20,6 +20,9 @@
               <span v-if="listLoading" class="crm-search-spinner" />
             </template>
           </el-input>
+          <el-button class="crm-filter-bar__search-btn" type="primary" @click="onFilterSearch">
+            <el-icon><Search /></el-icon>
+          </el-button>
         </div>
 
         <el-select

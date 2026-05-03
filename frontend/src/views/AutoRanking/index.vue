@@ -55,30 +55,32 @@
     </el-table>
 
     <!-- 新建/编辑 Dialog -->
-    <el-dialog v-model="dialogVisible" :title="editingId ? '编辑配置' : '新建配置'" width="680px" destroy-on-close>
+    <el-dialog v-model="dialogVisible" :title="editingId ? '编辑配置' : '新建配置'" width="720px" destroy-on-close>
       <el-form :model="form" label-width="120px" label-position="right">
         <el-form-item label="配置名称" required>
           <el-input v-model="form.name" placeholder="如：首钢系列每日排行" />
         </el-form-item>
 
         <el-form-item label="CRM 群" required>
-          <el-select
-            v-model="form.crm_group_ids"
-            multiple
-            filterable
-            collapse-tags
-            collapse-tags-tooltip
-            placeholder="选择要生成排行的 CRM 群"
-            style="width: 100%"
-          >
-            <el-option
-              v-for="g in crmGroups"
-              :key="g.crm_group_id"
-              :label="`${g.crm_group_name} (ID: ${g.crm_group_id})`"
-              :value="g.crm_group_id"
-            />
-          </el-select>
-          <div class="form-tip">从已绑定的 CRM 群中选择</div>
+          <div class="crm-group-header">
+            <el-input v-model="crmSearch" placeholder="搜索群名称" clearable size="small" class="crm-search" />
+            <el-button size="small" @click="toggleCrmAll" :disabled="filteredCrmGroups.length === 0">
+              {{ isAllCrmSelected ? '取消全选' : '全选' }}
+            </el-button>
+            <span class="crm-count">{{ form.crm_group_ids.length }}/{{ filteredCrmGroups.length }} 已选</span>
+          </div>
+          <div class="crm-group-list">
+            <el-checkbox-group v-model="form.crm_group_ids">
+              <el-checkbox
+                v-for="g in filteredCrmGroups"
+                :key="g.crm_group_id"
+                :value="g.crm_group_id"
+                class="crm-group-item"
+              >{{ g.crm_group_name }}</el-checkbox>
+            </el-checkbox-group>
+            <div v-if="filteredCrmGroups.length === 0" class="crm-empty">无匹配群</div>
+          </div>
+          <div class="form-tip">从 CRM 数据库中选择要生成排行的群</div>
         </el-form-item>
 
         <el-form-item label="推送目标群" required>
@@ -94,7 +96,6 @@
 
         <el-form-item label="推送时间" required>
           <el-time-picker v-model="form.push_time" format="HH:mm" placeholder="选择推送时间" style="width: 200px" />
-          <div class="form-tip">每天在此时间自动执行推送</div>
         </el-form-item>
 
         <el-form-item label="必选场景" required>
@@ -143,6 +144,17 @@
             style="width: 100%"
           />
         </el-form-item>
+
+        <!-- 未来执行预览 -->
+        <el-form-item label="执行预览" v-if="previewRuns.length > 0">
+          <div class="preview-runs">
+            <div v-for="(r, i) in previewRuns" :key="i" class="preview-run-item">
+              <span class="preview-run-index">#{{ i + 1 }}</span>
+              <span class="preview-run-time">{{ r }}</span>
+              <el-tag v-if="isWeekend(r)" size="small" type="info">周末跳过</el-tag>
+            </div>
+          </div>
+        </el-form-item>
       </el-form>
 
       <template #footer>
@@ -154,7 +166,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { Loading } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import request from '#/utils/request'
@@ -201,6 +213,8 @@ const editingId = ref<number | null>(null)
 const insightScenes = ref<Scene[]>([])
 const crmGroups = ref<CrmBinding[]>([])
 const localGroups = ref<LocalGroup[]>([])
+const crmSearch = ref('')
+const previewRuns = ref<string[]>([])
 
 const form = reactive({
   name: '',
@@ -216,9 +230,61 @@ const form = reactive({
   skip_dates: [] as string[],
 })
 
-const sceneLabel = (key: string) => insightScenes.value.find(s => s.key === key)?.label || key
+const filteredCrmGroups = computed(() => {
+  const q = crmSearch.value.trim().toLowerCase()
+  if (!q) return crmGroups.value
+  return crmGroups.value.filter(g => g.crm_group_name.toLowerCase().includes(q))
+})
 
+const isAllCrmSelected = computed(() => {
+  if (filteredCrmGroups.value.length === 0) return false
+  return filteredCrmGroups.value.every(g => form.crm_group_ids.includes(g.crm_group_id))
+})
+
+const sceneLabel = (key: string) => insightScenes.value.find(s => s.key === key)?.label || key
 const localGroupName = (id: number) => localGroups.value.find(g => g.id === id)?.name || `群 #${id}`
+
+const isWeekend = (dateStr: string) => {
+  const d = new Date(dateStr)
+  return d.getDay() === 0 || d.getDay() === 6
+}
+
+const toggleCrmAll = () => {
+  if (isAllCrmSelected.value) {
+    const visibleIds = new Set(filteredCrmGroups.value.map(g => g.crm_group_id))
+    form.crm_group_ids = form.crm_group_ids.filter(id => !visibleIds.has(id))
+  } else {
+    const existing = new Set(form.crm_group_ids)
+    for (const g of filteredCrmGroups.value) {
+      if (!existing.has(g.crm_group_id)) {
+        form.crm_group_ids.push(g.crm_group_id)
+      }
+    }
+  }
+}
+
+const fetchPreviewRuns = async () => {
+  const hour = form.push_time ? form.push_time.getHours() : 0
+  const minute = form.push_time ? form.push_time.getMinutes() : 0
+  try {
+    const res: any = await request.post('/v1/crm-points/auto-ranking-preview-runs', {
+      push_hour: hour,
+      push_minute: minute,
+      skip_weekends: form.skip_weekends,
+      skip_dates: form.skip_dates,
+    })
+    previewRuns.value = res.next_runs || []
+  } catch {
+    previewRuns.value = []
+  }
+}
+
+// Watch form fields to refresh preview
+watch(
+  () => [form.push_time, form.skip_weekends, form.skip_dates],
+  () => { if (dialogVisible.value) fetchPreviewRuns() },
+  { deep: true },
+)
 
 const fetchConfigs = async () => {
   loading.value = true
@@ -241,10 +307,10 @@ const fetchScenes = async () => {
 
 const fetchCrmGroups = async () => {
   try {
-    const res: any = await request.get('/v1/crm-points/bindings')
-    crmGroups.value = (res.bindings || []).map((b: any) => ({
-      crm_group_id: b.crm_group_id,
-      crm_group_name: b.crm_group_name || `群 ${b.crm_group_id}`,
+    const res: any = await request.get('/v1/crm-groups')
+    crmGroups.value = (res.groups || []).map((g: any) => ({
+      crm_group_id: g.id,
+      crm_group_name: g.name,
     }))
   } catch { /* ignore */ }
 }
@@ -284,7 +350,10 @@ const openDialog = (row?: Config) => {
     form.skip_weekends = false
     form.skip_dates = []
   }
+  crmSearch.value = ''
+  previewRuns.value = []
   dialogVisible.value = true
+  fetchPreviewRuns()
 }
 
 const saveConfig = async () => {
@@ -383,8 +452,71 @@ onMounted(() => {
   margin-top: 4px;
 }
 
-/* ---- Mobile ---- */
+/* CRM 群选择区 */
+.crm-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.crm-search {
+  width: 200px;
+}
+.crm-count {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-left: auto;
+  white-space: nowrap;
+}
+.crm-group-list {
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 8px 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+.crm-group-item {
+  width: calc(50% - 8px);
+  min-width: 180px;
+}
+.crm-empty {
+  width: 100%;
+  text-align: center;
+  padding: 20px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+:global(html.dark) .crm-group-list {
+  border-color: var(--el-border-color-dark);
+}
+
+/* 执行预览 */
+.preview-runs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.preview-run-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.preview-run-index {
+  font-weight: 600;
+  color: var(--el-color-primary);
+  width: 24px;
+}
+.preview-run-time {
+  font-family: 'SF Mono', 'Cascadia Code', monospace;
+}
+
 @media (max-width: 767px) {
   .toolbar { justify-content: flex-start; }
+  .crm-group-item { width: 100%; min-width: 0; }
+  .crm-search { width: 140px; }
 }
 </style>

@@ -65,6 +65,8 @@
             <el-button size="small" @click="showVersions = !showVersions">
               {{ showVersions ? '隐藏版本' : '版本历史' }}
             </el-button>
+            <el-button v-if="current.is_active" type="warning" size="small" @click="handleToggleActive">停用</el-button>
+            <el-button v-else type="success" size="small" @click="handleToggleActive">启用</el-button>
             <el-button type="danger" size="small" @click="handleDelete">删除</el-button>
             <el-button type="primary" size="small" @click="handleSave" :loading="saving">
               保存
@@ -358,6 +360,19 @@ const handleSave = async () => {
   } finally {
     saving.value = false
   }
+}
+
+const handleToggleActive = async () => {
+  if (!current.value) return
+  const action = current.value.is_active ? '停用' : '启用'
+  await ElMessageBox.confirm(
+    `确定${action}「${current.value.label}」（${current.value.key}）？${current.value.is_active ? '停用后 AI 将不再加载此模板。' : '启用后 AI 将加载此模板。'}`,
+    `确认${action}`,
+  )
+  const res: any = await request.patch(`/v1/admin/prompt-templates/${current.value.id}/toggle-active`)
+  current.value.is_active = res.is_active
+  buildTree()
+  ElMessage.success(res.is_active ? '已启用' : '已停用')
 }
 
 const handleDelete = async () => {

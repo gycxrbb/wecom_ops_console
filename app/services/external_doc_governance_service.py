@@ -1,5 +1,5 @@
 from __future__ import annotations
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from ..models_external_docs import (
     ExternalDocResource, ExternalDocBinding, ExternalDocWorkspace,
@@ -18,9 +18,9 @@ def get_governance_queue(db: Session) -> dict:
 
 def _get_needs_sorting(db: Session) -> list[dict]:
     """没有活跃绑定的资源（孤儿资源）。"""
-    bound_ids = db.query(ExternalDocBinding.resource_id).filter(
+    bound_ids = select(ExternalDocBinding.resource_id).where(
         ExternalDocBinding.status == 'active',
-    ).subquery()
+    )
     orphans = db.query(ExternalDocResource).filter(
         ExternalDocResource.status == 'active',
         ExternalDocResource.id.notin_(bound_ids),

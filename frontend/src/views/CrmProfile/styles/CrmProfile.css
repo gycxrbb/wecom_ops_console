@@ -566,6 +566,12 @@
   flex: 1;
   min-width: 200px;
   position: relative;
+  display: flex;
+  gap: 8px;
+}
+
+.crm-filter-bar__search-btn {
+  display: none;
 }
 
 .crm-filter-select {
@@ -747,6 +753,16 @@
   vertical-align: middle;
 }
 
+/* ---- Insights Grid ---- */
+.crm-insights__grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+.crm-insights__wide {
+  grid-column: span 2;
+}
+
 /* ---- Responsive ---- */
 @media (max-width: 991px) {
   .crm-hero {
@@ -800,6 +816,16 @@
   .crm-filter-select {
     width: 100% !important;
   }
+  .crm-filter-bar__search-btn {
+    display: inline-flex;
+    flex-shrink: 0;
+  }
+  .crm-filter-bar__search {
+    min-width: 0;
+  }
+  .crm-insights__grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ---- Body Composition Silhouette ---- */
@@ -821,15 +847,6 @@
 .crm-insights {
   margin-top: 24px;
 }
-.crm-insights__grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
-}
-.crm-insights__wide {
-  grid-column: span 2;
-}
-
 /* ---- Reminder Type Rows ---- */
 .crm-reminder-types {
   display: flex;

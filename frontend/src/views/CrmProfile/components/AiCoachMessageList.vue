@@ -156,4 +156,14 @@ const quickPromptItems = [
 .ai-msg-selectable.is-selected { background: rgba(99, 102, 241, 0.08); }
 .ai-msg-checkbox { margin-top: 12px; flex-shrink: 0; }
 .ai-msg-content-wrap { flex: 1; min-width: 0; }
+
+/* ---- Mobile ---- */
+@media (max-width: 767px) {
+  .ai-messages { padding: 16px 8px; gap: 20px; }
+  .ai-welcome-container { padding: 16px 8px; }
+  .ai-welcome-hero { padding: 16px 8px 24px; }
+  .ai-welcome-hero h3 { font-size: 17px; }
+  .ai-quick-section { padding: 0; }
+  .ai-quick-card { flex: 1 1 100%; min-width: 0; padding: 10px 12px; }
+}
 </style>

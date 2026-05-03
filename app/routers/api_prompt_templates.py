@@ -225,6 +225,31 @@ def create_template(
     }
 
 
+@router.patch("/{template_id}/toggle-active")
+def toggle_template_active(
+    template_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    user = get_current_user(request, db)
+    require_role(user, "admin")
+    row = db.query(PromptTemplate).get(template_id)
+    if not row:
+        raise HTTPException(404, "Template not found")
+
+    row.is_active = not row.is_active
+    row.updated_by = user.username
+    db.commit()
+    reload_prompt(row.key)
+
+    return {
+        "ok": True,
+        "id": row.id,
+        "key": row.key,
+        "is_active": row.is_active,
+    }
+
+
 @router.delete("/{template_id}")
 def delete_template(
     template_id: int,

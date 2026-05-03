@@ -138,7 +138,6 @@ class ScheduleService:
 
     def _register_auto_ranking_job(self):
         """为每个 enabled 的自动排行配置注册独立的 cron job。"""
-        import asyncio
         from .auto_ranking_push import execute_auto_ranking
 
         # 移除所有旧的 auto-ranking-* job
@@ -164,7 +163,7 @@ class ScheduleService:
                     if not cfg or not cfg.enabled:
                         logger.info('Auto ranking %s skipped: not found or disabled', cfg_id)
                         return
-                    result = await asyncio.get_event_loop().run_in_executor(None, execute_auto_ranking, cfg)
+                    result = await execute_auto_ranking(cfg)
                     logger.info('Auto ranking %s: sent=%d skipped=%d error=%s', cfg_name, result.get('sent', 0), result.get('skipped', 0), str(result.get('error', ''))[:80])
                     # update last_run_at / last_error
                     from datetime import datetime as _dt
