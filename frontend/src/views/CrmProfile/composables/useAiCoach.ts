@@ -276,7 +276,7 @@ export function useAiCoach() {
       expansionOptions.value = res.expansion_options || {}
       availableModels.value = res.available_models?.length
         ? res.available_models
-        : ['gpt-5.5','gpt-5.4','deepseek-v4-pro','deepseek-v4-flash','claude-opus-4-7','kimi-k2.6','glm-5.1','gemini-3.1-pro-preview','xiaomi-mimo-v2.5','doubao-seed-2-0-pro']
+        : ['gpt-5.5','gpt-5.4','gpt-4o-mini','deepseek-v4-pro','deepseek-v4-flash','deepseek-v3.2-fast','claude-opus-4-7','kimi-k2.6','glm-5.1','gemini-3.1-pro-preview','xiaomi-mimo-v2.5','doubao-seed-2-0-pro']
       if (!availableModels.value.includes(selectedModel.value)) {
         selectedModel.value = availableModels.value[0]
       }

@@ -284,7 +284,7 @@
               </div>
               <el-icon class="ai-quote-bar-close" @click="clearQuote"><Close /></el-icon>
             </div>
-            <div class="ai-input-card">
+            <div class="ai-input-card" @paste="onPaste">
               <el-input v-model="input" type="textarea" :autosize="{ minRows: 1, maxRows: 8 }" placeholder="输入本次问题，例如：基于她最近一周血糖..." :disabled="loading || !!disabledReason || cacheSendBlocked" @keydown.enter.exact.prevent="send" class="ai-chat-input" />
               <div class="ai-input-toolbar">
                 <div class="ai-toolbar-left">
@@ -453,23 +453,24 @@ const fileInputRef = ref<HTMLInputElement>()
 
 const uploadingAttachment = computed(() => uploadingCount.value > 0)
 
+const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
+
 const triggerFileInput = () => {
   if (loading.value) return
   fileInputRef.value?.click()
 }
 
-const onFileSelected = async (e: Event) => {
-  const target = e.target as HTMLInputElement
-  const file = target.files?.[0]
-  if (!file || !props.customerId) return
-  target.value = ''
-
+const addAndUploadFile = async (file: File) => {
+  if (!props.customerId || loading.value) return
   if (pendingAttachments.value.length >= 3) {
     ElMessage.warning('最多同时上传 3 个附件')
     return
   }
+  if (!ACCEPTED_TYPES.includes(file.type)) {
+    ElMessage.warning('仅支持 JPG/PNG/WebP 图片和 PDF 文件')
+    return
+  }
 
-  // Show local preview immediately
   const isImage = file.type.startsWith('image/')
   const localUrl = isImage ? URL.createObjectURL(file) : undefined
   const tempId = 'temp_' + Date.now()
@@ -482,25 +483,43 @@ const onFileSelected = async (e: Event) => {
   }
   pendingAttachments.value.push(localAtt)
 
-  // Upload in background
   uploadingCount.value++
   try {
     const att = await uploadAttachment(props.customerId, file)
-    // Merge: keep local blob URL for images, use backend URL for files
     att.url = localUrl || att.url
-    // Replace the temp entry with the real one
     const idx = pendingAttachments.value.findIndex(a => a.attachment_id === tempId)
     if (idx >= 0) {
       pendingAttachments.value[idx] = att
     }
   } catch (err: any) {
-    // Remove the failed entry
     const idx = pendingAttachments.value.findIndex(a => a.attachment_id === tempId)
     if (idx >= 0) pendingAttachments.value.splice(idx, 1)
     if (localUrl) URL.revokeObjectURL(localUrl)
     ElMessage.error(err?.message || '附件上传失败')
   } finally {
     uploadingCount.value--
+  }
+}
+
+const onFileSelected = async (e: Event) => {
+  const target = e.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (file) await addAndUploadFile(file)
+  target.value = ''
+}
+
+const onPaste = async (e: ClipboardEvent) => {
+  const items = e.clipboardData?.items
+  if (!items) return
+  for (const item of items) {
+    if (item.kind === 'file') {
+      const file = item.getAsFile()
+      if (file) {
+        e.preventDefault()
+        await addAndUploadFile(file)
+      }
+      return
+    }
   }
 }
 

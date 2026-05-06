@@ -109,6 +109,10 @@ async def _stream_chat_completion(
         try:
             client = await _get_client(http2=use_http2)
             async with client.stream('POST', url, headers=headers, json=payload) as resp:
+                if resp.status_code >= 400:
+                    err_body = await resp.aread()
+                    err_text = err_body.decode('utf-8', errors='replace')[:500]
+                    _log.error('AI stream HTTP %d (provider=%s) body=%s', resp.status_code, provider, err_text)
                 resp.raise_for_status()
                 async for raw_line in resp.aiter_lines():
                     yielded_any_line = True
@@ -173,7 +177,7 @@ def _resolve_config(*, model_override: str | None = None, provider: str | None =
 
 
 def _fallback_config(*, model_override: str | None = None) -> dict | None:
-    """Return the opposite provider config for failover, or None if unavailable."""
+    """Return the opposite provider config for failover, using the fallback provider's default model."""
     primary = settings.ai_provider
     if primary == 'deepseek':
         if not settings.ai_api_key:
@@ -181,14 +185,14 @@ def _fallback_config(*, model_override: str | None = None) -> dict | None:
         return {
             'base_url': settings.ai_base_url.rstrip('/'),
             'api_key': settings.ai_api_key,
-            'model': model_override or settings.ai_model,
+            'model': settings.ai_model,
             'provider': 'aihubmix',
         }
     if settings.deepseek_api_key:
         return {
             'base_url': settings.deepseek_base_url.rstrip('/'),
             'api_key': settings.deepseek_api_key,
-            'model': model_override or settings.deepseek_model,
+            'model': settings.deepseek_model,
             'provider': 'deepseek',
         }
     return None
@@ -206,14 +210,38 @@ def _is_failover_eligible(exc: Exception) -> bool:
     return True  # Unexpected errors are also eligible
 
 
+def _is_claude_model(model: str) -> bool:
+    return model.startswith('claude-')
+
+
 def _build_payload(cfg: dict, messages: list[dict], *,
                    temperature: float, max_tokens: int, stream: bool = False) -> dict:
+    is_claude = _is_claude_model(cfg['model'])
     payload: dict = {
         'model': cfg['model'],
-        'messages': messages,
-        'temperature': temperature,
-        'max_tokens': max_tokens,
+        'max_completion_tokens': max_tokens,
     }
+    if not is_claude:
+        payload['temperature'] = temperature
+
+    if _is_claude_model(cfg['model']):
+        system_parts: list[str] = []
+        converted: list[dict] = []
+        for msg in messages:
+            if msg.get('role') == 'system':
+                system_parts.append(msg.get('content', ''))
+            else:
+                converted.append(msg)
+        if system_parts:
+            converted.insert(0, {
+                'role': 'user',
+                'content': '[System Instructions]\n' + '\n\n'.join(system_parts),
+            })
+            converted.insert(1, {'role': 'assistant', 'content': 'Understood.'})
+        payload['messages'] = converted
+    else:
+        payload['messages'] = messages
+
     if stream:
         payload['stream'] = True
         payload['stream_options'] = {'include_usage': True}
@@ -411,7 +439,13 @@ async def _do_stream(
             _log.warning('AI chat stream timed out (provider=%s)', cfg['provider'])
             raise RuntimeError('AI 服务响应超时')
         except httpx.HTTPStatusError as e:
-            _log.error('AI API stream error: %s (provider=%s)', e.response.status_code, cfg['provider'])
+            body = ''
+            try:
+                body = (await e.response.aread()).decode('utf-8', errors='replace')[:500]
+            except Exception:
+                pass
+            _log.error('AI API stream error: %s (provider=%s, model=%s) body=%s',
+                       e.response.status_code, cfg['provider'], cfg['model'], body)
             raise RuntimeError(f'AI 服务返回错误 ({e.response.status_code})')
         except RuntimeError:
             raise

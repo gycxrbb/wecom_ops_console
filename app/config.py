@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     ai_base_url: str = 'https://aihubmix.com/v1'
     ai_model: str = 'gpt-4o-mini'
     ai_provider: str = 'aihubmix'                  # 'aihubmix' | 'deepseek'
-    ai_available_models: str = 'gpt-5.5,gpt-5.4,deepseek-v4-pro,deepseek-v4-flash,claude-opus-4-7,kimi-k2.6,glm-5.1,gemini-3.1-pro-preview,xiaomi-mimo-v2.5,doubao-seed-2-0-pro'
+    ai_available_models: str = 'gpt-5.5,gpt-5.4,gpt-4o-mini,deepseek-v4-pro,deepseek-v4-flash,deepseek-v3.2-fast,claude-opus-4-7,kimi-k2.6,glm-5.1,gemini-3.1-pro-preview,xiaomi-mimo-v2.5,doubao-seed-2-0-pro'
     ai_http2_enabled: bool = True
     deepseek_api_key: str = ''
     deepseek_base_url: str = 'https://api.deepseek.com'

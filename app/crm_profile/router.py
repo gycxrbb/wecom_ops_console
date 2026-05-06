@@ -669,13 +669,18 @@ if _ai_coach_enabled:
         import time as _time
         _t = _time.time()
         _sse_log.info("[SSE-ROUTE] thinking-stream endpoint entered for customer %s", customer_id)
-        user = get_current_user(request, db)
-        require_permission(user, 'crm_profile')
-        assert_can_view(user, customer_id)
 
         async def event_stream():
             _sse_log.info("[SSE-ROUTE] thinking-stream yield ':connected' at %.3fs", _time.time() - _t)
             yield ": connected\n\n"
+            try:
+                user = get_current_user(request, db)
+                require_permission(user, 'crm_profile')
+                assert_can_view(user, customer_id)
+            except Exception as exc:
+                _sse_log.info("[SSE-ROUTE] thinking-stream auth failed at %.3fs: %s", _time.time() - _t, exc)
+                yield _sse("error", {"message": str(exc) or "认证失败", "code": "auth_error"})
+                return
             async for event in stream_ai_coach_thinking(
                 customer_id,
                 body.message,

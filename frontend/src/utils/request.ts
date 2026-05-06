@@ -110,8 +110,10 @@ service.interceptors.response.use(
 
     // Skip if not 401 or the request itself is auth-related
     if (status !== 401 || !originalRequest) {
-      const msg = error.response?.data?.detail || error.message || '请求失败'
-      ElMessage({ message: msg, type: 'error', duration: 5 * 1000 })
+      if (!originalRequest?._silent) {
+        const msg = error.response?.data?.detail || error.message || '请求失败'
+        ElMessage({ message: msg, type: 'error', duration: 5 * 1000 })
+      }
       return Promise.reject(error)
     }
 

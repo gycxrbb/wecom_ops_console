@@ -19,7 +19,7 @@ import type { PermissionKey } from './permissions'
 import MANIFEST, { type PreloadTask, type PreloadPriority } from './preloadManifest'
 
 const CONCURRENCY = 3
-const TIMEOUT_MS = 5_000
+const TIMEOUT_MS = 15_000
 const P1_DELAY_MS = 400
 
 // ── In-flight dedup ──
@@ -28,7 +28,7 @@ const inFlight = new Map<string, Promise<any>>()
 function fetchWithTimeout(url: string, params?: Record<string, unknown>): Promise<any> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('preload timeout')), TIMEOUT_MS)
-    request.get(url, { params, timeout: TIMEOUT_MS })
+    request.get(url, { params, timeout: TIMEOUT_MS, _silent: true } as any)
       .then((data: any) => { clearTimeout(timer); resolve(data) })
       .catch((err: any) => { clearTimeout(timer); reject(err) })
   })
