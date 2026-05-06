@@ -152,35 +152,6 @@ async def execute_auto_ranking(cfg: AutoRankingConfig) -> dict:
     return {'sent': sent, 'skipped': len(items) - sent, 'error': last_error}
 
 
-def run_all_auto_rankings() -> list[dict]:
-    """读取所有 enabled 配置并执行。"""
-    db = SessionLocal()
-    try:
-        configs = db.query(AutoRankingConfig).filter(AutoRankingConfig.enabled == 1).all()
-    finally:
-        db.close()
-
-    results = []
-    for cfg in configs:
-        now = datetime.now(_tz)
-        result = execute_auto_ranking(cfg)
-
-        # 更新执行状态
-        db2 = SessionLocal()
-        try:
-            c = db2.query(AutoRankingConfig).get(cfg.id)
-            if c:
-                c.last_run_at = now
-                c.last_error = result.get('error', '')
-                db2.commit()
-        finally:
-            db2.close()
-
-        results.append({'id': cfg.id, 'name': cfg.name, **result})
-
-    return results
-
-
 def compute_next_runs_for_config(
     push_hour: int,
     push_minute: int,

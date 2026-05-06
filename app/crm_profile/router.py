@@ -425,6 +425,7 @@ def get_ai_config(
         "profile_note": _note_to_response(note) if note else None,
         "prompt_version": get_version(),
         "expansion_options": EXPANSION_MODULE_OPTIONS,
+        "available_models": [m.strip() for m in settings.ai_available_models.split(",") if m.strip()],
     }
 
 
@@ -645,6 +646,7 @@ if _ai_coach_enabled:
                 health_window_days=body.health_window_days,
                 attachment_ids=body.attachment_ids,
                 quoted_message_id=body.quoted_message_id,
+                model=body.model,
             ):
                 _sse_log.info("[SSE-ROUTE] chat-stream writing SSE event=%s at %.3fs", event.event, _time.time() - _t)
                 yield _sse(event.event, event.data)

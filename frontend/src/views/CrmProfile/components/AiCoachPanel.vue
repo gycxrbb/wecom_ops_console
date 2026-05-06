@@ -287,11 +287,25 @@
             <div class="ai-input-card">
               <el-input v-model="input" type="textarea" :autosize="{ minRows: 1, maxRows: 8 }" placeholder="输入本次问题，例如：基于她最近一周血糖..." :disabled="loading || !!disabledReason || cacheSendBlocked" @keydown.enter.exact.prevent="send" class="ai-chat-input" />
               <div class="ai-input-toolbar">
-                <el-icon class="ai-magic-icon" title="上传附件" @click="triggerFileInput"><Paperclip /></el-icon>
-                <el-icon class="ai-magic-icon" title="使用结构化提示词" @click="askQuick('请帮我总结核心跟进点')"><MagicStick /></el-icon>
-                <el-button type="primary" class="ai-send-btn" :class="{ 'is-active': input.trim() }" :loading="loading" circle size="small" @click="send" :disabled="(!input.trim() && !pendingAttachments.length) || !!disabledReason || cacheSendBlocked">
-                  <el-icon :size="16"><Promotion /></el-icon>
-                </el-button>
+                <div class="ai-toolbar-left">
+                  <el-icon class="ai-magic-icon" title="上传附件" @click="triggerFileInput"><Paperclip /></el-icon>
+                  <el-icon class="ai-magic-icon" title="使用结构化提示词" @click="askQuick('请帮我总结核心跟进点')"><MagicStick /></el-icon>
+                </div>
+                <div class="ai-toolbar-right">
+                  <el-popover v-if="availableModels.length" placement="top-end" :width="180" trigger="click" :teleported="true" popper-class="ai-model-popover">
+                    <template #reference>
+                      <span class="ai-model-tag" :title="'当前模型：' + selectedModel">{{ selectedModel }}</span>
+                    </template>
+                    <div class="ai-model-list">
+                      <div v-for="m in availableModels" :key="m" class="ai-model-item" :class="{ 'is-active': m === selectedModel }" @click="selectedModel = m">
+                        {{ m }}
+                      </div>
+                    </div>
+                  </el-popover>
+                  <el-button type="primary" class="ai-send-btn" :class="{ 'is-active': input.trim() }" :loading="loading" circle size="small" @click="send" :disabled="(!input.trim() && !pendingAttachments.length) || !!disabledReason || cacheSendBlocked">
+                    <el-icon :size="16"><Promotion /></el-icon>
+                  </el-button>
+                </div>
               </div>
             </div>
           </div>
@@ -428,6 +442,7 @@ const {
   sessionHistory, sessionHistoryLoading, loadSessionHistory, openHistorySession,
   loadAiConfig, saveProfileNote, restoredSessionMeta,
   expansionOptions, selectedExpansions,
+  availableModels, selectedModel,
   uploadAttachment,
 } = useAiCoach()
 

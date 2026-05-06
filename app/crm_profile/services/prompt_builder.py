@@ -229,3 +229,40 @@ def assemble_visible_thinking_prompt(
         scene_key=scene_key,
         used_layers=used_layers,
     )
+
+
+def assemble_lightweight_thinking_prompt(
+    *,
+    scene_key: str,
+    module_labels: list[str],
+    customer_name: str,
+    user_message: str,
+) -> PromptAssembly:
+    """Minimal prompt for fast thinking-summary generation (~1K tokens)."""
+    modules_text = "、".join(module_labels) if module_labels else "基础档案"
+
+    system_text = (
+        "你是健康管理的 AI 教练助手。用户刚提问了一个问题，请生成一段可展示的思考摘要。"
+        "要求：1) 复述一遍用户的问题，以及提及的上下文，然后为解决用户的这个问题，说明你正在查看哪些具体数据模块，每个模块的关键数据是什么；"
+        "2) 指出你注意到的关键点、趋势变化或风险边界，给出具体数据支撑；"
+        "3) 简述你准备如何组织正式回复，会从哪些角度展开建议。"
+        "语气专业、有洞察力，像一位资深教练在分析时的内心独白。充分展开分析，300-500字。"
+    )
+
+    context_hint = f"客户：{customer_name or '未知'}。可参考数据模块：{modules_text}。"
+    if scene_key and scene_key != "qa_support":
+        label = get_scene_label(scene_key)
+        context_hint += f"当前工作场景：{label}。"
+
+    messages = [
+        {"role": "system", "content": system_text},
+        {"role": "user", "content": f"{context_hint}\n\n用户提问：{user_message}"},
+    ]
+
+    return PromptAssembly(
+        messages=messages,
+        prompt_version=get_version(),
+        prompt_hash="lightweight-thinking",
+        scene_key=scene_key,
+        used_layers=["lightweight_thinking"],
+    )

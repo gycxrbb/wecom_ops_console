@@ -411,7 +411,7 @@ async def _do_stream(
             _log.warning('AI chat stream timed out (provider=%s)', cfg['provider'])
             raise RuntimeError('AI 服务响应超时')
         except httpx.HTTPStatusError as e:
-            _log.error('AI API stream error: %s %s (provider=%s)', e.response.status_code, e.response.text[:200], cfg['provider'])
+            _log.error('AI API stream error: %s (provider=%s)', e.response.status_code, cfg['provider'])
             raise RuntimeError(f'AI 服务返回错误 ({e.response.status_code})')
         except RuntimeError:
             raise

@@ -138,6 +138,7 @@ class AiChatRequest(BaseModel):
     health_window_days: int = 7
     attachment_ids: list[str] | None = None
     quoted_message_id: str | None = None
+    model: str | None = None
 
 
 class AiAttachmentUploadResponse(BaseModel):

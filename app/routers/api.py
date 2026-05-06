@@ -21,7 +21,7 @@ from ..services.material_storage_service import build_storage_result_from_materi
 from ..services.audio_transcode import AudioTranscodeError, guess_audio_extension, is_amr_filename, is_supported_audio_upload, transcode_audio_to_amr
 from ..services.storage import UploadPayload, storage_facade
 from ..services.template_engine import default_context, render_value
-from ..services.wecom import WeComService
+from ..services.wecom import WeComService, RATE_LIMIT
 from ..services.scheduler_service import schedule_service
 from ..services.crm_admin_auth import CrmAdminAuthUnavailable
 from ..services import login_rate_limiter as rate_limiter
@@ -507,6 +507,7 @@ async def _send_to_single_group(
 
 
 _send_semaphore = asyncio.Semaphore(10)
+_job_locks: dict[int, asyncio.Lock] = {}
 
 async def do_send_to_groups(db: Session, groups: list[models.Group], msg_type: str, content_json: dict, variables_json: dict, user: models.User, schedule: models.Schedule | None = None, run_mode: str = 'immediate'):
     is_file_type = msg_type in {'file', 'image', 'emotion', 'voice'}
@@ -529,6 +530,21 @@ async def perform_job_send(db: Session, schedule: models.Schedule, run_mode: str
     if schedule.approval_required and schedule.status != 'approved':
         return {'skipped': True, 'reason': 'pending approval'}
 
+    # 防止同一任务并发执行（APScheduler 定时触发 + 手动 run-now）
+    lock = _job_locks.get(schedule.id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _job_locks[schedule.id] = lock
+    if lock.locked():
+        logger.warning('Job %s (%s) 正在执行中，跳过本次触发 (%s)', schedule.id, schedule.title, run_mode)
+        return {'skipped': True, 'reason': 'already running'}
+    async with lock:
+        return await _perform_job_send_inner(db, schedule, run_mode)
+
+
+async def _perform_job_send_inner(db: Session, schedule: models.Schedule, run_mode: str = 'scheduled'):
+    import time as _time
+    user = schedule.owner or db.query(models.User).filter(models.User.role == 'admin').first()
     start_time = _time.time()
 
     # ── 队列模式：逐条执行 batch_items ──
@@ -538,34 +554,94 @@ async def perform_job_send(db: Session, schedule: models.Schedule, run_mode: str
         all_results = []
         last_error = ''
         group_send_count: dict[int, int] = defaultdict(int)
-        for idx, item in enumerate(batch_items):
-            item_group_ids = item.get('group_ids') or global_group_ids
-            if not item_group_ids:
-                last_error = f'队列项 {item.get("msg_type")} 缺少目标群'
-                continue
-            groups = db.query(models.Group).filter(models.Group.id.in_(item_group_ids), models.Group.enabled == 1).all()
+        group_first_send_time: dict[int, float] = {}
+        max_retries = 3
 
-            # 预检：若同一群即将超过 18 条，提前等待一个完整窗口（留 2 条安全余量）
-            for g in groups:
-                if group_send_count[g.id] >= 18:
-                    logger.info('群 %s 已发 %d 条，提前等待限流窗口', g.name, group_send_count[g.id])
-                    await asyncio.sleep(30)
-                    group_send_count.clear()
-                    break
+        async def _execute_batch(items_to_run):
+            batch_results = []
+            has_failure = False
+            for local_idx, item in enumerate(items_to_run):
+                item_group_ids = item.get('group_ids') or global_group_ids
+                if not item_group_ids:
+                    last_error = f'队列项 {item.get("msg_type")} 缺少目标群'
+                    has_failure = True
+                    continue
+                groups = db.query(models.Group).filter(models.Group.id.in_(item_group_ids), models.Group.enabled == 1).all()
 
-            try:
-                results = await do_send_to_groups(
-                    db, groups, item.get('msg_type', 'markdown'),
-                    item.get('content_json', {}), item.get('variables_json', {}),
-                    user, schedule=schedule, run_mode=run_mode,
-                )
-                all_results.extend(results or [])
+                # 预检：同一群累计达到限额时，动态等待至距首条消息满 61 秒
                 for g in groups:
-                    group_send_count[g.id] += 1
-            except Exception as exc:
-                last_error = str(exc)[:200]
-            # 同一 webhook 限 20条/分钟，由 WeComService._check_rate_limit 按 group_key 控制
-            await asyncio.sleep(1.0)
+                    if group_send_count[g.id] >= RATE_LIMIT and g.id in group_first_send_time:
+                        elapsed = _time.time() - group_first_send_time[g.id]
+                        wait = max(0, 61.0 - elapsed)
+                        if wait > 0:
+                            logger.info('群 %s 已发 %d 条（耗时 %.1fs），等待 %.1fs 释放限流窗口', g.name, group_send_count[g.id], elapsed, wait)
+                            await asyncio.sleep(wait)
+                        group_send_count[g.id] = 0
+                        group_first_send_time.pop(g.id, None)
+
+                try:
+                    results = await do_send_to_groups(
+                        db, groups, item.get('msg_type', 'markdown'),
+                        item.get('content_json', {}), item.get('variables_json', {}),
+                        user, schedule=schedule, run_mode=run_mode,
+                    )
+                    batch_results.extend(results or [])
+                    for g in groups:
+                        if group_send_count[g.id] == 0:
+                            group_first_send_time[g.id] = _time.time()
+                        group_send_count[g.id] += 1
+                    if not all(r.get('success') for r in (results or [])):
+                        has_failure = True
+                except Exception as exc:
+                    last_error = str(exc)[:200]
+                    has_failure = True
+                await asyncio.sleep(1.0)
+            return batch_results, has_failure
+
+        # 首轮
+        all_results, has_failure = await _execute_batch(batch_items)
+
+        # 容错重试：整队重发，最多 max_retries 轮
+        retry_round = 0
+        while has_failure and retry_round < max_retries:
+            retry_round += 1
+            logger.info('排行队列第 %d 轮整体重试，等待 61s 释放限流窗口', retry_round)
+
+            # 等待一个完整限流窗口
+            await asyncio.sleep(61)
+            group_send_count.clear()
+            group_first_send_time.clear()
+
+            # 删除上一轮产生的 Message 记录，避免重复计数
+            old_msgs = db.query(models.Message).filter(
+                models.Message.source_type == 'schedule',
+                models.Message.source_id == schedule.id,
+            ).all()
+            for om in old_msgs:
+                db.query(models.MessageLog).filter(models.MessageLog.message_id == om.id).delete()
+                db.delete(om)
+            db.commit()
+
+            # 先发一条重试通知到目标群（使用独立限流桶，不影响主发送）
+            target_group_id = json_loads(schedule.group_ids_json, [])
+            if target_group_id:
+                notify_groups = db.query(models.Group).filter(
+                    models.Group.id.in_(target_group_id), models.Group.enabled == 1
+                ).all()
+                for ng in notify_groups:
+                    nw = resolve_group_webhook(ng)
+                    if nw:
+                        try:
+                            await WeComService.send(nw, 'text', {
+                                'content': f'⚠️ 上轮积分排行推送存在失败条目，正在执行第 {retry_round} 次整体重试（共 {len(batch_items)} 条）'
+                            }, group_key=f'retry-notify-{ng.id}')
+                        except Exception:
+                            pass
+
+            # 整队重发
+            retry_results, has_failure = await _execute_batch(batch_items)
+            all_results = retry_results  # 用重试结果覆盖
+
         db.expire(schedule)
         schedule.last_error = last_error
         schedule.last_sent_at = datetime.now(ZoneInfo('Asia/Shanghai')).replace(tzinfo=None)

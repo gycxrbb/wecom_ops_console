@@ -237,6 +237,8 @@ export function useAiCoach() {
   const selectedExpansions = ref<string[]>([])
   const currentScene = ref('qa_support')
   const outputStyle = ref('coach_brief')
+  const availableModels = ref<string[]>([])
+  const selectedModel = ref('')
   const profileNote = ref<ProfileNote | null>(null)
   const sessionHistory = ref<AiSessionSummary[]>([])
   const sessionHistoryLoading = ref(false)
@@ -272,6 +274,12 @@ export function useAiCoach() {
         outputStyle.value = ''
       }
       expansionOptions.value = res.expansion_options || {}
+      availableModels.value = res.available_models?.length
+        ? res.available_models
+        : ['gpt-5.5','gpt-5.4','deepseek-v4-pro','deepseek-v4-flash','claude-opus-4-7','kimi-k2.6','glm-5.1','gemini-3.1-pro-preview','xiaomi-mimo-v2.5','doubao-seed-2-0-pro']
+      if (!availableModels.value.includes(selectedModel.value)) {
+        selectedModel.value = availableModels.value[0]
+      }
       profileNote.value = res.profile_note || { crm_customer_id: customerId }
       if (res.profile_note?.preferred_scene_hint) {
         currentScene.value = res.profile_note.preferred_scene_hint
@@ -419,6 +427,7 @@ export function useAiCoach() {
       health_window_days: normalizeHealthWindowDays(options?.healthWindowDays),
       attachment_ids: options?.attachmentIds?.length ? options.attachmentIds : undefined,
       quoted_message_id: quotedMessage.value?.messageId || undefined,
+      model: selectedModel.value || undefined,
     }
 
     let answerCompleted = false
@@ -738,5 +747,6 @@ export function useAiCoach() {
     sessionHistory, sessionHistoryLoading, loadSessionHistory, openHistorySession,
     loadAiConfig, saveProfileNote, restoredSessionMeta,
     expansionOptions, selectedExpansions,
+    availableModels, selectedModel,
   }
 }

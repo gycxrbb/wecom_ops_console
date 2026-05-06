@@ -132,7 +132,7 @@ class ScheduleService:
             job.next_run_at = None
             logger.debug(f'Job {job.id} skipped: no valid trigger config')
             return
-        scheduled_job = self.scheduler.add_job(execute_job, trigger=trigger, id=aps_id, args=[job.id], replace_existing=True, misfire_grace_time=300)
+        scheduled_job = self.scheduler.add_job(execute_job, trigger=trigger, id=aps_id, args=[job.id], replace_existing=True, misfire_grace_time=300, max_instances=1, coalesce=True)
         job.next_run_at = scheduled_job.next_run_time
         logger.info(f'Job {job.id} registered: type={job.schedule_type} next_run={scheduled_job.next_run_time}')
 

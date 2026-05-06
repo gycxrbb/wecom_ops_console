@@ -19,7 +19,7 @@ from ..schemas.context import ModulePayload
 from . import audit
 from .context_builder import build_context_text, validate_field_whitelist, get_module_label
 from .profile_context_cache import ProfileCacheNotReady, get_ai_ready_profile_context, normalize_window_days
-from .prompt_builder import assemble_prompt, assemble_visible_thinking_prompt
+from .prompt_builder import assemble_prompt, assemble_visible_thinking_prompt, assemble_lightweight_thinking_prompt
 from .safety_gate import build_safety_input, evaluate_ai_answer_safety
 
 _log = logging.getLogger(__name__)
@@ -638,6 +638,7 @@ async def stream_ai_coach_answer(
     attachment_ids: list[str] | None = None,
     quoted_message_id: str | None = None,
     regenerated_from_message_id: str | None = None,
+    model: str | None = None,
 ) -> AsyncIterator[AiStreamEvent]:
     t_start = time.time()
     _sse.info("[SSE-TIMING] === answer-stream request arrived ===")
@@ -764,7 +765,7 @@ async def stream_ai_coach_answer(
     try:
         chunk_count = 0
         _sse.info("[SSE-TIMING] AI API stream starts at %.3fs (audit writes running in background)", time.time() - t_start)
-        async for chunk in chat_completion_stream(prepared.ai_messages, temperature=0.7, max_tokens=15000):
+        async for chunk in chat_completion_stream(prepared.ai_messages, temperature=0.7, max_tokens=15000, model=model):
             if chunk.delta:
                 collected_chunks.append(chunk.delta)
                 chunk_count += 1
@@ -844,66 +845,89 @@ async def stream_ai_coach_thinking(
     attachment_ids: list[str] | None = None,
 ) -> AsyncIterator[AiStreamEvent]:
     t_start = time.time()
-    _sse.info("[SSE-TIMING] === thinking-stream request arrived (provider=%s) ===", settings.ai_provider)
+    thinking_provider = settings.ai_thinking_provider or settings.ai_provider
+    thinking_model = settings.ai_thinking_model or settings.ai_model
+    _sse.info("[SSE-TIMING] === thinking-stream request arrived (provider=%s, model=%s) ===",
+              thinking_provider, thinking_model)
+
+    # Resolve session
+    if not session_id:
+        session_id = str(uuid.uuid4())
+    reuse_session = audit.session_exists(session_id)
+
+    # Lightweight: get customer name + module labels (non-blocking, L1 cache hit <100ms)
+    customer_name = ""
+    module_labels: list[str] = []
+    window_days = normalize_window_days(health_window_days)
+    try:
+        result = get_ai_ready_profile_context(customer_id, window_days=window_days)
+        if result.ctx and result.ctx.cards:
+            customer_name = _extract_customer_name(result.ctx)
+            from .context_builder import MODULE_LABELS
+            module_labels = [
+                MODULE_LABELS[c.key] for c in result.ctx.cards
+                if c.status in ("ok", "partial") and c.key in MODULE_LABELS
+            ]
+    except Exception:
+        pass  # Profile not ready is OK for thinking
 
     # Resolve attachment descriptions (reuses cached Vision results)
     effective_message = message
-    att_tuple = tuple(attachment_ids) if attachment_ids else None
     if attachment_ids:
         effective_message = await _resolve_attachment_descriptions(customer_id, attachment_ids, message)
 
     yield AiStreamEvent(event="loading", data={"stage": "prepare"})
 
-    # Cached prepare path shared by all providers.
-    _sse.info("[SSE-TIMING] thinking prepare start at %.3fs", time.time() - t_start)
-    try:
-        prepared = await _prepare_ai_turn_cached(
-            customer_id,
-            effective_message,
-            session_id=session_id,
-            scene_key=scene_key,
-            output_style=output_style,
-            health_window_days=health_window_days,
-            prompt_mode="thinking",
-            selected_expansions=selected_expansions,
-            attachment_ids=att_tuple,
-        )
-    except ProfileCacheNotReady as exc:
-        _sse.info("[SSE-TIMING] thinking profile cache unready key=%s", exc.result.cache_key)
-        yield AiStreamEvent(event="error", data=_profile_cache_unready_payload(exc))
-        return
-    _sse.info("[SSE-TIMING] thinking prepare done at %.3fs", time.time() - t_start)
+    # Shortcut: for trivial fact-reading questions, skip LLM entirely
+    shortcut_text = _build_shortcut_thinking_text(effective_message, None)
 
-    yield AiStreamEvent(
-        event="meta",
-        data={
-            "session_id": prepared.session_id,
-            "prompt_version": prepared.assembly.prompt_version,
-            "scene_key": prepared.assembly.scene_key,
-        },
+    if shortcut_text:
+        yield AiStreamEvent(event="meta", data={
+            "session_id": session_id,
+            "prompt_version": "shortcut",
+            "scene_key": scene_key,
+        })
+        async for chunk in _emit_text_chunks(shortcut_text, size=14, delay=0.035):
+            yield AiStreamEvent(event="delta", data={"delta": chunk})
+        yield AiStreamEvent(event="done", data={"session_id": session_id})
+        return
+
+    _sse.info("[SSE-TIMING] thinking lightweight prepare done at %.3fs", time.time() - t_start)
+
+    assembly = assemble_lightweight_thinking_prompt(
+        scene_key=scene_key,
+        module_labels=module_labels,
+        customer_name=customer_name,
+        user_message=effective_message,
     )
 
-    shortcut_thinking = prepared.shortcut_thinking
-    if shortcut_thinking:
-        async for chunk in _emit_text_chunks(shortcut_thinking, size=14, delay=0.035):
-            yield AiStreamEvent(event="delta", data={"delta": chunk})
-        yield AiStreamEvent(event="done", data={"session_id": prepared.session_id})
-        return
+    yield AiStreamEvent(event="meta", data={
+        "session_id": session_id,
+        "prompt_version": assembly.prompt_version,
+        "scene_key": assembly.scene_key,
+    })
 
     yield AiStreamEvent(event="loading", data={"stage": "model_call"})
 
     try:
-        _sse.info("[SSE-TIMING] thinking AI stream starts at %.3fs", time.time() - t_start)
+        _sse.info("[SSE-TIMING] thinking AI stream starts at %.3fs (provider=%s, model=%s)",
+                  time.time() - t_start, thinking_provider, thinking_model)
         chunk_count = 0
-        async for chunk in chat_completion_stream(prepared.ai_messages, temperature=0.4, max_tokens=4096):
+        async for chunk in chat_completion_stream(
+            assembly.messages,
+            temperature=0.6,
+            max_tokens=2000,
+            model=thinking_model,
+            provider=thinking_provider or None,
+        ):
             if chunk.delta:
                 chunk_count += 1
                 _sse.info("[SSE-TIMING] thinking chunk #%d at %.3fs", chunk_count, time.time() - t_start)
                 yield AiStreamEvent(event="delta", data={"delta": chunk.delta})
-                await asyncio.sleep(0)
+                await asyncio.sleep(0.25)
         _sse.info("[SSE-TIMING] thinking AI done, %d chunks, %.3fs", chunk_count, time.time() - t_start)
 
-        yield AiStreamEvent(event="done", data={"session_id": prepared.session_id})
+        yield AiStreamEvent(event="done", data={"session_id": session_id})
     except Exception as exc:
         _log.error("Thinking stream failed: %s", exc, exc_info=True)
         yield AiStreamEvent(event="error", data={

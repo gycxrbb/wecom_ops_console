@@ -47,10 +47,13 @@ class Settings(BaseSettings):
     ai_base_url: str = 'https://aihubmix.com/v1'
     ai_model: str = 'gpt-4o-mini'
     ai_provider: str = 'aihubmix'                  # 'aihubmix' | 'deepseek'
+    ai_available_models: str = 'gpt-5.5,gpt-5.4,deepseek-v4-pro,deepseek-v4-flash,claude-opus-4-7,kimi-k2.6,glm-5.1,gemini-3.1-pro-preview,xiaomi-mimo-v2.5,doubao-seed-2-0-pro'
     ai_http2_enabled: bool = True
     deepseek_api_key: str = ''
     deepseek_base_url: str = 'https://api.deepseek.com'
     deepseek_model: str = 'deepseek-v4-pro'
+    ai_thinking_provider: str = 'aihubmix'           # fast provider for thinking stream
+    ai_thinking_model: str = ''                      # empty=follow ai_model (gpt-4o-mini)
     crm_profile_cache_fresh_ttl_seconds: int = 1800
     crm_profile_cache_stale_ttl_seconds: int = 7200
     crm_profile_cache_preload_wait_ms: int = 15000

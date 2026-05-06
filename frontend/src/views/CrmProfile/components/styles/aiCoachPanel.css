@@ -572,10 +572,19 @@
 }
 .ai-input-toolbar {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 4px;
+}
+.ai-toolbar-left {
+  display: flex;
   align-items: center;
   gap: 4px;
-  padding-top: 4px;
+}
+.ai-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .ai-magic-icon {
   color: #c4b5fd;
@@ -612,6 +621,51 @@
 .ai-send-btn.el-button.is-circle:disabled {
   background: #f1f5f9;
   color: #d1d5db;
+}
+.ai-model-tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  color: #6366f1;
+  background: #eef2ff;
+  border: 1px solid #c7d2fe;
+  border-radius: 10px;
+  padding: 1px 10px;
+  cursor: pointer;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: all 0.2s;
+  line-height: 20px;
+  user-select: none;
+}
+.ai-model-tag:hover {
+  background: #e0e7ff;
+  border-color: #a5b4fc;
+}
+.ai-model-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+.ai-model-item {
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s;
+  color: #374151;
+}
+.ai-model-item:hover {
+  background: #f3f4f6;
+}
+.ai-model-item.is-active {
+  background: #eef2ff;
+  color: #6366f1;
+  font-weight: 500;
 }
 
 /* ==================== Attachment Strip ==================== */

@@ -23,6 +23,10 @@
         <el-icon><Promotion /></el-icon>
         <span>发送中心</span>
       </el-menu-item>
+      <el-menu-item index="/auto-ranking" v-if="userStore.user?.role === 'admin'">
+        <el-icon><TrendCharts /></el-icon>
+        <span>自动排行推送</span>
+      </el-menu-item>
 
       <div class="menu-group" style="margin-top: 20px;">数据管理</div>
       <el-menu-item index="/groups" v-if="moduleVisible('group')">
@@ -84,10 +88,6 @@
       <el-menu-item index="/feedback-review" v-if="userStore.user?.role === 'admin'">
         <el-icon><Comment /></el-icon>
         <span>反馈审核</span>
-      </el-menu-item>
-      <el-menu-item index="/auto-ranking" v-if="userStore.user?.role === 'admin'">
-        <el-icon><TrendCharts /></el-icon>
-        <span>自动排行推送</span>
       </el-menu-item>
     </el-menu>
 
