@@ -1,8 +1,8 @@
 这是一个自动化部署的测试！
-cd /www/wwwroot/wecom-ops-console 
+cd /www/wwwroot/wecom-ops-console     
 git remote set-url origin https://ghproxy.cn/https://github.com/gycxrbb/wecom_ops_console.git 
 git pull
-git update-ref -d refs/remotes/origin/master && git fetch && git pull
+git update-ref -d refs/remotes/origin/master && git fetch && git pull  
 git remote set-url origin https://github.com/gycxrbb/wecom_ops_console.git 
 
 
@@ -12,10 +12,10 @@ git config --global https.sslVerify false
 echo "nameserver 8.8.8.8" > /etc/resolv.conf
 echo "nameserver 1.1.1.1" >> /etc/resolv.conf
 
-docker compose -f docker-compose.prod.yml build 
-docker compose -f docker-compose.prod.yml up -d   
+docker compose -f docker-compose.prod.yml build       
+docker compose -f docker-compose.prod.yml up -d       
 
-执行脚本：bash /www/wwwroot/wecom-ops-console/deploy.sh
+执行脚本：bash /www/wwwroot/wecom-ops-console/deploy.sh  
 
 ## 七、常用运维命令    
 
@@ -60,3 +60,4 @@ git log --oneline
 
 # 图形查看git 提交历史
 git log --oneline --graph --all --decorate
+

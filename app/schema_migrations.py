@@ -435,12 +435,16 @@ def ensure_crm_ai_attachment_indexes(engine: Engine) -> None:
     if "storage_public_url" not in existing_cols:
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE crm_ai_attachments ADD COLUMN storage_public_url TEXT"))
+    if "content_hash" not in existing_cols:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE crm_ai_attachments ADD COLUMN content_hash VARCHAR(64) DEFAULT ''"))
 
     idx_checks = [
         ("crm_ai_attachments", "ix_crm_ai_att_att_id", ("attachment_id",), True),
         ("crm_ai_attachments", "ix_crm_ai_att_customer", ("crm_customer_id",), False),
         ("crm_ai_attachments", "ix_crm_ai_att_session", ("session_id",), False),
         ("crm_ai_attachments", "ix_crm_ai_att_status", ("processing_status",), False),
+        ("crm_ai_attachments", "ix_crm_ai_att_customer_hash", ("crm_customer_id", "content_hash"), False),
     ]
     with engine.begin() as conn:
         for table_name, idx_name, columns, unique in idx_checks:

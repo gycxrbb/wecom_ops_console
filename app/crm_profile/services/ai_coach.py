@@ -942,6 +942,7 @@ async def _resolve_attachment_descriptions(
     original_message: str,
 ) -> str:
     """Load attachments, run Vision analysis if needed, build enhanced user message."""
+    import asyncio as _asyncio
     from .ai_attachment import load_attachments
     from .vision_analyzer import analyze_attachment, build_user_message_with_attachments
 
@@ -951,10 +952,9 @@ async def _resolve_attachment_descriptions(
     if not attachments:
         return original_message
 
-    descriptions: list[tuple[str, str]] = []
-    for att in attachments:
-        desc = await analyze_attachment(att)
-        descriptions.append((att.original_filename, desc))
+    # Analyze all attachments in parallel
+    results = await _asyncio.gather(*[analyze_attachment(att) for att in attachments])
+    descriptions = [(att.original_filename, desc) for att, desc in zip(attachments, results)]
 
     return build_user_message_with_attachments(original_message, descriptions)
 

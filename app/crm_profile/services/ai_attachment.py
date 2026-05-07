@@ -1,6 +1,8 @@
 """Attachment upload service for AI coach — handles file validation, storage, and DB recording."""
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import logging
 import uuid
 from io import BytesIO
@@ -28,11 +30,41 @@ def _validate_upload(file: UploadFile) -> None:
         raise ValueError(f"不支持的文件类型: {file.content_type}，仅支持 jpg/png/webp/pdf")
 
 
+def normalize_content_hash(content_hash: str | None) -> str:
+    value = (content_hash or "").strip().lower()
+    if len(value) != 64:
+        return ""
+    if any(ch not in "0123456789abcdef" for ch in value):
+        return ""
+    return value
+
+
+def find_existing_attachment(customer_id: int, content_hash: str | None) -> CrmAiAttachment | None:
+    normalized_hash = normalize_content_hash(content_hash)
+    if not normalized_hash:
+        return None
+    with SessionLocal() as db:
+        attachment = (
+            db.query(CrmAiAttachment)
+            .filter(
+                CrmAiAttachment.crm_customer_id == customer_id,
+                CrmAiAttachment.content_hash == normalized_hash,
+                CrmAiAttachment.storage_key != "",
+            )
+            .order_by(CrmAiAttachment.id.desc())
+            .first()
+        )
+        if attachment:
+            db.expunge(attachment)
+        return attachment
+
+
 async def upload_attachment(
     file: UploadFile,
     customer_id: int,
     user_id: int,
 ) -> CrmAiAttachment:
+    """Server-relay upload: read file, compress, store via storage_facade."""
     _validate_upload(file)
 
     raw = await file.read()
@@ -50,39 +82,90 @@ async def upload_attachment(
     if len(raw) > max_size:
         raise ValueError(f"文件大小超出限制 ({len(raw) // (1024*1024)}MB)")
 
-    # Compress large images
+    content_hash = hashlib.sha256(raw).hexdigest()
+    existing = find_existing_attachment(customer_id, content_hash)
+    if existing:
+        _log.info("Attachment upload deduped: id=%s, file=%s", existing.attachment_id, filename)
+        return existing
+
     if content_type.startswith("image/"):
         raw = _maybe_compress_image(raw, content_type)
 
-    # Store file
     payload = UploadPayload(content=raw, filename=filename, mime_type=content_type)
     result = storage_facade.upload(payload)
 
-    # Create DB record
-    attachment = CrmAiAttachment(
-        attachment_id=uuid.uuid4().hex[:32],
-        crm_customer_id=customer_id,
-        uploaded_by=user_id,
-        original_filename=filename,
+    attachment = _create_attachment_record(
+        customer_id=customer_id,
+        user_id=user_id,
+        filename=filename,
         mime_type=content_type,
         file_size=len(raw),
         storage_provider=result.provider,
         storage_key=result.object_key,
         storage_public_url=result.public_url,
         storage_local_path=result.local_path,
+        content_hash=content_hash,
+    )
+
+    _log.info("Attachment uploaded: id=%s, file=%s, size=%d", attachment.attachment_id, filename, len(raw))
+    _start_background_analysis(attachment)
+    return attachment
+
+
+def _create_attachment_record(
+    *,
+    customer_id: int,
+    user_id: int,
+    filename: str,
+    mime_type: str,
+    file_size: int,
+    storage_provider: str = '',
+    storage_key: str = '',
+    storage_public_url: str = '',
+    storage_local_path: str = '',
+    content_hash: str = '',
+) -> CrmAiAttachment:
+    """Create a CrmAiAttachment DB record."""
+    attachment = CrmAiAttachment(
+        attachment_id=uuid.uuid4().hex[:32],
+        crm_customer_id=customer_id,
+        uploaded_by=user_id,
+        original_filename=filename,
+        mime_type=mime_type,
+        file_size=file_size,
+        content_hash=normalize_content_hash(content_hash),
+        storage_provider=storage_provider,
+        storage_key=storage_key,
+        storage_public_url=storage_public_url,
+        storage_local_path=storage_local_path,
         page_count=1,
         processing_status="pending",
     )
-
     with SessionLocal() as db:
         db.add(attachment)
         db.commit()
         db.refresh(attachment)
-        # Detach from session
         db.expunge(attachment)
-
-    _log.info("Attachment uploaded: id=%s, file=%s, size=%d", attachment.attachment_id, filename, len(raw))
     return attachment
+
+
+def _start_background_analysis(attachment: CrmAiAttachment) -> None:
+    """Trigger Vision analysis in background so it's ready when the user sends a message."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+
+    async def _analyze():
+        await asyncio.sleep(1)
+        from .vision_analyzer import analyze_attachment
+        try:
+            desc = await analyze_attachment(attachment)
+            _log.info("Background Vision analysis done: id=%s, %d chars", attachment.attachment_id, len(desc))
+        except Exception:
+            _log.warning("Background Vision analysis failed: id=%s", attachment.attachment_id, exc_info=True)
+
+    loop.create_task(_analyze())
 
 
 def _maybe_compress_image(raw: bytes, content_type: str) -> bytes:

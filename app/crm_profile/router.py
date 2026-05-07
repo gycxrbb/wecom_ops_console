@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
@@ -12,6 +13,7 @@ from ..config import settings
 from ..database import get_db
 from ..route_helper import UnifiedResponseRoute
 from ..security import get_current_user, require_permission
+from ..services.storage import storage_facade
 from ..sse_debug_log import get_sse_logger
 from .services.cache import get as cache_get, put as cache_put, FILTER_OPTIONS_TTL
 from .services.profile_context_cache import ensure_profile_context, get_profile_cache_status, normalize_window_days
@@ -23,6 +25,7 @@ from .schemas.api import (
     SafetySnapshotListResponse, SafetySnapshotDetailResponse,
     AiProfileNoteRequest, AiProfileNoteResponse, AiConfigResponse, SceneOption,
     AiChatRequest, AiChatResponse,
+    AiPrepareUploadRequest, AiConfirmUploadRequest,
     AiSessionListResponse, AiSessionDetailResponse,
     AiPreloadRequest, AiPreloadResponse, AiCacheStatusResponse,
     AiFeedbackRequest, AiFeedbackResponse,
@@ -38,6 +41,32 @@ from .services.context_builder import build_context_text as _build_context_text
 
 _log = logging.getLogger(__name__)
 _sse_log = get_sse_logger()
+
+# Per-user rate limiter for prepare-upload (max 10 requests per 60s)
+_prepare_rate_limit: dict[int, list[float]] = {}
+
+
+def _attachment_response(att, *, deduped: bool = False) -> dict:
+    return {
+        "attachment_id": att.attachment_id,
+        "filename": att.original_filename,
+        "mime_type": att.mime_type,
+        "file_size": att.file_size,
+        "content_hash": getattr(att, "content_hash", "") or None,
+        "url": att.storage_public_url or None,
+        "deduped": deduped,
+    }
+
+
+def _check_prepare_rate_limit(user_id: int) -> None:
+    now = time.time()
+    window = _prepare_rate_limit.setdefault(user_id, [])
+    # Prune entries older than 60s
+    _prepare_rate_limit[user_id] = [t for t in window if now - t < 60]
+    window = _prepare_rate_limit[user_id]
+    if len(window) >= 10:
+        raise HTTPException(status_code=429, detail="上传请求过于频繁，请稍后再试")
+    window.append(now)
 
 router = APIRouter(
     prefix="/api/v1/crm-customers",
@@ -708,21 +737,96 @@ if _ai_coach_enabled:
         request: Request = None,
         db: Session = Depends(get_db),
     ):
+        """Server-relay upload (fallback when direct upload is unavailable)."""
         user = get_current_user(request, db)
         require_permission(user, 'crm_profile')
         assert_can_view(user, customer_id)
         try:
             att = await _upload_attachment(file, customer_id, user.id)
-            return {
-                "attachment_id": att.attachment_id,
-                "filename": att.original_filename,
-                "mime_type": att.mime_type,
-                "file_size": att.file_size,
-                "url": att.storage_public_url or None,
-            }
+            return _attachment_response(att, deduped=False)
         except ValueError as e:
             from fastapi.responses import JSONResponse
             return JSONResponse(status_code=400, content={"detail": str(e)})
+
+    @router.post("/{customer_id}/ai/prepare-upload")
+    async def ai_prepare_upload(
+        customer_id: int,
+        body: AiPrepareUploadRequest,
+        request: Request = None,
+        db: Session = Depends(get_db),
+    ):
+        """Get upload credentials for frontend direct upload to cloud storage."""
+        user = get_current_user(request, db)
+        require_permission(user, 'crm_profile')
+        assert_can_view(user, customer_id)
+
+        # Validate MIME type
+        from .services.ai_attachment import ALLOWED_MIME_TYPES
+        if body.mime_type not in ALLOWED_MIME_TYPES:
+            raise HTTPException(status_code=400, detail=f"不支持的文件类型: {body.mime_type}")
+
+        # Validate file size
+        if body.mime_type == "application/pdf":
+            max_size = settings.vision_max_pdf_size_mb * 1024 * 1024
+        else:
+            max_size = settings.vision_max_image_size_mb * 1024 * 1024
+        if body.file_size > max_size:
+            raise HTTPException(status_code=400, detail=f"文件大小超出限制 ({body.file_size // (1024*1024)}MB)")
+
+        # Per-user rate limit: max 10 prepare requests per minute
+        _check_prepare_rate_limit(user.id)
+
+        from .services.ai_attachment import find_existing_attachment
+        existing = find_existing_attachment(customer_id, body.content_hash)
+        if existing:
+            return {"mode": "existing", "attachment": _attachment_response(existing, deduped=True)}
+
+        result = storage_facade.prepare_client_upload(body.filename, body.mime_type)
+        if result:
+            return {"mode": "qiniu", **result}
+        return {"mode": "server"}
+
+    @router.post("/{customer_id}/ai/confirm-upload")
+    async def ai_confirm_upload(
+        customer_id: int,
+        body: AiConfirmUploadRequest,
+        request: Request = None,
+        db: Session = Depends(get_db),
+    ):
+        """Confirm a direct upload and create DB record."""
+        user = get_current_user(request, db)
+        require_permission(user, 'crm_profile')
+        assert_can_view(user, customer_id)
+
+        # Validate again on confirm
+        from .services.ai_attachment import ALLOWED_MIME_TYPES, find_existing_attachment, normalize_content_hash
+        if body.mime_type not in ALLOWED_MIME_TYPES:
+            raise HTTPException(status_code=400, detail="不支持的文件类型")
+        if body.mime_type == "application/pdf":
+            max_size = settings.vision_max_pdf_size_mb * 1024 * 1024
+        else:
+            max_size = settings.vision_max_image_size_mb * 1024 * 1024
+        if body.file_size > max_size:
+            raise HTTPException(status_code=400, detail="文件大小超出限制")
+
+        existing = find_existing_attachment(customer_id, body.content_hash)
+        if existing:
+            return _attachment_response(existing, deduped=True)
+
+        from .services.ai_attachment import _create_attachment_record, _start_background_analysis
+        attachment = _create_attachment_record(
+            customer_id=customer_id,
+            user_id=user.id,
+            filename=body.filename,
+            mime_type=body.mime_type,
+            file_size=body.file_size,
+            storage_provider='qiniu',
+            storage_key=body.object_key,
+            storage_public_url=body.public_url,
+            content_hash=normalize_content_hash(body.content_hash),
+        )
+        _start_background_analysis(attachment)
+        return _attachment_response(attachment, deduped=False)
 
     @router.patch("/{customer_id}/ai/messages/{message_id}/review")
     def patch_medical_review(

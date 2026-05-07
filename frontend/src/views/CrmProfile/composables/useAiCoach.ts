@@ -17,7 +17,11 @@ export type AiAttachment = {
   filename: string
   mime_type: string
   file_size: number
+  content_hash?: string | null
   url?: string
+  deduped?: boolean
+  uploading?: boolean
+  progress?: number  // 0-100
 }
 
 export type RagRecommendedAsset = {
@@ -702,16 +706,70 @@ export function useAiCoach() {
     }
   }
 
-  const uploadAttachment = async (customerId: number, file: File): Promise<AiAttachment> => {
+  const uploadAttachment = async (customerId: number, file: File, onProgress?: (pct: number) => void): Promise<AiAttachment> => {
     const formData = new FormData()
     formData.append('file', file)
-    // Use request (axios) to auto-unwrap UnifiedResponseRoute wrapper
     const res: any = await request.post(
       `/v1/crm-customers/${customerId}/ai/upload-attachment`,
       formData,
-      { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120_000 },
+      {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 120_000,
+        onUploadProgress: (e: any) => {
+          if (e.total && onProgress) onProgress(Math.round(e.loaded / e.total * 100))
+        },
+      },
     )
     return res
+  }
+
+  const uploadAttachmentDirect = async (
+    customerId: number,
+    file: File,
+    onProgress?: (pct: number) => void,
+    contentHash?: string,
+  ): Promise<AiAttachment> => {
+    // 1. Get upload credentials from backend
+    const cred: any = await request.post(
+      `/v1/crm-customers/${customerId}/ai/prepare-upload`,
+      { filename: file.name, mime_type: file.type, file_size: file.size, content_hash: contentHash || undefined },
+    )
+
+    if (cred.mode === 'existing' && cred.attachment) {
+      return cred.attachment
+    }
+
+    if (cred.mode === 'qiniu' && cred.upload_url && cred.token) {
+      // 2. Direct upload to Qiniu
+      const form = new FormData()
+      form.append('token', cred.token)
+      form.append('key', cred.object_key)
+      form.append('file', file)
+
+      const resp = await fetch(cred.upload_url, {
+        method: 'POST',
+        body: form,
+        signal: AbortSignal.timeout(120_000),
+      })
+      if (!resp.ok) throw new Error('直传云存储失败')
+
+      // 3. Confirm upload with backend
+      const att: any = await request.post(
+        `/v1/crm-customers/${customerId}/ai/confirm-upload`,
+        {
+          object_key: cred.object_key,
+          public_url: cred.public_url,
+          filename: file.name,
+          mime_type: file.type,
+          file_size: file.size,
+          content_hash: contentHash || undefined,
+        },
+      )
+      return att
+    }
+
+    // Fallback: server relay
+    return uploadAttachment(customerId, file, onProgress)
   }
 
   const submitFeedback = async (
@@ -740,7 +798,7 @@ export function useAiCoach() {
 
   return {
     loading, chatHistory, error, tokenDisplay, sessionId, sendChat, clearSession, retryLast,
-    markMedicalReview, uploadAttachment,
+    markMedicalReview, uploadAttachment, uploadAttachmentDirect,
     submitFeedback, getMessageFeedback,
     regenerate, quotedMessage, setQuote, clearQuote,
     scenes, styles, currentScene, outputStyle, profileNote, profileNoteSaving, configLoaded,

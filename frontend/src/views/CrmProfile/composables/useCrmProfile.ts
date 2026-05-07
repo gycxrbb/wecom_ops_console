@@ -151,6 +151,7 @@ export function useCrmProfile() {
 
   // --- List state ---
   const listLoading = ref(false)
+  const listLoaded = ref(false)
   const listItems = ref<CustomerListItem[]>([])
   const listTotal = ref(0)
   const listPage = ref(1)
@@ -194,6 +195,7 @@ export function useCrmProfile() {
       const res: any = await request.get('/v1/crm-customers/list', { params })
       listItems.value = res?.items || []
       listTotal.value = res?.total || 0
+      listLoaded.value = true
 
       if (includeFilters && res?.filters && !filterOptionsLoaded.value) {
         filterOptions.value = res.filters
@@ -202,9 +204,15 @@ export function useCrmProfile() {
     } catch {
       listItems.value = []
       listTotal.value = 0
+      listLoaded.value = false
     } finally {
       listLoading.value = false
     }
+  }
+
+  const ensureListLoaded = async () => {
+    if (listLoading.value || listLoaded.value) return
+    await loadList(listPage.value, !filterOptionsLoaded.value)
   }
 
   const resetFilters = () => {
@@ -342,6 +350,7 @@ export function useCrmProfile() {
     const q = { ...route.query }
     delete q.cid
     router.replace({ query: q })
+    void ensureListLoaded()
   }
 
   const restoreFromUrl = async () => {
@@ -388,8 +397,8 @@ export function useCrmProfile() {
     currentWindowDays, healthLoading, switchHealthWindow,
     profileCacheStatus, preloadProfileCache, refreshProfileCacheStatus,
     // list
-    listLoading, listItems, listTotal, listPage, listPageSize,
+    listLoading, listLoaded, listItems, listTotal, listPage, listPageSize,
     filters, filterOptions, filterOptionsLoaded,
-    loadFilterOptions, loadList, resetFilters,
+    loadFilterOptions, loadList, ensureListLoaded, resetFilters,
   }
 }

@@ -102,6 +102,7 @@ class CrmAiAttachment(Base):
     original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
     mime_type: Mapped[str] = mapped_column(String(64), nullable=False)
     file_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), default="", index=True)
     storage_provider: Mapped[str] = mapped_column(String(16), nullable=False)
     storage_key: Mapped[str] = mapped_column(String(255), nullable=False)
     storage_public_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

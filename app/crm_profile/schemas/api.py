@@ -146,6 +146,25 @@ class AiAttachmentUploadResponse(BaseModel):
     filename: str
     mime_type: str
     file_size: int
+    content_hash: str | None = None
+    url: str | None = None
+    deduped: bool = False
+
+
+class AiPrepareUploadRequest(BaseModel):
+    filename: str
+    mime_type: str
+    file_size: int = 0
+    content_hash: str | None = None
+
+
+class AiConfirmUploadRequest(BaseModel):
+    object_key: str
+    public_url: str
+    filename: str
+    mime_type: str
+    file_size: int
+    content_hash: str | None = None
 
 
 class AiChatResponse(BaseModel):

@@ -746,3 +746,30 @@
 - **复现条件**: 使用 MySQL / PyMySQL 数据库启动应用，且库内尚未存在 `auto_ranking_configs` 表。
 - **解决方案**: `ensure_auto_ranking_config_schema()` 按数据库 dialect 分支建表：MySQL 使用 `AUTO_INCREMENT + PRIMARY KEY (id)`，并移除 `TEXT DEFAULT`；SQLite 保留 `AUTOINCREMENT` 与本地默认值。
 - **关联文件**: app/schema_migrations.py
+
+## Bug #74: 客户详情返回客户列表首次为空
+
+- **日期**: 2026-05-07
+- **现象**: 从客户档案详情页点击“返回客户列表”后，列表区域首次为空；手动刷新页面后客户列表才正常显示。
+- **根因**: 客户档案详情和列表共用 `CrmProfile/index.vue`。当页面通过 URL `cid` 或导航缓存直接恢复到详情态时，`onMounted` 会因为 `selectedCustomer` 已存在而跳过列表初始化；返回按钮只清理详情状态和 URL，没有补拉 `/v1/crm-customers/list`，导致列表视图切回来但 `listItems` 仍为空。
+- **复现条件**: 直接进入带 `cid` 的客户详情，或从缓存恢复到详情页后，点击“返回客户列表”。
+- **解决方案**: 在 `useCrmProfile.ts` 中增加 `listLoaded` 状态和 `ensureListLoaded()`；`backToList()` 清理详情状态后，如果列表此前未初始化，则立即拉取客户列表，并在需要时通过列表接口同步筛选项。
+- **关联文件**: frontend/src/views/CrmProfile/composables/useCrmProfile.ts
+
+## Bug #75: AI 对话附件本地预览被上传态灰色遮罩误导为延迟
+
+- **日期**: 2026-05-07
+- **现象**: 在 AI 教练助手上传图片/文件后，缩略图一开始呈灰色或右下角有灰色上传区域，几秒后才恢复正常，用户感知为“前端预览有延迟”。
+- **根因**: 前端已在选中文件后立即通过 `URL.createObjectURL(file)` 生成本地预览并写入 `pendingAttachments`，但附件处于 `uploading=true` 时，CSS 会对整张图片加灰度/变暗滤镜，后续小型进度环仍覆盖在缩略图右下角；视觉上像是预览尚未完成。
+- **复现条件**: 在客户档案 AI 教练助手中上传任意图片，观察上传接口完成前的附件缩略图。
+- **解决方案**: 保留 `uploading=true` 作为业务状态和发送门禁，但取消缩略图内部的所有灰度、遮罩和进度覆盖；上传反馈移动到缩略图下方的轻量状态文字，确保本地预览一出现就是正常彩色，并支持点击缩略图查看大图。
+- **关联文件**: frontend/src/views/CrmProfile/components/AiCoachPanel.vue, frontend/src/views/CrmProfile/components/styles/aiCoachPanel.css
+
+## Bug #76: AI 对话重复上传同一文件仍触发七牛存储请求
+
+- **日期**: 2026-05-07
+- **现象**: 在同一客户的 AI 教练助手中重复粘贴或选择同一张图片/同一个文件时，前端仍会发起上传凭证请求和七牛云存储请求，造成等待时间和重复附件记录。
+- **根因**: 附件记录没有内容哈希字段，前端待发送附件列表也没有基于文件内容做去重；`prepare-upload`、`confirm-upload` 和服务端中转上传都无法判断“这个客户下已经存在相同文件”。
+- **复现条件**: 同一客户 AI 对话中，重复上传字节内容完全相同的图片或 PDF 文件。
+- **解决方案**: 前端使用原始文件字节计算 SHA-256，当前待发送列表内命中相同哈希时直接移除临时项，不发起上传；后端新增 `content_hash` 字段和客户级哈希索引，`prepare-upload` 命中已存在附件时返回 `mode=existing`，`confirm-upload` 和服务端中转上传再次复查并复用已有记录。
+- **关联文件**: app/crm_profile/models.py, app/schema_migrations.py, app/crm_profile/schemas/api.py, app/crm_profile/router.py, app/crm_profile/services/ai_attachment.py, frontend/src/views/CrmProfile/composables/useAiCoach.ts, frontend/src/views/CrmProfile/components/AiCoachPanel.vue

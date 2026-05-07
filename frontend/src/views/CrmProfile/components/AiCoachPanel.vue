@@ -262,17 +262,23 @@
             </div>
             <!-- Attachment preview strip -->
             <div v-if="pendingAttachments.length" class="ai-attachment-strip">
-              <div v-for="(att, idx) in pendingAttachments" :key="att.attachment_id" class="ai-attachment-thumb">
-                <img v-if="att.mime_type.startsWith('image/')" :src="att.url" class="ai-att-img" />
-                <div v-else class="ai-att-file-icon">
-                  <el-icon :size="20"><Document /></el-icon>
+              <div v-for="(att, idx) in pendingAttachments" :key="att.attachment_id" class="ai-att-card" :class="{ 'is-uploading': att.uploading }">
+                <div
+                  class="ai-att-card-thumb"
+                  :class="{ 'is-clickable': att.mime_type.startsWith('image/') && !!att.url }"
+                  :title="att.mime_type.startsWith('image/') ? '查看大图' : att.filename"
+                  @click="openAttachmentPreview(att)"
+                >
+                  <img v-if="att.mime_type.startsWith('image/')" :src="att.url" class="ai-att-card-img" />
+                  <div v-else class="ai-att-card-file">
+                    <el-icon :size="24"><Document /></el-icon>
+                  </div>
                 </div>
-                <span class="ai-att-name">{{ att.filename }}</span>
-                <el-icon class="ai-att-remove" @click="removeAttachment(idx)"><Close /></el-icon>
+                <div v-if="att.uploading" class="ai-att-card-status">
+                  {{ (att.progress || 0) >= 90 ? '处理中' : `上传 ${Math.max(1, Math.round(att.progress || 1))}%` }}
+                </div>
+                <el-icon class="ai-att-card-remove" @click.stop="removeAttachment(idx)"><Close /></el-icon>
               </div>
-            </div>
-            <div v-if="uploadingAttachment" class="ai-attachment-uploading">
-              <el-icon class="is-loading"><Loading /></el-icon> 上传中...
             </div>
             <input ref="fileInputRef" type="file" accept="image/jpeg,image/png,image/webp,application/pdf"
               style="display:none" @change="onFileSelected" />
@@ -292,13 +298,28 @@
                   <el-icon class="ai-magic-icon" title="使用结构化提示词" @click="askQuick('请帮我总结核心跟进点')"><MagicStick /></el-icon>
                 </div>
                 <div class="ai-toolbar-right">
-                  <el-popover v-if="availableModels.length" placement="top-end" :width="180" trigger="click" :teleported="true" popper-class="ai-model-popover">
+                  <el-popover v-if="availableModels.length" placement="top-end" :width="240" trigger="click" :teleported="true" popper-class="ai-model-popover" :offset="4">
                     <template #reference>
-                      <span class="ai-model-tag" :title="'当前模型：' + selectedModel">{{ selectedModel }}</span>
+                      <span class="ai-model-tag">
+                        <span class="ai-model-tag-name">{{ selectedModel }}</span>
+                        <span class="ai-model-tag-badge">推荐</span>
+                      </span>
                     </template>
-                    <div class="ai-model-list">
-                      <div v-for="m in availableModels" :key="m" class="ai-model-item" :class="{ 'is-active': m === selectedModel }" @click="selectedModel = m">
-                        {{ m }}
+                    <div class="ai-model-panel">
+                      <div class="ai-model-panel-header">当前模型</div>
+                      <div class="ai-model-panel-selected">
+                        <span class="ai-model-panel-pill">{{ selectedModel }}</span>
+                        <span class="ai-model-panel-badge">推荐</span>
+                      </div>
+                      <div class="ai-model-panel-body">
+                        <template v-for="group in modelGroups" :key="group.label">
+                          <div class="ai-model-group-label">{{ group.label }}</div>
+                          <div v-for="m in group.models" :key="m" class="ai-model-item" :class="{ 'is-active': m === selectedModel }" @click="selectedModel = m">
+                            <span class="ai-model-item-name">{{ m }}</span>
+                            <el-icon v-if="m === selectedModel" class="ai-model-item-check" :size="14"><Check /></el-icon>
+                            <span v-if="m === recommendedModel && m !== selectedModel" class="ai-model-item-badge">推荐</span>
+                          </div>
+                        </template>
                       </div>
                     </div>
                   </el-popover>
@@ -319,6 +340,16 @@
     :ai-answer="feedbackTargetMsg?.content || ''"
     @submit="onFeedbackDialogSubmit"
   />
+  <el-dialog
+    v-model="previewDialog.visible"
+    :title="previewDialog.title"
+    class="ai-attachment-preview-dialog"
+    append-to-body
+    destroy-on-close
+    width="min(92vw, 860px)"
+  >
+    <img v-if="previewDialog.url" :src="previewDialog.url" class="ai-attachment-preview-img" />
+  </el-dialog>
 </template>
 
 <script setup lang="ts">
@@ -340,6 +371,7 @@ import {
   Select,
   Paperclip,
   Loading,
+  Check,
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '#/stores/user'
@@ -443,17 +475,95 @@ const {
   loadAiConfig, saveProfileNote, restoredSessionMeta,
   expansionOptions, selectedExpansions,
   availableModels, selectedModel,
-  uploadAttachment,
+  uploadAttachmentDirect,
 } = useAiCoach()
 
 const input = ref('')
 const pendingAttachments = ref<AiAttachment[]>([])
 const uploadingCount = ref(0)
 const fileInputRef = ref<HTMLInputElement>()
+const previewDialog = reactive({
+  visible: false,
+  url: '',
+  title: '',
+})
 
 const uploadingAttachment = computed(() => uploadingCount.value > 0)
 
+const recommendedModel = computed(() => availableModels.value[0] || '')
+
+const modelGroups = computed(() => {
+  const groups: { label: string; models: string[] }[] = []
+  const prefixes: { prefix: string; label: string }[] = [
+    { prefix: 'gpt', label: 'GPT 系列' },
+    { prefix: 'deepseek', label: 'DeepSeek 系列' },
+  ]
+  const assigned = new Set<string>()
+  for (const { prefix, label } of prefixes) {
+    const models = availableModels.value.filter(m => m.toLowerCase().startsWith(prefix))
+    if (models.length) {
+      groups.push({ label, models })
+      models.forEach(m => assigned.add(m))
+    }
+  }
+  const others = availableModels.value.filter(m => !assigned.has(m))
+  if (others.length) {
+    groups.push({ label: '其他模型', models: others })
+  }
+  return groups
+})
+
 const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
+
+const hashFile = async (file: File): Promise<string> => {
+  try {
+    if (!window.crypto?.subtle) return ''
+    const digest = await window.crypto.subtle.digest('SHA-256', await file.arrayBuffer())
+    return Array.from(new Uint8Array(digest))
+      .map(byte => byte.toString(16).padStart(2, '0'))
+      .join('')
+  } catch {
+    return ''
+  }
+}
+
+const compressImage = (file: File): Promise<File> => {
+  return new Promise((resolve) => {
+    if (!file.type.startsWith('image/')) { resolve(file); return }
+    const img = new Image()
+    const objectUrl = URL.createObjectURL(file)
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl)
+      const MAX = 1920
+      let { width: w, height: h } = img
+      if (w <= MAX && h <= MAX) {
+        // Only re-encode to reduce quality, no resize needed
+        const canvas = document.createElement('canvas')
+        canvas.width = w; canvas.height = h
+        canvas.getContext('2d')!.drawImage(img, 0, 0)
+        canvas.toBlob(
+          (blob) => resolve(blob && blob.size < file.size ? new File([blob], file.name, { type: 'image/jpeg' }) : file),
+          'image/jpeg', 0.8,
+        )
+        return
+      }
+      const ratio = Math.min(MAX / w, MAX / h)
+      w = Math.round(w * ratio); h = Math.round(h * ratio)
+      const canvas = document.createElement('canvas')
+      canvas.width = w; canvas.height = h
+      canvas.getContext('2d')!.drawImage(img, 0, 0, w, h)
+      canvas.toBlob(
+        (blob) => resolve(blob ? new File([blob], file.name, { type: 'image/jpeg' }) : file),
+        'image/jpeg', 0.8,
+      )
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl)
+      resolve(file)
+    }
+    img.src = objectUrl
+  })
+}
 
 const triggerFileInput = () => {
   if (loading.value) return
@@ -472,6 +582,7 @@ const addAndUploadFile = async (file: File) => {
   }
 
   const isImage = file.type.startsWith('image/')
+  // Show preview immediately with original file — compression happens below
   const localUrl = isImage ? URL.createObjectURL(file) : undefined
   const tempId = 'temp_' + Date.now()
   const localAtt: AiAttachment = {
@@ -480,16 +591,47 @@ const addAndUploadFile = async (file: File) => {
     mime_type: file.type,
     file_size: file.size,
     url: localUrl,
+    uploading: true,
+    progress: 0,
   }
   pendingAttachments.value.push(localAtt)
 
+  // Yield to let Vue render the preview, then compress + upload
+  await new Promise<void>(r => setTimeout(r, 0))
+  const contentHash = await hashFile(file)
+  if (contentHash) {
+    const duplicate = pendingAttachments.value.find(
+      att => att.attachment_id !== tempId && att.content_hash === contentHash,
+    )
+    if (duplicate) {
+      const idx = pendingAttachments.value.findIndex(a => a.attachment_id === tempId)
+      if (idx >= 0) pendingAttachments.value.splice(idx, 1)
+      if (localUrl) URL.revokeObjectURL(localUrl)
+      ElMessage.info('这个文件已添加，无需重复上传')
+      return
+    }
+
+    const idx = pendingAttachments.value.findIndex(a => a.attachment_id === tempId)
+    if (idx >= 0) pendingAttachments.value[idx].content_hash = contentHash
+  }
+
+  const uploadFile = isImage ? await compressImage(file) : file
   uploadingCount.value++
   try {
-    const att = await uploadAttachment(props.customerId, file)
+    const att = await uploadAttachmentDirect(props.customerId, uploadFile, (pct: number) => {
+      const idx = pendingAttachments.value.findIndex(a => a.attachment_id === tempId)
+      if (idx >= 0) pendingAttachments.value[idx].progress = pct
+    }, contentHash)
     att.url = localUrl || att.url
+    att.content_hash = att.content_hash || contentHash || undefined
     const idx = pendingAttachments.value.findIndex(a => a.attachment_id === tempId)
     if (idx >= 0) {
+      att.uploading = false
+      att.progress = 100
       pendingAttachments.value[idx] = att
+    }
+    if (att.deduped) {
+      ElMessage.success('已复用相同文件，无需重复上传')
     }
   } catch (err: any) {
     const idx = pendingAttachments.value.findIndex(a => a.attachment_id === tempId)
@@ -529,6 +671,13 @@ const removeAttachment = (idx: number) => {
     URL.revokeObjectURL(att.url)
   }
   pendingAttachments.value.splice(idx, 1)
+}
+
+const openAttachmentPreview = (att: AiAttachment) => {
+  if (!att.mime_type.startsWith('image/') || !att.url) return
+  previewDialog.url = att.url
+  previewDialog.title = att.filename || '图片预览'
+  previewDialog.visible = true
 }
 
 const messageListRef = ref<InstanceType<typeof AiCoachMessageList>>()

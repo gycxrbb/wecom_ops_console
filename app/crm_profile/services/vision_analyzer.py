@@ -5,8 +5,10 @@ then returns structured text descriptions for DeepSeek consumption.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
+from io import BytesIO
 from pathlib import Path
 
 from ...clients.ai_chat_client import chat_completion
@@ -15,6 +17,11 @@ from ...database import SessionLocal
 from ..models import CrmAiAttachment
 
 _log = logging.getLogger(__name__)
+
+# Vision API works well at lower resolution — 1024px is enough for text/chart extraction
+VISION_MAX_DIMENSION = 1024
+VISION_JPEG_QUALITY = 70
+VISION_PDF_DPI = 100
 
 VISION_PROMPT = """你是一个专业的医学图表分析助手。请仔细观察这张图片，提取以下信息：
 
@@ -55,13 +62,42 @@ async def analyze_attachment(attachment: CrmAiAttachment) -> str:
         return fallback
 
 
+def _downscale_for_vision(raw: bytes) -> bytes:
+    """Downscale image to max 1024px JPEG quality 70 for faster Vision API calls."""
+    from PIL import Image
+
+    img = Image.open(BytesIO(raw))
+    w, h = img.size
+    if w <= VISION_MAX_DIMENSION and h <= VISION_MAX_DIMENSION:
+        # Already small enough, just re-encode as JPEG for consistent size
+        buf = BytesIO()
+        if img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
+        img.save(buf, format="JPEG", quality=VISION_JPEG_QUALITY)
+        return buf.getvalue()
+
+    ratio = min(VISION_MAX_DIMENSION / w, VISION_MAX_DIMENSION / h)
+    new_w, new_h = int(w * ratio), int(h * ratio)
+    img = img.resize((new_w, new_h), Image.LANCZOS)
+    if img.mode in ("RGBA", "P"):
+        img = img.convert("RGB")
+    buf = BytesIO()
+    img.save(buf, format="JPEG", quality=VISION_JPEG_QUALITY)
+    return buf.getvalue()
+
+
 async def _analyze_image(attachment: CrmAiAttachment) -> str:
     image_bytes = _read_attachment_file(attachment)
     if not image_bytes:
         raise RuntimeError(f"Cannot read attachment file: {attachment.attachment_id}")
 
+    # Downscale for Vision API — reduces payload ~4x, speeds up upload + model processing
+    image_bytes = await asyncio.to_thread(_downscale_for_vision, image_bytes)
+    _log.info("Vision image prepared: %s, %dKB → %dKB",
+              attachment.attachment_id, attachment.file_size // 1024, len(image_bytes) // 1024)
+
     b64 = base64.b64encode(image_bytes).decode()
-    data_url = f"data:{attachment.mime_type};base64,{b64}"
+    data_url = f"data:image/jpeg;base64,{b64}"
 
     messages = [
         {
@@ -96,15 +132,17 @@ async def _analyze_pdf(attachment: CrmAiAttachment) -> str:
 
     doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
     max_pages = min(len(doc), settings.vision_max_pdf_pages)
-    page_descriptions: list[str] = []
 
-    for page_idx in range(max_pages):
+    async def _analyze_page(page_idx: int) -> tuple[int, str]:
         page = doc[page_idx]
-        # Render page to PNG at 150 DPI
-        pix = page.get_pixmap(dpi=150)
+        # Lower DPI + compress to JPEG for faster API calls
+        pix = page.get_pixmap(dpi=VISION_PDF_DPI)
         png_bytes = pix.tobytes("png")
-        b64 = base64.b64encode(png_bytes).decode()
-        data_url = f"data:image/png;base64,{b64}"
+        # Compress page image for Vision
+        jpeg_bytes = await asyncio.to_thread(_downscale_for_vision, png_bytes)
+
+        b64 = base64.b64encode(jpeg_bytes).decode()
+        data_url = f"data:image/jpeg;base64,{b64}"
 
         messages = [
             {
@@ -121,11 +159,16 @@ async def _analyze_pdf(attachment: CrmAiAttachment) -> str:
                 messages, temperature=0.3, max_tokens=2048,
                 provider="aihubmix", model=settings.vision_model,
             )
-            page_descriptions.append(f"[第{page_idx + 1}页]\n{content}")
             _record_usage(attachment, usage)
+            return page_idx, content
         except Exception as e:
             _log.warning("Vision failed on PDF page %d: %s", page_idx + 1, e)
-            page_descriptions.append(f"[第{page_idx + 1}页 — 识别失败]")
+            return page_idx, f"[第{page_idx + 1}页 — 识别失败]"
+
+    # Analyze all pages in parallel
+    results = await asyncio.gather(*[_analyze_page(i) for i in range(max_pages)])
+    results.sort(key=lambda r: r[0])
+    page_descriptions = [f"[第{idx + 1}页]\n{text}" for idx, text in results]
 
     total_pages = len(doc)
     attachment.page_count = total_pages
