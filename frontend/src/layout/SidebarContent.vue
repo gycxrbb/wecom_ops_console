@@ -89,6 +89,10 @@
         <el-icon><Comment /></el-icon>
         <span>反馈审核</span>
       </el-menu-item>
+      <el-menu-item index="/rag-manage" v-if="userStore.user?.role === 'admin'">
+        <el-icon><Coin /></el-icon>
+        <span>知识库管理</span>
+      </el-menu-item>
     </el-menu>
 
     <div class="user-footer">
@@ -118,7 +122,7 @@
 </template>
 
 <script setup lang="ts">
-import { DataBoard, Promotion, ChatDotRound, Document, Picture, Timer, Tickets, Stamp, User, Lock, CaretBottom, Notebook, ChatLineSquare, Reading, UserFilled, EditPen, Comment, TrendCharts } from '@element-plus/icons-vue'
+import { DataBoard, Promotion, ChatDotRound, Document, Picture, Timer, Tickets, Stamp, User, Lock, CaretBottom, Notebook, ChatLineSquare, Reading, UserFilled, EditPen, Comment, TrendCharts, Coin } from '@element-plus/icons-vue'
 import { moduleVisible as checkVisible, type PermissionKey } from '#/utils/permissions'
 
 const props = defineProps<{

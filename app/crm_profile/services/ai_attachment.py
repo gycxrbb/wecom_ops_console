@@ -202,3 +202,18 @@ def load_attachments(db: Session, attachment_ids: list[str], customer_id: int) -
         )
         .all()
     )
+
+
+def bind_attachments_to_message(db: Session, attachment_ids: list[str],
+                                session_id: str, message_id: str) -> int:
+    """Back-fill session_id and message_id on attachment records. Returns count updated."""
+    if not attachment_ids:
+        return 0
+    count = (
+        db.query(CrmAiAttachment)
+        .filter(CrmAiAttachment.attachment_id.in_(attachment_ids))
+        .update({CrmAiAttachment.session_id: session_id, CrmAiAttachment.message_id: message_id},
+                synchronize_session="fetch")
+    )
+    db.commit()
+    return count

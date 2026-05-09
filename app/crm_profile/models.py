@@ -42,6 +42,7 @@ class CrmAiMessage(Base):
     safety_result: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     regenerated_from_message_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     quoted_message_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    request_params_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now())
 
 

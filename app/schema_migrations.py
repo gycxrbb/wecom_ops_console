@@ -460,6 +460,7 @@ _CRM_AI_PHASE2_COLUMNS = {
     },
     "crm_ai_messages": {
         "safety_result": "TEXT",
+        "request_params_json": "TEXT",
     },
     "crm_ai_context_snapshots": {
         "prompt_version": "VARCHAR(16)",
@@ -583,34 +584,102 @@ def ensure_speech_category_schema(engine: Engine) -> None:
         if 'metadata_json' not in existing_columns:
             conn.execute(text("ALTER TABLE speech_templates ADD COLUMN metadata_json TEXT"))
 
-    # 3. Seed categories if empty
+    # 3. Seed / migrate categories
     from .models import SpeechCategory, SpeechTemplate
     Session = sessionmaker(bind=engine)
     db = Session()
     try:
         if db.query(SpeechCategory).count() == 0:
-            from .services.crm_speech_templates import CATEGORY_SEED, SCENE_CATEGORY_MAP
-            name_to_id: dict[str, int] = {}
-            for l1 in CATEGORY_SEED:
-                cat_l1 = SpeechCategory(name=l1['name'], level=1, sort_order=CATEGORY_SEED.index(l1) + 1)
-                db.add(cat_l1)
-                db.flush()
-                name_to_id[l1['name']] = cat_l1.id
-                for idx, child_name in enumerate(l1['children'], 1):
-                    cat_l2 = SpeechCategory(name=child_name, level=2, parent_id=cat_l1.id, sort_order=idx)
-                    db.add(cat_l2)
-                    db.flush()
-                    name_to_id[child_name] = cat_l2.id
-            db.commit()
-
-            # 4. Backfill category_id for existing templates
-            for tpl in db.query(SpeechTemplate).filter(SpeechTemplate.category_id.is_(None)).all():
-                l2_name = SCENE_CATEGORY_MAP.get(tpl.scene_key)
-                if l2_name and l2_name in name_to_id:
-                    tpl.category_id = name_to_id[l2_name]
-            db.commit()
+            _seed_3level_categories(db)
+        else:
+            _migrate_to_3level_categories(db)
     finally:
         db.close()
+
+
+def _seed_3level_categories(db) -> None:
+    """Fresh install: create L1 > L2 > L3 categories and backfill template category_id."""
+    from .models import SpeechCategory, SpeechTemplate
+    from .services.crm_speech_templates import CATEGORY_SEED, SCENE_CATEGORY_MAP
+
+    l3_name_to_id: dict[str, int] = {}
+    for l1_idx, l1 in enumerate(CATEGORY_SEED, 1):
+        cat_l1 = SpeechCategory(name=l1['name'], level=1, sort_order=l1_idx)
+        db.add(cat_l1)
+        db.flush()
+        for l2_idx, l2_child in enumerate(l1['children'], 1):
+            if isinstance(l2_child, str):
+                cat_l2 = SpeechCategory(name=l2_child, level=2, parent_id=cat_l1.id, sort_order=l2_idx)
+                db.add(cat_l2)
+                db.flush()
+            else:
+                cat_l2 = SpeechCategory(name=l2_child['name'], level=2, parent_id=cat_l1.id, sort_order=l2_idx)
+                db.add(cat_l2)
+                db.flush()
+                for l3_idx, l3_name in enumerate(l2_child.get('children', []), 1):
+                    cat_l3 = SpeechCategory(name=l3_name, level=3, parent_id=cat_l2.id, sort_order=l3_idx)
+                    db.add(cat_l3)
+                    db.flush()
+                    l3_name_to_id[l3_name] = cat_l3.id
+    db.commit()
+
+    # Backfill category_id for existing templates → point to L3
+    for tpl in db.query(SpeechTemplate).filter(SpeechTemplate.category_id.is_(None)).all():
+        mapping = SCENE_CATEGORY_MAP.get(tpl.scene_key)
+        if isinstance(mapping, tuple):
+            l3_id = l3_name_to_id.get(mapping[1])
+            if l3_id:
+                tpl.category_id = l3_id
+    db.commit()
+
+
+def _migrate_to_3level_categories(db) -> None:
+    """Existing DB: create L3 categories under existing L2, migrate template category_id from L2 → L3."""
+    from .models import SpeechCategory, SpeechTemplate
+    from .services.crm_speech_templates import CATEGORY_SEED, SCENE_CATEGORY_MAP
+
+    existing_l3 = db.query(SpeechCategory).filter(SpeechCategory.level == 3, SpeechCategory.deleted_at.is_(None)).count()
+    if existing_l3 > 0:
+        return  # Already migrated
+
+    # Build L2 name -> L3 children from seed
+    l2_to_l3_names: dict[str, list[str]] = {}
+    for l1 in CATEGORY_SEED:
+        for l2_child in l1['children']:
+            if isinstance(l2_child, dict):
+                l2_to_l3_names[l2_child['name']] = l2_child.get('children', [])
+
+    # Create L3 categories under each existing L2
+    l3_name_to_id: dict[str, int] = {}
+    l2_cats = db.query(SpeechCategory).filter(SpeechCategory.level == 2, SpeechCategory.deleted_at.is_(None)).all()
+    for l2 in l2_cats:
+        l3_names = l2_to_l3_names.get(l2.name, [])
+        for idx, l3_name in enumerate(l3_names, 1):
+            cat_l3 = SpeechCategory(name=l3_name, level=3, parent_id=l2.id, sort_order=idx)
+            db.add(cat_l3)
+            db.flush()
+            l3_name_to_id[l3_name] = cat_l3.id
+    db.commit()
+
+    if not l3_name_to_id:
+        return
+
+    # Migrate templates: category_id from L2 → L3
+    for tpl in db.query(SpeechTemplate).filter(SpeechTemplate.category_id.isnot(None)).all():
+        cat = db.query(SpeechCategory).get(tpl.category_id)
+        if not cat or cat.level != 2:
+            continue
+        mapping = SCENE_CATEGORY_MAP.get(tpl.scene_key)
+        if isinstance(mapping, tuple):
+            l3_id = l3_name_to_id.get(mapping[1])
+            if l3_id:
+                tpl.category_id = l3_id
+        else:
+            # Fallback: assign to first L3 under this L2
+            first_l3 = db.query(SpeechCategory).filter_by(parent_id=cat.id, level=3).order_by(SpeechCategory.sort_order).first()
+            if first_l3:
+                tpl.category_id = first_l3.id
+    db.commit()
 
 
 def ensure_crm_ai_feedback_schema(engine: Engine) -> None:

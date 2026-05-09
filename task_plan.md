@@ -118,6 +118,29 @@
 
 ---
 
+## 2026-05-09 临时任务锚点：话术管理 CSV 导入全量入库前调研
+
+### 目标
+- 核对当前“话术管理”页面的 CSV 导入功能是否与 3 级分层架构、话术 RAG 标注规范和全量入库前质量门禁对齐，并输出调研报告到 `docs/`。
+
+### 阶段
+- [x] Phase 1: 恢复话术管理、RAG 标注规范、当前进度真值
+- [x] Phase 2: 追踪前端导入入口、后端 API、导入服务、RAG 索引链路
+- [x] Phase 3: 执行 focused validation 与项目启动验证
+- [x] Phase 4: 输出正式调研报告并收口
+
+### 当前判断
+- 架构方向基本成立：前端页面、后端资源路由、导入 service、RAG indexer 是分层的。
+- 当前不建议全量入库：`owner_id` 参数签名不匹配会让导入接口运行时报错，且 CSV 字段质量/安全门禁不足。
+- 3 级分层 UI 已落地，但 RAG indexer 对 L3 分类的 category payload 解析还没完全对齐。
+- 正式调研报告已输出到 `docs/SPEECH_TEMPLATE_CSV_IMPORT_ALIGNMENT_RESEARCH_REPORT.md`。
+
+### 风险与待确认
+- 全量导入前需要先修复接口运行时报错，并增加 dry-run/严格校验报告。
+- 标注规范中的 reviewer/review_note/content_kind 当前不是 official 落库字段，需要明确是丢弃、补入 metadata_json，还是独立审核字段。
+
+---
+
 ## 2026-04-27 临时任务锚点：CRM AI 用户 Profile 缓存 L2 快照收口
 
 ### 目标
@@ -200,3 +223,61 @@
 - RAG 仍是 support index / support knowledge，不是素材、话术、客户档案的 official truth。
 - 当前不建议全量素材自动入 RAG；应先用 approved 小样本和固定评估问题做上线验收。
 - 生产服务器 `.env` 必须使用 `QDRANT_MODE=remote`，否则会绕过 compose 中的 Qdrant 服务。
+
+---
+
+## 2026-05-08 临时任务锚点：shujubiaozhu 文档与当前 RAG 实现/数据库对齐审查
+
+### 目标
+- 阅读 `docs/shujubiaozhu` 下的话术、素材、样例与分类文件，对比当前 RAG 代码实现和本地 RAG 相关数据库，判断文档口径是否与系统真值存在出入。
+
+### 阶段
+- [x] Phase 1: 恢复已有 RAG/标注任务上下文和文档目录清单
+- [x] Phase 2: 提炼话术/素材规范的字段、流程、门禁和“official/support/candidate”口径
+- [x] Phase 3: 梳理当前 RAG 代码实现：入库、检索、分类、审计、素材/话术接入点
+- [x] Phase 4: 检查当前 RAG 相关数据库表结构、样本数据和向量库状态
+- [x] Phase 5: 输出差异结论、风险、focused validation、启动验证状态与下一步建议
+
+### 当前判断
+- 本轮是审查任务，优先产出差异判断；除非发现必须修复的阻断问题，否则不直接修改业务代码。
+- RAG 仍应按 support index/support knowledge 理解，不能把向量库结果写成素材或话术的 official truth。
+- 审查结论：文档的字段与主流程方向基本正确，但当前数据库存在历史脏数据/旧口径，且素材 weak 资源治理未和文档门禁完全一致。
+- 当前 blocker：需要一次 RAG 数据治理/重建，把旧 visibility、旧标签 code、weak/deleted 素材 active 状态和素材样例入库状态收口。
+
+---
+
+## 2026-05-08 临时任务锚点：shujubiaozhu RAG 文档修订与链路总览
+
+### 目标
+- 基于刚完成的 RAG 实现/数据库审查，修订 `docs/shujubiaozhu` 下现有标注规范，并新增一份串联当前 RAG 实现的总览文档。
+
+### 阶段
+- [x] Phase 1: 复核现有话术/素材规范和样例 CSV
+- [x] Phase 2: 修订话术规范，补充当前系统落点与旧值风险
+- [x] Phase 3: 修订素材规范，修正 CSV 门禁和 customer_sendable 口径
+- [x] Phase 4: 新增 `RAG实现链路说明.md`
+- [x] Phase 5: 同步样例 CSV 并完成 focused validation
+
+### 当前判断
+- 文档已对齐当前实现：RAG 是 support index/support knowledge，业务 official truth 仍在 `speech_templates` 和 `materials`。
+- 当前仍未处理数据库历史脏数据；这属于下一轮数据治理任务，不属于本轮文档修订。
+
+---
+
+## 2026-05-08 临时任务锚点：RAG 知识库管理页面计划审查
+
+### 目标
+- 审查 `docs/RAG_MANAGE_PAGE_PLAN.md` 是否仍符合当前“知识库管理”实现，并直接在原文档基础上修订，给出是否偏离蓝图和后续优化点。
+
+### 阶段
+- [x] Phase 1: 阅读原计划文档
+- [x] Phase 2: 对照当前前端 `RagManage` 页面、路由、侧边栏和面包屑
+- [x] Phase 3: 对照当前后端 `/api/v1/rag` 资源/标签/日志/重建接口和 Qdrant helper
+- [x] Phase 4: 重写文档为“设计与现状审查”
+- [x] Phase 5: 完成 focused validation 与启动验证
+
+### 当前判断
+- 方向未偏离：当前系统已实现第一版 RAG 管理 MVP。
+- 原计划文档已过期：它把已实现的页面和接口仍写成待开发。
+- 下一步重点不是“从零建页面”，而是补生产治理闭环：admin 权限、删除一致性、Qdrant 统计兼容、日志命中统计、单条重建、批量治理和问题资源筛选。
+- 本轮验证已完成：RAG 后端模块语法检查通过，前端生产构建通过，后端 8031 健康检查返回 200，前端 5192 Vite ready 后已回收。

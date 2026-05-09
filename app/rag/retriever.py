@@ -56,7 +56,61 @@ def _apply_tag_boosts(
     return hits
 
 
-async def retrieve_rag_context(
+def _apply_profile_boosts(
+    hits: list[dict],
+    profile: dict,
+    *,
+    output_style: str = "coach_brief",
+    goal_boost: float = 0.06,
+    stage_boost: float = 0.03,
+) -> list[dict]:
+    """Boost scores using customer profile signals from the profile cache."""
+    goals = profile.get("customer_goals", [])
+    stage = profile.get("service_stage", "")
+    has_contra = profile.get("has_contraindications", False)
+
+    if not goals and not stage:
+        return hits
+
+    for hit in hits:
+        payload = hit.get("payload", {})
+        boost = 0.0
+
+        # Boost resources matching customer goals
+        if goals:
+            payload_goals = payload.get("customer_goal", [])
+            if isinstance(payload_goals, str):
+                payload_goals = [payload_goals]
+            matched = set(goals) & set(payload_goals)
+            if matched:
+                boost += goal_boost
+
+        # Boost resources matching service stage
+        if stage and stage in (payload.get("intervention_scene", "") or ""):
+            boost += stage_boost
+
+        if boost:
+            hit["score"] = hit.get("score", 0) + boost
+            hit["profile_boost"] = round(boost, 3)
+
+    # For customer_reply mode, deprioritize medical_sensitive/doctor_review resources
+    if output_style == "customer_reply":
+        for hit in hits:
+            payload = hit.get("payload", {})
+            sl = payload.get("safety_level", "general")
+            if sl in ("medical_sensitive", "doctor_review", "contraindicated"):
+                hit["score"] = hit.get("score", 0) - 0.15
+                hit["profile_boost"] = hit.get("profile_boost", 0) - 0.15
+
+    # If customer has contraindications, deprioritize resources that are contraindicated
+    if has_contra:
+        for hit in hits:
+            payload = hit.get("payload", {})
+            if payload.get("safety_level") == "contraindicated":
+                hit["score"] = hit.get("score", 0) - 0.20
+                hit["profile_boost"] = hit.get("profile_boost", 0) - 0.20
+
+    return hits
     *,
     customer_id: int,
     message: str,
@@ -81,6 +135,7 @@ async def retrieve_rag_context(
             output_style=output_style,
             session_id=session_id,
             message_id=message_id,
+            profile_context=profile_context,
         )
     except Exception:
         _log.exception("RAG retrieval failed")
@@ -95,6 +150,7 @@ async def _do_retrieve(
     output_style: str,
     session_id: str | None,
     message_id: str | None,
+    profile_context: Any = None,
 ) -> RagBundle:
     t0 = time.time()
 
@@ -161,6 +217,10 @@ async def _do_retrieve(
     # 5b. Apply tag-based score boosts (customer_goal, question_type, intervention_scene)
     if raw_hits:
         _apply_tag_boosts(raw_hits, query_intent)
+
+    # 5b-2. Apply profile-based boosts (customer goals, safety risks, service stage)
+    if raw_hits and profile_context and isinstance(profile_context, dict):
+        _apply_profile_boosts(raw_hits, profile_context, output_style=output_style)
 
     # 5c. Phase 2: Search materials for recommended_assets only
     material_filters: dict[str, Any] = {"content_kind": ["image", "video", "meme", "file"]}

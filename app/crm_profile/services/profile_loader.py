@@ -31,6 +31,9 @@ _LOADERS = [
     service_issues,
 ]
 
+# P0 modules are required for AI chat to function; P1 are supplementary.
+_P0_KEYS = {"basic_profile", "safety_profile", "service_scope", "health_summary"}
+
 
 def load_profile(customer_id: int, *, health_window_days: int = 7) -> CustomerProfileContextV1:
     """Load all P0 modules and build the profile context."""
@@ -93,6 +96,67 @@ def load_profile(customer_id: int, *, health_window_days: int = 7) -> CustomerPr
         violations = validate_field_whitelist(cards)
         if violations:
             _log.warning("Field whitelist violations for customer %s: %s", customer_id, violations)
+
+        return CustomerProfileContextV1(
+            customer_id=customer_id,
+            generated_at=datetime.now(),
+            cards=cards,
+            source_status=source_status,
+            available_actions=actions,
+            ai_chat_enabled=ai_chat_enabled,
+            ai_chat_reason=ai_chat_reason,
+            build_plan=build_plan,
+        )
+    finally:
+        return_connection(conn)
+
+
+def load_profile_p0(customer_id: int, *, health_window_days: int = 7) -> CustomerProfileContextV1:
+    """Load only P0 essential modules for fast cache warm-up. P1 modules loaded as empty stubs."""
+    p0_loaders = [m for m in _LOADERS if getattr(m, "MODULE_KEY", m.__name__) in _P0_KEYS]
+    p1_keys = {getattr(m, "MODULE_KEY", m.__name__) for m in _LOADERS} - _P0_KEYS
+
+    conn = get_connection()
+    try:
+        cards: list[ModulePayload] = []
+        source_status: list[SourceStatusEntry] = []
+        for mod in p0_loaders:
+            try:
+                if mod is health_summary:
+                    card = mod.load(conn, customer_id, window_days=health_window_days)
+                else:
+                    card = mod.load(conn, customer_id)
+                cards.append(card)
+                if card.warnings:
+                    for w in card.warnings:
+                        source_status.append(SourceStatusEntry(
+                            module=card.key,
+                            status="fallback_latest_archived_or_unknown" if "归档" in w else "ok",
+                            warning=w,
+                        ))
+            except Exception:
+                _log.exception("P0 module %s failed for customer %s", mod.__name__, customer_id)
+                cards.append(ModulePayload(
+                    key=getattr(mod, "MODULE_KEY", mod.__name__),
+                    status="error", payload={}, warnings=["模块加载异常"],
+                ))
+
+        # Add P1 stubs (empty status so AI prepare knows data isn't ready yet)
+        for key in sorted(p1_keys):
+            cards.append(ModulePayload(key=key, status="empty", payload={}, warnings=[]))
+
+        actions = ["view_profile"]
+        ai_enabled = settings.ai_coach_enabled or (bool(settings.ai_api_key) and settings.crm_profile_enabled)
+        safety_card = next((c for c in cards if c.key == "safety_profile"), None)
+        ai_chat_enabled = False
+        ai_chat_reason: str | None = "缓存预热中，P1 模块尚未加载"
+
+        if ai_enabled and safety_card and safety_card.status in ("ok", "partial"):
+            ai_chat_enabled = True
+            ai_chat_reason = None
+            actions.append("ai_chat")
+
+        build_plan = resolve_context_plan()
 
         return CustomerProfileContextV1(
             customer_id=customer_id,

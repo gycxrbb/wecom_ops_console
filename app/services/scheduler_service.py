@@ -164,8 +164,7 @@ class ScheduleService:
                         logger.info('Auto ranking %s skipped: not found or disabled', cfg_id)
                         return
                     result = await execute_auto_ranking(cfg)
-                    logger.info('Auto ranking %s: sent=%d skipped=%d error=%s', cfg_name, result.get('sent', 0), result.get('skipped', 0), str(result.get('error', ''))[:80])
-                    # update last_run_at / last_error
+                    logger.info('Auto ranking %s: sent=%d skipped=%d failed=%d error=%s cooldown=%s', cfg_name, result.get('sent', 0), result.get('skipped', 0), result.get('failed', 0), str(result.get('error', ''))[:80], result.get('cooldown', False))
                     from datetime import datetime as _dt
                     cfg.last_run_at = _dt.now(tz)
                     cfg.last_error = result.get('error', '')
@@ -192,7 +191,9 @@ class ScheduleService:
                 trigger=CronTrigger(minute=str(minute), hour=str(hour), timezone=tz),
                 id=job_id,
                 replace_existing=True,
-                misfire_grace_time=300,
+                misfire_grace_time=None,  # 禁止 misfire 补发，防止重复发送
+                max_instances=1,
+                coalesce=True,
             )
             logger.info('Auto ranking cron job registered: %s → %02d:%02d Asia/Shanghai daily', cfg.name, hour, minute)
 

@@ -83,3 +83,41 @@
 - `ai_coach.py` 的 DeepSeek thinking 轻量路径仍使用旧的 `profile_cache_key/cache_get/cache_get_stale/load_profile/get_connection` 逻辑，这些符号当前没有导入；并且它绕过了新的本地 DB L2 快照。
 - `useAiCoach.ts` 发送 `chat-stream/thinking-stream` 时还没有把当前健康窗口写入请求体；`AiCoachPanel.vue` 也没有接收 `currentWindowDays`。
 - `useCrmProfile.ts` 初次 `loadProfile()` 后会 fire-and-forget 调 `/ai/preload`，但 `switchHealthWindow()` 后没有同步预热新窗口，`context-preview` 前端也未携带 `health_window_days`。
+## 2026-05-08 Findings: `docs/shujubiaozhu` 标注规范初读
+
+- `话术标注规范.md` 定义话术 CSV 字段：`title, clean_content, summary, status, customer_goal, intervention_scene, content_kind, visibility, safety_level, question_type, tags, usage_note, tone, reviewer, review_note`。
+- 话术规范要求 `status` 为 `approved` 或 `active`，`content_kind=script`，`customer_goal/intervention_scene/safety_level/visibility/tags/usage_note/tone` 作为推荐质量关键字段；`medical_sensitive/doctor_review` 必须 `coach_internal`。
+- `素材标准规范.md` 定义素材 CSV 字段：`source_type,title,summary,content_kind,status,rag_enabled,visibility,safety_level,copyright_status,customer_sendable,alt_text,usage_note,customer_goal,intervention_scene,question_type,tags,material_ref,file_name,file_hash,transcript,public_url`。
+- 素材规范要求素材先能匹配系统素材库；匹配优先级为 `material_ref > file_hash > file_name`；`copyright_status=unknown` 应跳过；`visibility=customer_visible` 需 `public_url`，否则降回 `coach_internal`。
+- 文档口径把 RAG 定位为教练/AI 助手的检索推荐 support layer，不是素材/话术 official truth。
+
+## 2026-05-08 Findings: 当前 RAG 代码实现初读
+
+- RAG 持久化模型包含 `rag_tags`、`rag_resources`、`rag_resource_tags`、`rag_chunks`、`rag_retrieval_logs`；实际索引主表是 `rag_resources` + `rag_chunks`，向量侧 payload 保留 source/type/status/kind/visibility/safety/tags。
+- 话术 CSV 导入在 `app/services/speech_template_import.py`：只强校验 `title` 和 `clean_content/content`，`status` 仅允许 `approved/active` 入库；`customer_goal/intervention_scene/question_type/safety_level/visibility/summary/tags/usage_note` 写入 `SpeechTemplate.metadata_json`。
+- 话术 RAG 索引在 `app/rag/resource_indexer.py`：从 `metadata_json` 读取标签，写入 semantic text 和 Qdrant payload；但不写 `rag_resource_tags` 关系表。
+- 素材 CSV 导入在 `app/services/material_rag_import.py`：强校验必填、approved/active、rag_enabled、版权、素材匹配、存储 ready、customer_visible/public_url、安全等级；质量等级按 ok/medium/weak 计算。
+- 素材 UI 保存链路在 `app/services/material_rag_service.py`：也做素材 ready、摘要、usage_note、图片/视频说明、版权、受控标签、public_url 和安全等级校验；但 schema 未包含 `content_kind/public_url` 字段，UI 链路可能无法完整表达文档 CSV 的全部字段。
+- 检索链路在 `app/rag/retriever.py`：先检索 `script/text/knowledge_card` 注入 prompt，再单独检索 `image/video/meme/file` 作为 recommended_assets；使用 scene/safety/semantic_quality payload filter，0 命中时会放宽 scene filter，并做 tag boost。
+
+## 2026-05-08 Findings: 当前 RAG 数据库/向量库真值
+
+- 当前服务库来自 `.env` 的 MySQL `wecom_ops`；默认 `data/app.db` 没有业务/RAG 表，不是当前系统真值。
+- MySQL RAG 表计数：`rag_tags=57`、`rag_resources=66`、`rag_chunks=66`、`rag_retrieval_logs=183`、`speech_templates=41`、`materials=51`，`rag_resource_tags=0`。
+- `rag_tags` 当前词表与文档主词表基本一致：customer_goal 8 个、intervention_scene 12 个、question_type 14 个、safety_level 5 个、visibility 2 个。
+- Qdrant 本地 collection `wecom_health_rag` 存在，状态 green，points_count=66，维度 1024，与 DB `rag_chunks=66` 对齐。
+- 话术样例 37-41 已进入 `speech_templates` 和 `rag_resources`，semantic_text 包含正文、summary 和标签；但 37-40 的 visibility 为历史值 `customer_sendable`，不属于当前文档/词表的 `customer_visible`。
+- 素材资源中仍有大量 `semantic_quality=weak` 且 `status=active`：17 个 image + 6 个 file；其中多条素材已 `storage_status=deleted` 或无 `rag_meta_json`，与“weak 不能推荐/缺字段跳过”的文档口径不一致。
+- 文档样例中的 `materials.id=12` 当前存在且 ready/public_url 有值，但 `rag_meta_json=null`，其 RAG resource 仍是 weak 老索引；`materials.id=34` 当前存在且 ready/public_url 有值，但 `rag_meta_json=null`，与 `test_material_rag.csv` 的期望入库状态不一致。
+- 当前素材 `id=53` 的 `rag_meta_json` 仍包含中文/旧 code：`customer_goal=["血糖管理"]`、`question_type=["lifestyle_change","exercise_guidance"]`，不在当前文档词表内。
+- `question-category.xlsx` 是 102 行问题分类层级（L1-L4），当前 DB `speech_categories` 只落了 L1/L2 共 22 条；RAG 检索未直接使用三级/细分分类。
+
+## 2026-05-09 Findings: 话术管理 CSV 导入调研
+
+- 前端 `SpeechTemplates.vue` 已有“导入 CSV”入口，使用 `multipart/form-data` 调 `/v1/speech-templates/import-csv`，并默认勾选“导入后同步 RAG 索引”。
+- 后端路由层 `app/routers/api_speech_templates.py` 已按资源拆分，导入接口只做权限、文件类型和空文件检查，再调用 `speech_template_import` 服务，整体符合 router/service 分层方向。
+- 当前导入接口存在阻断问题：路由调用 `import_speech_templates_csv(..., owner_id=user.id)`，但 `app/services/speech_template_import.py` 中 `import_speech_templates_csv` 与 `import_speech_templates_csv_file` 不接收 `owner_id`，真实上传会触发 `TypeError`。
+- CSV 标注字段中，`title/clean_content/status/customer_goal/intervention_scene/visibility/safety_level/question_type/tags/usage_note/summary/tone` 基本可进入 `speech_templates` 或 `metadata_json`；`content_kind/reviewer/review_note` 当前不会落库，也不会被校验。
+- 导入服务只强校验 `title`、`clean_content/content`、`source_type`、`status in approved/active`；没有强校验标注规范要求的 `summary/customer_goal/intervention_scene/safety_level/visibility/tags/usage_note/tone`，也没有阻断 `medical_sensitive/doctor_review + customer_visible`、`contraindicated` 等安全规则。
+- 三级分层已体现在 `SpeechCategory` 与前端侧栏，导入时通过 `scene_key -> SCENE_CATEGORY_MAP -> L3 category_id` 自动归类；但 `resource_indexer.py` 解析分类 payload 时只处理 level=2 category_id，当前 L3 category_id 不会正确写出 `category_l1/category_l2` 到 RAG payload/semantic_text。
+- RAG 索引能把 `metadata_json` 中的目标、场景、问题类型、安全等级、可见范围写入 Qdrant payload；检索层也会使用这些字段做过滤和加权。因此字段一旦正确入库并重新索引，技术路径可用。

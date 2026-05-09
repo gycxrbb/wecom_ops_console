@@ -1,232 +1,17 @@
 import { computed, ref } from 'vue'
 import request from '#/utils/request'
 import { ElMessage } from 'element-plus'
+import { streamSse, createSessionId, normalizeHealthWindowDays } from './sseStream'
 
-export type RagSource = {
-  resource_id: number
-  source_type: string
-  title: string
-  snippet: string
-  score: number
-  content_kind: string
-  safety_level: string
-}
-
-export type AiAttachment = {
-  attachment_id: string
-  filename: string
-  mime_type: string
-  file_size: number
-  content_hash?: string | null
-  url?: string
-  deduped?: boolean
-  uploading?: boolean
-  progress?: number  // 0-100
-}
-
-export type RagRecommendedAsset = {
-  material_id: number
-  title: string
-  material_type: string
-  source_filename: string
-  preview_url: string | null
-  download_url: string | null
-  public_url: string | null
-  reason: string
-  visibility: string
-  safety_level: string
-  customer_sendable: boolean
-  resource_id: number
-}
-
-export type AiChatMessage =
-  | { role: 'user'; messageType: 'user'; content: string; attachments?: AiAttachment[] }
-  | {
-      role: 'assistant'; messageType: 'assistant_answer'; content: string
-      messageId?: string
-      safetyNotes?: string[]
-      safetyResult?: { level: string; reason_codes: string[]; notes: string[] }
-      requiresMedicalReview?: boolean
-      tokenUsage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cached_tokens?: number }
-      thinkingContent?: string
-      loadingStage?: 'prepare' | 'model_call'
-      thinkingVisible?: boolean
-      thinkingDone?: boolean
-      streaming?: boolean
-      errorCode?: string
-      errorMessage?: string
-      feedback?: { rating: 'like' | 'dislike'; feedbackId: string } | null
-    }
-  | {
-      role: 'reference'; messageType: 'rag_reference'
-      resource_id: number; title: string; snippet: string
-      score: number; source_type: string; content_kind: string
-    }
-  | {
-      role: 'reference'; messageType: 'rag_attachment'
-      title: string; asset: RagRecommendedAsset
-    }
-
-export type SceneOption = { key: string; label: string }
-
-export type ProfileNote = {
-  crm_customer_id: number
-  status?: string
-  communication_style_note?: string | null
-  current_focus_note?: string | null
-  execution_barrier_note?: string | null
-  lifestyle_background_note?: string | null
-  coach_strategy_note?: string | null
-  preferred_scene_hint?: string | null
-  updated_at?: string | null
-}
-
-export type AiSessionSummary = {
-  session_id: string
-  entry_scene?: string | null
-  scene_key?: string | null
-  started_at?: string | null
-  last_message_at?: string | null
-  message_count: number
-  last_message_preview: string
-}
-
-export type AiSessionMessage = {
-  message_id: string
-  role: 'user' | 'assistant'
-  content: string
-  created_at?: string | null
-  requires_medical_review?: boolean
-  token_usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cached_tokens?: number }
-  feedback?: { rating: string; feedback_id: string } | null
-}
-
-type StreamPayload = {
-  session_id?: string
-  message_id?: string
-  delta?: string
-  message?: string
-  code?: string
-  stage?: string
-  status?: string
-  token_usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cached_tokens?: number }
-  requires_medical_review?: boolean
-  safety_notes?: string[]
-  missing_data_notes?: string[]
-  safety_result?: { level: string; reason_codes: string[]; notes: string[] }
-  sources?: RagSource[]
-  recommended_assets?: RagRecommendedAsset[]
-  rag_status?: string
-}
-
-function buildAuthHeaders() {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  }
-  const token = localStorage.getItem('access_token')
-  if (token) {
-    headers.Authorization = `Bearer ${token}`
-  }
-  return headers
-}
-
-async function streamSse(
-  url: string,
-  body: Record<string, any>,
-  signal: AbortSignal,
-  onEvent: (event: string, payload: StreamPayload) => void,
-) {
-  let response: Response
-  try {
-    response = await fetch(`/api${url}`, {
-      method: 'POST',
-      headers: buildAuthHeaders(),
-      credentials: 'include',
-      body: JSON.stringify(body),
-      signal,
-    })
-  } catch (e: any) {
-    if (e?.name === 'AbortError') return
-    throw e
-  }
-
-  if (!response.ok) {
-    const text = await response.text()
-    throw new Error(text || `请求失败 (${response.status})`)
-  }
-  if (!response.body) {
-    throw new Error('流式响应不可用')
-  }
-
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder('utf-8')
-  let buffer = ''
-
-  try {
-    while (true) {
-      const { value, done } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n')
-
-      const chunks = buffer.split('\n\n')
-      buffer = chunks.pop() || ''
-
-      for (const chunk of chunks) {
-        let event = 'message'
-        const dataLines: string[] = []
-
-        for (const line of chunk.split('\n')) {
-          const trimmed = line.trim()
-          if (!trimmed) continue
-          if (trimmed.startsWith(':')) continue
-          if (trimmed.startsWith('event:')) {
-            event = trimmed.slice(6).trim()
-          } else if (trimmed.startsWith('data:')) {
-            dataLines.push(trimmed.slice(5).trim())
-          }
-        }
-
-        if (!dataLines.length) continue
-        const payload = JSON.parse(dataLines.join('\n'))
-        onEvent(event, payload)
-      }
-    }
-  } catch (e: any) {
-    if (e?.name === 'AbortError') return
-    throw e
-  }
-
-  if (buffer.trim()) {
-    let event = 'message'
-    const dataLines: string[] = []
-    for (const line of buffer.split('\n')) {
-      const trimmed = line.trim()
-      if (!trimmed) continue
-      if (trimmed.startsWith(':')) continue
-      if (trimmed.startsWith('event:')) {
-        event = trimmed.slice(6).trim()
-      } else if (trimmed.startsWith('data:')) {
-        dataLines.push(trimmed.slice(5).trim())
-      }
-    }
-    if (dataLines.length) {
-      const payload = JSON.parse(dataLines.join('\n'))
-      onEvent(event, payload)
-    }
-  }
-}
-
-function createSessionId() {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID()
-  }
-  return `crm-ai-${Date.now()}-${Math.random().toString(16).slice(2)}`
-}
-
-const normalizeHealthWindowDays = (value: unknown) => {
-  const parsed = Number(value)
-  return [7, 14, 30].includes(parsed) ? parsed : 7
-}
+// Re-export types for backward compatibility
+export type {
+  RagSource, AiAttachment, RagRecommendedAsset, AiChatMessage,
+  SceneOption, ProfileNote, AiSessionSummary, AiSessionMessage,
+} from './aiCoachTypes'
+import type {
+  AiChatMessage, AiAttachment, SceneOption, ProfileNote,
+  AiSessionSummary, AiSessionMessage,
+} from './aiCoachTypes'
 
 export function useAiCoach() {
   const loading = ref(false)
@@ -264,6 +49,8 @@ export function useAiCoach() {
   const clearQuote = () => {
     quotedMessage.value = null
   }
+
+  // --- Config & Profile Notes ---
 
   const loadAiConfig = async (customerId: number) => {
     try {
@@ -310,6 +97,8 @@ export function useAiCoach() {
     }
   }
 
+  // --- Session History ---
+
   const loadSessionHistory = async (
     customerId: number,
     options?: { limit?: number; silent?: boolean },
@@ -352,6 +141,7 @@ export function useAiCoach() {
         messageId: item.message_id,
         requiresMedicalReview: item.requires_medical_review,
         tokenUsage: item.token_usage,
+        requestParams: (item as any).request_params || undefined,
         thinkingVisible: false,
         thinkingDone: true,
         streaming: false,
@@ -380,6 +170,8 @@ export function useAiCoach() {
     }
   }
 
+  // --- Core Chat ---
+
   const sendChat = async (
     customerId: number,
     message: string,
@@ -394,9 +186,17 @@ export function useAiCoach() {
     loading.value = true
     error.value = ''
     const messageText = message.trim()
+    const _reqParams = {
+      healthWindowDays: options?.healthWindowDays ?? 7,
+      attachmentIds: options?.attachmentIds,
+      quotedMessageId: quotedMessage.value?.messageId,
+      selectedExpansions: selectedExpansions.value,
+      model: selectedModel.value || undefined,
+    }
     chatHistory.value.push({
       role: 'user', messageType: 'user', content: messageText,
       attachments: options?.attachments,
+      requestParams: _reqParams,
     })
 
     const nextSessionId = sessionId.value || createSessionId()
@@ -581,6 +381,8 @@ export function useAiCoach() {
     }
   }
 
+  // --- Medical Review & Feedback ---
+
   const markMedicalReview = async (customerId: number, messageId: string) => {
     try {
       await request.patch(`/v1/crm-customers/${customerId}/ai/messages/${messageId}/review`)
@@ -593,6 +395,32 @@ export function useAiCoach() {
       return false
     }
   }
+
+  const submitFeedback = async (
+    customerId: number,
+    messageId: string,
+    body: { rating: 'like' | 'dislike'; reason_category?: string; reason_text?: string; expected_answer?: string },
+  ) => {
+    const res: any = await request.post(
+      `/v1/crm-customers/${customerId}/ai/messages/${messageId}/feedback`,
+      body,
+    )
+    // Update local chatHistory
+    const msg = chatHistory.value.find(m => 'messageId' in m && m.messageId === messageId)
+    if (msg && 'feedback' in msg) {
+      msg.feedback = { rating: body.rating, feedbackId: res.feedback_id }
+    }
+    return res
+  }
+
+  const getMessageFeedback = async (customerId: number, messageId: string) => {
+    const res: any = await request.get(
+      `/v1/crm-customers/${customerId}/ai/messages/${messageId}/feedback`,
+    )
+    return res.feedback as { rating: string; feedback_id: string } | null
+  }
+
+  // --- Session Management ---
 
   const clearSession = () => {
     answerAbortController.value?.abort()
@@ -620,11 +448,18 @@ export function useAiCoach() {
     }
     if (lastUserIdx < 0) return null
     const userMsg = chatHistory.value[lastUserIdx] as Extract<AiChatMessage, { role: 'user' }>
+    const rp = userMsg.requestParams
     // Remove everything after the user message (failed assistant + references)
     chatHistory.value.splice(lastUserIdx)
     error.value = ''
-    return sendChat(customerId, userMsg.content)
+    return sendChat(customerId, userMsg.content, {
+      healthWindowDays: rp?.healthWindowDays,
+      attachmentIds: rp?.attachmentIds,
+      attachments: rp?.attachmentIds ? undefined : undefined,
+    })
   }
+
+  // --- Regenerate ---
 
   const regenerate = async (customerId: number, messageId: string) => {
     if (loading.value) return null
@@ -706,6 +541,8 @@ export function useAiCoach() {
     }
   }
 
+  // --- Upload ---
+
   const uploadAttachment = async (customerId: number, file: File, onProgress?: (pct: number) => void): Promise<AiAttachment> => {
     const formData = new FormData()
     formData.append('file', file)
@@ -770,30 +607,6 @@ export function useAiCoach() {
 
     // Fallback: server relay
     return uploadAttachment(customerId, file, onProgress)
-  }
-
-  const submitFeedback = async (
-    customerId: number,
-    messageId: string,
-    body: { rating: 'like' | 'dislike'; reason_category?: string; reason_text?: string; expected_answer?: string },
-  ) => {
-    const res: any = await request.post(
-      `/v1/crm-customers/${customerId}/ai/messages/${messageId}/feedback`,
-      body,
-    )
-    // Update local chatHistory
-    const msg = chatHistory.value.find(m => 'messageId' in m && m.messageId === messageId)
-    if (msg && 'feedback' in msg) {
-      msg.feedback = { rating: body.rating, feedbackId: res.feedback_id }
-    }
-    return res
-  }
-
-  const getMessageFeedback = async (customerId: number, messageId: string) => {
-    const res: any = await request.get(
-      `/v1/crm-customers/${customerId}/ai/messages/${messageId}/feedback`,
-    )
-    return res.feedback as { rating: string; feedback_id: string } | null
   }
 
   return {

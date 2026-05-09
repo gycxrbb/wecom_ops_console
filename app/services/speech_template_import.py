@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from .. import models
 from ..rag.vocabulary import resolve_code, resolve_tag_values
-from .crm_speech_templates import invalidate_cache
+from .crm_speech_templates import SCENE_CATEGORY_MAP, invalidate_cache
 
 
 MULTI_VALUE_RE = re.compile(r"[|、,，;；/]+")
@@ -143,8 +143,11 @@ def _build_metadata_json(row: dict[str, str]) -> str:
 
 def validate_row(row: dict[str, str], line_no: int) -> list[str]:
     errors = []
-    if not (row.get("title") or "").strip():
+    title = (row.get("title") or "").strip()
+    if not title:
         errors.append(f"第 {line_no} 行缺少 title")
+    elif len(title) > 128:
+        errors.append(f"第 {line_no} 行 title 超过 128 字符限制（当前 {len(title)} 字符）")
     if not build_content(row):
         errors.append(f"第 {line_no} 行缺少 clean_content/content")
     source_type = normalize_code(row.get("source_type"))
@@ -163,6 +166,7 @@ def import_speech_template_rows(
     rows: list[dict[str, str]],
     *,
     dry_run: bool = False,
+    owner_id: int | None = None,
 ) -> dict[str, Any]:
     stats: dict[str, Any] = {
         "created": 0,
@@ -171,6 +175,24 @@ def import_speech_template_rows(
         "errors": [],
         "rows": [],
     }
+
+    # Pre-load category lookup: L3 name -> category id
+    l3_name_to_id: dict[str, int] = dict(
+        db.query(models.SpeechCategory.name, models.SpeechCategory.id)
+        .filter(
+            models.SpeechCategory.level == 3,
+            models.SpeechCategory.deleted_at.is_(None),
+        ).all()
+    )
+    # Fallback: L2 name -> category id (for old data without L3)
+    l2_name_to_id: dict[str, int] = dict(
+        db.query(models.SpeechCategory.name, models.SpeechCategory.id)
+        .filter(
+            models.SpeechCategory.level == 2,
+            models.SpeechCategory.deleted_at.is_(None),
+        ).all()
+    )
+
     try:
         for index, row in enumerate(rows, start=2):
             row_errors = validate_row(row, index)
@@ -182,6 +204,7 @@ def import_speech_template_rows(
             status = normalize_code(row.get("status") or "approved")
             if status not in {"approved", "active"}:
                 stats["skipped"] += 1
+                stats["errors"].append(f"第 {index} 行状态为 {status}，跳过")
                 continue
 
             scene_key = normalize_scene_key(row)
@@ -190,10 +213,20 @@ def import_speech_template_rows(
             content = build_content(row)
             metadata_json = _build_metadata_json(row)
 
+            # Resolve category_id from SCENE_CATEGORY_MAP → L3
+            mapping = SCENE_CATEGORY_MAP.get(scene_key)
+            category_id: int | None = None
+            if isinstance(mapping, tuple):
+                category_id = l3_name_to_id.get(mapping[1])
+            elif mapping:
+                category_id = l2_name_to_id.get(mapping)
+
+            # Dedup by (scene_key, style) for non-builtin templates
             existing = (
                 db.query(models.SpeechTemplate)
                 .filter(
-                    models.SpeechTemplate.label == title,
+                    models.SpeechTemplate.scene_key == scene_key,
+                    models.SpeechTemplate.style == style,
                     models.SpeechTemplate.is_builtin == 0,
                 )
                 .first()
@@ -201,10 +234,11 @@ def import_speech_template_rows(
 
             action = "created"
             if existing:
-                existing.scene_key = scene_key
-                existing.style = style
+                existing.label = title
                 existing.content = content
                 existing.metadata_json = metadata_json
+                if category_id:
+                    existing.category_id = category_id
                 action = "updated"
             else:
                 db.add(models.SpeechTemplate(
@@ -214,6 +248,8 @@ def import_speech_template_rows(
                     content=content,
                     metadata_json=metadata_json,
                     is_builtin=0,
+                    owner_id=owner_id,
+                    category_id=category_id,
                 ))
 
             stats[action] += 1

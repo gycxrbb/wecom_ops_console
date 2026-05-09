@@ -43,7 +43,8 @@ def write_message(session_id: str, message_id: str, role: str,
                   latency_ms: int = 0, requires_medical_review: bool = False,
                   safety_result: dict | None = None,
                   regenerated_from_message_id: str | None = None,
-                  quoted_message_id: str | None = None):
+                  quoted_message_id: str | None = None,
+                  request_params: dict | None = None):
     db = SessionLocal()
     try:
         db.add(CrmAiMessage(
@@ -59,6 +60,7 @@ def write_message(session_id: str, message_id: str, role: str,
             safety_result=json.dumps(safety_result, ensure_ascii=False) if safety_result else None,
             regenerated_from_message_id=regenerated_from_message_id,
             quoted_message_id=quoted_message_id,
+            request_params_json=json.dumps(request_params, ensure_ascii=False) if request_params else None,
         ))
         db.commit()
     except Exception:
@@ -225,9 +227,11 @@ def load_session_detail(customer_id: int, session_id: str) -> dict | None:
             "role": row.role,
             "content": row.content or "",
             "created_at": str(row.created_at) if row.created_at else None,
+            "model": row.model,
             "requires_medical_review": bool(row.requires_medical_review),
             "token_usage": _serialize_token_usage(row),
             "safety_result": json.loads(row.safety_result) if row.safety_result else None,
+            "request_params": json.loads(row.request_params_json) if row.request_params_json else None,
         } for row in rows]
 
         latest = rows[-1] if rows else None

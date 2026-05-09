@@ -17,7 +17,7 @@ from ...sse_debug_log import get_sse_logger
 from ..models import CrmAiProfileCache
 from ..schemas.context import CustomerProfileContextV1
 from .cache import get as l1_get, put as l1_put, invalidate as l1_invalidate, profile_cache_key, PROFILE_TTL
-from .profile_loader import load_profile
+from .profile_loader import load_profile, load_profile_p0
 
 _log = logging.getLogger(__name__)
 _sse = get_sse_logger()
@@ -354,11 +354,19 @@ def schedule_profile_preload(customer_id: int, *, window_days: int) -> ProfileCa
 
     def _work():
         try:
-            _sse.info("[PROFILE-CACHE] preload thread start key=%s", cache_key)
-            ctx = load_profile(customer_id, health_window_days=w)
+            _sse.info("[PROFILE-CACHE] preload thread start key=%s (P0 fast)", cache_key)
+            ctx = load_profile_p0(customer_id, health_window_days=w)
             l1_put(cache_key, ctx, min(PROFILE_TTL, settings.crm_profile_cache_fresh_ttl_seconds))
             _write_l2(cache_key, customer_id, w, ctx)
-            _sse.info("[PROFILE-CACHE] preload thread done key=%s cards=%d", cache_key, len(ctx.cards))
+            _sse.info("[PROFILE-CACHE] preload P0 done key=%s cards=%d, starting P1 full load", cache_key, len(ctx.cards))
+            # Full load to replace P1 stubs with real data
+            try:
+                ctx_full = load_profile(customer_id, health_window_days=w)
+                l1_put(cache_key, ctx_full, min(PROFILE_TTL, settings.crm_profile_cache_fresh_ttl_seconds))
+                _write_l2(cache_key, customer_id, w, ctx_full)
+                _sse.info("[PROFILE-CACHE] preload P1 done key=%s cards=%d", cache_key, len(ctx_full.cards))
+            except Exception as exc2:
+                _log.warning("Profile preload P1 failed key=%s: %s (P0 still cached)", cache_key, exc2)
         except Exception as exc:
             _log.warning("Profile preload failed key=%s: %s", cache_key, exc)
             _sse.info("[PROFILE-CACHE] preload thread failed key=%s err=%s", cache_key, exc)

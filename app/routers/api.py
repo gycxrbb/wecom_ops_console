@@ -278,7 +278,7 @@ def serialize_log(log: models.MessageLog):
     group = message.group if message and message.group else None
     return {
         'id': log.id,
-        'job_id': message.source_id if message and message.source_type == 'schedule' else None,
+        'job_id': message.source_id if message and message.source_type in ('schedule', 'auto_ranking') else None,
         'group_id': message.group_id if message else None,
         'group_name': group.name if group else '',
         'msg_type': message.msg_type if message else '',

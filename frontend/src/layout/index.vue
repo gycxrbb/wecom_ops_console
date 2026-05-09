@@ -154,7 +154,8 @@ const getRouteName = () => {
     '/permissions': '权限管理',
     '/profile': '个人中心',
     '/feedback-review': '反馈审核',
-    '/auto-ranking': '自动排行推送'
+    '/auto-ranking': '自动排行推送',
+    '/rag-manage': '知识库管理'
   }
   return map[route.path] || '页面'
 }

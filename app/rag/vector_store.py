@@ -210,3 +210,83 @@ def is_available() -> bool:
         return True
     except Exception:
         return False
+
+
+def get_collection_info() -> dict | None:
+    """Return collection stats: vector count, status, config. None if unavailable."""
+    client = _get_qdrant_client()
+    if client is None:
+        return None
+    try:
+        info = client.get_collection(settings.qdrant_collection)
+        points_count = getattr(info, "points_count", None)
+        return {
+            "collection": settings.qdrant_collection,
+            "status": info.status.value if hasattr(info.status, 'value') else str(info.status),
+            "vectors_count": getattr(info, "vectors_count", None) or points_count,
+            "points_count": points_count,
+            "indexed_vectors_count": getattr(info, 'indexed_vectors_count', None),
+            "segments_count": getattr(info, "segments_count", None),
+            "disk_data_size": getattr(info, "disk_data_size", None),
+            "ram_data_size": getattr(info, "ram_data_size", None),
+            "vector_dim": settings.rag_embedding_dimension,
+        }
+    except Exception:
+        return None
+
+
+def delete_points(point_ids: list[str]) -> bool:
+    """Delete vectors by point IDs. Returns True on success."""
+    client = _get_qdrant_client()
+    if client is None or not point_ids:
+        return False
+    try:
+        client.delete(
+            collection_name=settings.qdrant_collection,
+            points_selector=point_ids,
+        )
+        _log.info("Deleted %d points from Qdrant", len(point_ids))
+        return True
+    except Exception as exc:
+        _log.warning("delete_points failed: %s", exc)
+        return False
+
+
+def scroll_points(
+    limit: int = 20,
+    offset: str | None = None,
+    filters: dict | None = None,
+) -> tuple[list[dict], str | None]:
+    """Scroll through collection points for debugging. Returns (points, next_offset)."""
+    client = _get_qdrant_client()
+    if client is None:
+        return [], None
+    try:
+        from qdrant_client.models import FieldCondition, Filter, MatchAny, MatchValue
+
+        qdrant_filter = None
+        if filters:
+            must = []
+            for key, value in filters.items():
+                if isinstance(value, list):
+                    must.append(FieldCondition(key=key, match=MatchAny(any=value)))
+                else:
+                    must.append(FieldCondition(key=key, match=MatchValue(value=value)))
+            qdrant_filter = Filter(must=must) if must else None
+
+        records, next_offset = client.scroll(
+            collection_name=settings.qdrant_collection,
+            limit=limit,
+            offset=offset,
+            scroll_filter=qdrant_filter,
+            with_payload=True,
+            with_vectors=False,
+        )
+        points = [
+            {"id": str(r.id), "payload": r.payload or {}}
+            for r in records
+        ]
+        return points, next_offset
+    except Exception as exc:
+        _log.warning("scroll_points failed: %s", exc)
+        return [], None

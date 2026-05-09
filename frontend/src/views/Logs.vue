@@ -5,7 +5,11 @@
       <el-table-column prop="created_at" label="时间" width="180" />
       <el-table-column prop="group_name" label="群组" />
       <el-table-column prop="msg_type" label="消息类型" />
-      <el-table-column prop="run_mode" label="触发方式" />
+      <el-table-column prop="run_mode" label="触发方式">
+        <template #default="{ row }">
+          {{ ({ manual: '手动', schedule: '定时', auto_ranking: '自动排行', retry: '重试' } as Record<string, string>)[row.run_mode as string] || row.run_mode }}
+        </template>
+      </el-table-column>
       <el-table-column label="状态">
         <template #default="{ row }">
           <el-tag :type="row.success ? 'success' : 'danger'">{{ row.success ? '成功' : '失败' }}</el-tag>

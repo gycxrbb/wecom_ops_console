@@ -29,6 +29,7 @@ docker ps -a
 # 查看应用日志
 docker logs --tail 50 wecom-ops-console
 docker logs -f wecom-ops-console  # 实时跟踪
+docker logs --tail 50 e3913459c3a9_wecom-ops-console 【最新】
 
 # 重启容器
 docker restart wecom-ops-console

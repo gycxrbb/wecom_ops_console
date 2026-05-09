@@ -1,5 +1,27 @@
 # Progress
 
+## 2026-05-09（话术管理 CSV 导入调研）
+
+- 已完成“话术管理”界面导入 CSV 功能与 3 级分层、话术 RAG 标注字段、RAG 索引链路的对齐调研。
+- 已输出正式调研报告：[docs/SPEECH_TEMPLATE_CSV_IMPORT_ALIGNMENT_RESEARCH_REPORT.md](</d:/惯能/群机器人定时推送/wecom_ops_console/docs/SPEECH_TEMPLATE_CSV_IMPORT_ALIGNMENT_RESEARCH_REPORT.md>)。
+- 当前阶段判断：
+  - 话术管理 3 级分层已落地，当前数据库验证为 L1=4、L2=18、L3=72。
+  - CSV -> `speech_templates` -> `metadata_json` -> `rag_resources/rag_chunks` -> Qdrant 的架构方向成立。
+  - 当前不建议全量入库，因为页面导入接口存在 `owner_id` 参数签名不匹配的 P0 blocker。
+- 当前 blocker：
+  - `app/routers/api_speech_templates.py` 调用 `import_speech_templates_csv(..., owner_id=user.id)`，但 `app/services/speech_template_import.py` 的 facade 函数不接收 `owner_id`，focused validation 已复现 `unexpected keyword argument 'owner_id'`。
+  - 导入 service 尚未强校验 `summary/customer_goal/intervention_scene/safety_level/visibility/tags/usage_note/tone`，也未强制 `medical_sensitive/doctor_review -> coach_internal` 与 `contraindicated` 跳过规则。
+  - RAG indexer 对当前 L3 `category_id` 的分类 payload 解析不完整。
+- focused validation：
+  - `python -m py_compile app\routers\api_speech_templates.py app\services\speech_template_import.py app\rag\resource_indexer.py app\rag\retriever.py` 通过。
+  - `cd frontend && .\node_modules\.bin\vue-tsc.cmd --noEmit` 通过。
+  - `python scripts\import_speech_templates_csv.py docs\shujubiaozhu\test_huashu.csv --dry-run` 通过，结果 `created=0 updated=5 skipped=0`。
+  - 数据库抽查：`speech_templates=41`，`with_metadata=41`，`rag_speech_resources=41`，`rag_speech_chunks=41`；仍存在 `visibility=customer_sendable` 旧值 4 条。
+- 项目启动验证结果：
+  - 后端 `python -m uvicorn app.main:app --host 0.0.0.0 --port 8011` 启动成功，达到 `Application startup complete`。
+  - 前端 `npm run dev -- --host 0.0.0.0 --port 5181` 启动成功，Vite ready。
+  - 前端 `npm run build` 通过，存在 chunk size warning，非本次导入 blocker。
+
 ## 2026-04-26 (Health Summary Round 1)
 
 - 已完成健康摘要 7/14/30 天升级 Round 1（P0 全量）：
@@ -501,3 +523,32 @@
   - 启动验证期间发现并修复 `app/schema_migrations.py` import 级语法错误：`_CRM_AI_PHASE2_COLUMNS` 被误拼到 `_ensure_named_index(...)` 调用后，导致后端无法启动；已沉淀 Bug #64 和经验 #125。
   - 本轮 focused validation：`python -m compileall -q app` 通过；`RagMetaUpdate` 兼容归一化测试通过；素材 CSV 行校验测试通过；`cd frontend; .\node_modules\.bin\vue-tsc.cmd --noEmit` 通过；`cd frontend; npm.cmd run build` 通过（仅既有 chunk size 警告）。
   - 本轮项目启动验证结果：后端 `python -m uvicorn app.main:app --host 127.0.0.1 --port 8018 --log-level info` 已确认 `Application startup complete`，禁用本机代理后 `/api/v1/health` 返回 200；前端沙箱内仍复现既有 `esbuild spawn EPERM`，提权后 `npm.cmd run dev -- --host 127.0.0.1 --port 5181` 已确认 Vite ready，随后已回收 5181 监听进程。
+## 2026-05-08 任务：shujubiaozhu 文档与当前 RAG 实现/数据库对齐审查
+
+- 已恢复已有 RAG 标注/上线计划上下文。
+- 已确认 `docs/shujubiaozhu` 当前文件：`话术标注规范.md`、`素材标准规范.md`、`test_huashu.csv`、`test_material_rag.csv`、`question-category.xlsx`。
+- 本轮目标：对比文档规范、当前 RAG 代码实现、当前 RAG 数据库/向量库状态，判断出入和 blocker。
+- 已完成文档与代码对齐：话术/素材主字段和当前实现基本一致，RAG 仍是 support index，不是 official truth。
+- 已确认当前数据库真值为 `.env` MySQL `wecom_ops`，不是默认 `data/app.db`。
+- 已确认 MySQL 计数：`rag_tags=57`、`rag_resources=66`、`rag_chunks=66`、`rag_retrieval_logs=183`、`speech_templates=41`、`materials=51`、`rag_resource_tags=0`。
+- 已确认 Qdrant 本地 collection `wecom_health_rag` 为 green，points_count=66，与 `rag_chunks=66` 对齐。
+- 主要出入：历史话术 visibility 使用 `customer_sendable`；大量 weak/deleted/no-meta 素材仍 active；部分素材 rag_meta_json 仍有中文/旧 code；`question-category.xlsx` 的 L3/L4 分类未进入当前 RAG 检索逻辑。
+- focused validation：RAG 相关 Python 模块 `py_compile` 通过；DB/Qdrant 读取通过。
+- 启动验证：后端 8027 启动到 `Application startup complete` 后回收；前端 `npm run build` 通过；前端 dev 在沙箱内复现 `esbuild spawn EPERM`，提权后 5191 Vite ready 并已回收监听进程。
+
+## 2026-05-08 任务：shujubiaozhu RAG 文档修订与链路总览
+
+- 已更新 `docs/shujubiaozhu/话术标注规范.md` 到 v1.1，补充当前系统落点、旧 visibility 风险、RAG support knowledge 口径和字段对应关系。
+- 已更新 `docs/shujubiaozhu/素材标准规范.md` 到 v1.1，修正 `customer_sendable` 不会自动映射/降级的描述，补充素材 CSV 门禁、历史 weak 数据风险和字段对应关系。
+- 已新增 `docs/shujubiaozhu/RAG实现链路说明.md`，串联 CSV、业务表、RAG 表、Qdrant、AI 检索、审计日志和数据治理缺口。
+- 已同步 `docs/shujubiaozhu/test_material_rag.csv` 表头到新版规范，补齐 `transcript/public_url` 两列，并将血糖标准图示例安全等级调整为 `medical_sensitive`。
+- focused validation：CSV 解析通过，`test_material_rag.csv` 为 21 列/3 行且无多余列，`test_huashu.csv` 为 15 列/5 行且无多余列；全文检查未发现“自动映射/自动降级”被当成当前行为。
+
+## 2026-05-08 任务：RAG 知识库管理页面计划文档审查与修订
+
+- 已阅读 `docs/RAG_MANAGE_PAGE_PLAN.md`，原文仍停留在“前端完全没有 RAG 管理页面/后端缺接口”的旧状态。
+- 已对照当前实现：`frontend/src/views/RagManage/index.vue` 与 `OverviewTab.vue`、`ResourceTable.vue`、`TagManager.vue`、`RetrievalLogTable.vue` 已存在；路由、侧边栏、面包屑已接入；`app/routers/api_rag.py` 已包含资源、标签、日志和重建接口；`app/rag/vector_store.py` 已包含 `get_collection_info/delete_points/scroll_points`。
+- 已将 `docs/RAG_MANAGE_PAGE_PLAN.md` 重写为“设计与现状审查”文档：补充当前阶段判断、原计划与实现对照、是否偏离、P0/P1/P2 风险、下一轮优化计划和项目负责人视角。
+- 当前结论：开发没有方向性偏离，已达到 RAG 管理 MVP；剩余 blocker 是生产治理闭环，包括权限收紧、删除一致性、Qdrant 统计兼容性、日志命中统计、单条重建和问题资源筛选。
+- focused validation：`python -m py_compile app\routers\api_rag.py app\rag\vector_store.py` 通过；`cd frontend; npm.cmd run build` 通过（仅既有 chunk size 警告）。
+- 项目启动验证：后端 `python -m uvicorn app.main:app --host 127.0.0.1 --port 8031 --log-level info` 已到 `Application startup complete`，禁用代理后 `/api/v1/health` 返回 200；前端沙箱内复现既有 `esbuild spawn EPERM`，提权后 `npm.cmd run dev -- --host 127.0.0.1 --port 5192` 已确认 Vite ready，随后已回收监听进程。

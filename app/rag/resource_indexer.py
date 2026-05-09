@@ -222,6 +222,92 @@ async def index_speech_templates(db: Session) -> dict:
     return stats
 
 
+async def index_single_speech_template(db: Session, template_id: int) -> dict:
+    """Incrementally index a single speech template."""
+    tpl = db.query(SpeechTemplate).get(template_id)
+    if not tpl or tpl.deleted_at:
+        return {"indexed": 0, "error": "not found"}
+
+    cat_l2 = ""
+    cat_l1 = ""
+    if tpl.category_id:
+        cat = db.query(SpeechCategory).get(tpl.category_id)
+        if cat and cat.level == 2 and cat.parent_id:
+            cat_l2 = cat.name
+            parent = db.query(SpeechCategory).get(cat.parent_id)
+            if parent:
+                cat_l1 = parent.name
+
+    semantic_text = _build_semantic_text_speech(tpl, cat_l1, cat_l2)
+    source_hash = compute_hash(semantic_text)
+
+    existing = db.query(RagResource).filter_by(
+        source_type="speech_template", source_id=tpl.id
+    ).first()
+
+    if existing and existing.source_hash == source_hash:
+        return {"indexed": 0, "skipped": True}
+
+    chunks = chunk_text(semantic_text, chunk_size=settings.rag_chunk_size, overlap=settings.rag_chunk_overlap)
+    if not chunks:
+        return {"indexed": 0, "error": "empty content"}
+
+    vectors = await embed_texts_batch(chunks)
+    if len(vectors) != len(chunks):
+        return {"indexed": 0, "error": "embedding mismatch"}
+
+    meta = _parse_metadata(tpl)
+    meta_payload = _build_payload_from_metadata(meta, cat_l1, cat_l2)
+    title = tpl.label or f"话术 #{tpl.id}"
+    safety_level = meta.get("safety_level", "general")
+    visibility = meta.get("visibility", "coach_internal")
+
+    if existing:
+        existing.title = title
+        existing.semantic_text = semantic_text
+        existing.source_hash = source_hash
+        existing.status = "active"
+        existing.content_kind = "script"
+        existing.semantic_quality = "ok"
+        existing.safety_level = safety_level
+        existing.visibility = visibility
+        resource_id = existing.id
+        db.query(RagChunk).filter_by(resource_id=resource_id).delete()
+    else:
+        resource = RagResource(
+            source_type="speech_template", source_id=tpl.id,
+            title=title, semantic_text=semantic_text, source_hash=source_hash,
+            content_kind="script", visibility=visibility, safety_level=safety_level,
+            status="active", semantic_quality="ok",
+        )
+        db.add(resource)
+        db.flush()
+        resource_id = resource.id
+
+    points = []
+    for idx, (chunk_text_val, vector) in enumerate(zip(chunks, vectors)):
+        point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"rag:{resource_id}:{idx}"))
+        chunk_hash = compute_hash(chunk_text_val)
+        db.add(RagChunk(
+            resource_id=resource_id, chunk_index=idx, chunk_text=chunk_text_val,
+            chunk_hash=chunk_hash, vector_point_id=point_id,
+            embedding_model=settings.rag_embedding_model,
+            embedding_dimension=settings.rag_embedding_dimension, status="active",
+        ))
+        points.append({
+            "id": point_id, "vector": vector,
+            "payload": {
+                "resource_id": resource_id, "source_type": "speech_template",
+                "source_id": tpl.id, "status": "active", "content_kind": "script",
+                "safety_level": safety_level, "visibility": visibility, **meta_payload,
+            },
+        })
+
+    await upsert_chunks(points)
+    db.commit()
+    return {"indexed": 1, "chunks": len(points)}
+
+
 async def index_materials(db: Session) -> dict:
     """Sync material RAG resources — disable orphans, detect stale, auto-index materials with rag_meta_json."""
     stats = {"synced": 0, "disabled": 0, "stale": 0, "indexed": 0, "errors": 0}
