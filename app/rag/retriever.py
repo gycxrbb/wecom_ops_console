@@ -111,6 +111,9 @@ def _apply_profile_boosts(
                 hit["profile_boost"] = hit.get("profile_boost", 0) - 0.20
 
     return hits
+
+
+async def retrieve_rag_context(
     *,
     customer_id: int,
     message: str,
