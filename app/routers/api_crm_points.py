@@ -260,6 +260,8 @@ def upsert_auto_ranking_config(req: AutoRankingConfigReq, request: Request, db: 
     cfg.skip_dates_json = json.dumps(req.skip_dates)
     cfg.push_hour = req.push_hour
     cfg.push_minute = req.push_minute
+    cfg.last_run_at = None  # 改配置后重置冷却期，允许新时间立即生效
+    cfg.last_error = ''
     db.commit()
     db.refresh(cfg)
     # Re-register cron job to pick up changes

@@ -186,16 +186,19 @@ class ScheduleService:
             job_id = f'auto-ranking-{cfg.id}'
             hour = cfg.push_hour or 0
             minute = cfg.push_minute or 0
+            # 提前 1 分钟触发，为预生成排行消息留足时间
+            prep_minute = (minute - 1) % 60
+            prep_hour = (hour - 1) % 24 if minute == 0 else hour
             self.scheduler.add_job(
                 _make_fire(cfg.id, cfg.name),
-                trigger=CronTrigger(minute=str(minute), hour=str(hour), timezone=tz),
+                trigger=CronTrigger(minute=str(prep_minute), hour=str(prep_hour), timezone=tz),
                 id=job_id,
                 replace_existing=True,
                 misfire_grace_time=None,  # 禁止 misfire 补发，防止重复发送
                 max_instances=1,
                 coalesce=True,
             )
-            logger.info('Auto ranking cron job registered: %s → %02d:%02d Asia/Shanghai daily', cfg.name, hour, minute)
+            logger.info('Auto ranking cron job registered: %s → %02d:%02d prep, %02d:%02d send Asia/Shanghai daily', cfg.name, prep_hour, prep_minute, hour, minute)
 
         if not configs:
             logger.info('No enabled auto ranking configs found')

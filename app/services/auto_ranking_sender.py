@@ -32,13 +32,16 @@ def create_send_record(
     return msg
 
 
-def mark_send_success(db: Session, msg: Message) -> None:
+def mark_send_success(db: Session, msg: Message, payload: dict = None, response: dict = None) -> None:
     msg.status = 'sent'
     msg.sent_at = datetime.utcnow()
+    from ..services.wecom import WeComService
+    stored = WeComService.payload_for_storage(payload) if payload else {}
+    msg.request_payload = json.dumps(stored, ensure_ascii=False)
     db.add(MessageLog(
         message_id=msg.id,
-        request_payload='{}',
-        response_payload='{}',
+        request_payload=json.dumps(stored, ensure_ascii=False),
+        response_payload=json.dumps(response, ensure_ascii=False) if response else '{}',
         http_status=200,
         success=1,
         attempt_no=1,
@@ -46,12 +49,15 @@ def mark_send_success(db: Session, msg: Message) -> None:
     db.commit()
 
 
-def mark_send_failure(db: Session, msg: Message, error: str) -> None:
+def mark_send_failure(db: Session, msg: Message, error: str, payload: dict = None) -> None:
     msg.status = 'failed'
     msg.sent_at = datetime.utcnow()
+    from ..services.wecom import WeComService
+    stored = WeComService.payload_for_storage(payload) if payload else {}
+    msg.request_payload = json.dumps(stored, ensure_ascii=False)
     db.add(MessageLog(
         message_id=msg.id,
-        request_payload='{}',
+        request_payload=json.dumps(stored, ensure_ascii=False),
         response_payload='{}',
         http_status=0,
         success=0,

@@ -10,7 +10,7 @@ from datetime import datetime, date
 from zoneinfo import ZoneInfo
 
 from ..database import SessionLocal
-from ..models import Group, Message
+from ..models import Group, Message, MessageLog
 from ..models_auto_ranking import AutoRankingConfig
 from ..services.crm_points_ranking import preview_ranking_batch
 from ..services.crm_group_directory import fetch_crm_group_names
@@ -108,6 +108,13 @@ async def execute_auto_ranking(cfg: AutoRankingConfig) -> dict:
     if not items:
         return {'sent': 0, 'skipped': 0, 'error': '无有效排行消息'}
 
+    # 预生成完成，等待至准点再发送（cron 提前 1 分钟触发）
+    target_time = now.replace(hour=cfg.push_hour or 0, minute=cfg.push_minute or 0, second=0, microsecond=0)
+    wait_seconds = (target_time - datetime.now(_tz)).total_seconds()
+    if 0 < wait_seconds < 120:
+        _log.info('自动排行 %s: 预生成完成，等待 %.1fs 至准点 %02d:%02d 推送', cfg.name, wait_seconds, cfg.push_hour or 0, cfg.push_minute or 0)
+        await asyncio.sleep(wait_seconds)
+
     # 发送
     db = SessionLocal()
     sent = 0
@@ -136,18 +143,18 @@ async def execute_auto_ranking(cfg: AutoRankingConfig) -> dict:
                     content_json=item['content_json'], config_id=cfg.id,
                 )
                 try:
-                    await WeComService.send(
+                    payload, response = await WeComService.send(
                         webhook=webhook, msg_type=item.get('msg_type', 'markdown'),
                         content=item['content_json'], group_key=str(target_group.id),
                     )
                     _sent += 1
-                    mark_send_success(db, msg_record)
+                    mark_send_success(db, msg_record, payload=payload, response=response)
                     await asyncio.sleep(1.2)
                 except Exception as exc:
                     _failed += 1
                     _err = str(exc)[:200]
                     _log.warning('自动排行 %s: 推送失败 - %s', cfg.name, exc)
-                    mark_send_failure(db, msg_record, str(exc)[:255])
+                    mark_send_failure(db, msg_record, str(exc)[:255], payload=None)
             return _sent, _failed, _err
 
         # ── 首轮发送 ──
