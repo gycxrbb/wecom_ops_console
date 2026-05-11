@@ -39,6 +39,8 @@ def _build_semantic_text_speech(
     template: SpeechTemplate,
     category_l1: str = "",
     category_l2: str = "",
+    category_l3: str = "",
+    category_code: str = "",
 ) -> str:
     parts = []
     if template.label:
@@ -73,10 +75,14 @@ def _build_semantic_text_speech(
         parts.append(f"大类: {category_l1}")
     if category_l2:
         parts.append(f"子类: {category_l2}")
+    if category_l3:
+        parts.append(f"三级分类: {category_l3}")
+    if category_code:
+        parts.append(f"分类代码: {category_code}")
     return "\n".join(parts)
 
 
-def _build_payload_from_metadata(meta: dict, category_l1: str = "", category_l2: str = "") -> dict:
+def _build_payload_from_metadata(meta: dict, category_l1: str = "", category_l2: str = "", category_l3: str = "", category_code: str = "") -> dict:
     """Build Qdrant payload fields from parsed metadata."""
     payload_tags: dict[str, list[str]] = {}
     for key in ("customer_goal", "intervention_scene", "question_type"):
@@ -96,6 +102,10 @@ def _build_payload_from_metadata(meta: dict, category_l1: str = "", category_l2:
         extra["category_l1"] = category_l1
     if category_l2:
         extra["category_l2"] = category_l2
+    if category_l3:
+        extra["category_l3"] = category_l3
+    if category_code:
+        extra["category_code"] = category_code
     return {**payload_tags, **extra}
 
 
@@ -104,29 +114,39 @@ async def index_speech_templates(db: Session) -> dict:
     stats = {"indexed": 0, "skipped": 0, "errors": 0}
     templates = db.query(SpeechTemplate).filter(SpeechTemplate.deleted_at.is_(None)).all()
 
-    # Pre-load category names for resolution
-    cat_l2_map: dict[int, str] = {}
-    cat_l1_map: dict[int, str] = {}
+    # Pre-load category names for resolution (L3 → L2 → L1)
+    cat_by_id: dict[int, SpeechCategory] = {}
     for cat in db.query(SpeechCategory).filter(SpeechCategory.deleted_at.is_(None)).all():
-        if cat.level == 2 and cat.parent_id:
-            cat_l2_map[cat.id] = cat.name
-            cat_l1_map[cat.parent_id] = ""  # will be filled below
-    for cat in db.query(SpeechCategory).filter(SpeechCategory.deleted_at.is_(None)).all():
-        if cat.level == 1 and cat.id in cat_l1_map:
-            cat_l1_map[cat.id] = cat.name
+        cat_by_id[cat.id] = cat
+
+    def _resolve_cat(category_id: int | None) -> tuple[str, str, str, str]:
+        if not category_id or category_id not in cat_by_id:
+            return "", "", "", ""
+        c = cat_by_id[category_id]
+        code = c.code or ""
+        if c.level == 3:
+            l3_name = c.name
+            l2 = cat_by_id.get(c.parent_id)
+            l2_name = l2.name if l2 else ""
+            l1_name = ""
+            if l2 and l2.parent_id:
+                l1 = cat_by_id.get(l2.parent_id)
+                l1_name = l1.name if l1 else ""
+            return l1_name, l2_name, l3_name, code
+        elif c.level == 2:
+            l2_name = c.name
+            l1_name = ""
+            if c.parent_id:
+                l1 = cat_by_id.get(c.parent_id)
+                l1_name = l1.name if l1 else ""
+            return l1_name, l2_name, "", code
+        return "", "", "", ""
 
     for tpl in templates:
         try:
-            # Resolve category
-            category_l1 = ""
-            category_l2 = ""
-            if tpl.category_id and tpl.category_id in cat_l2_map:
-                category_l2 = cat_l2_map[tpl.category_id]
-                cat = tpl.category
-                if cat and cat.parent_id and cat.parent_id in cat_l1_map:
-                    category_l1 = cat_l1_map[cat.parent_id]
+            category_l1, category_l2, category_l3, category_code = _resolve_cat(tpl.category_id)
 
-            semantic_text = _build_semantic_text_speech(tpl, category_l1, category_l2)
+            semantic_text = _build_semantic_text_speech(tpl, category_l1, category_l2, category_l3, category_code)
             source_hash = compute_hash(semantic_text)
 
             existing = db.query(RagResource).filter_by(
@@ -148,7 +168,7 @@ async def index_speech_templates(db: Session) -> dict:
 
             # Parse metadata for enriched payload
             meta = _parse_metadata(tpl)
-            meta_payload = _build_payload_from_metadata(meta, category_l1, category_l2)
+            meta_payload = _build_payload_from_metadata(meta, category_l1, category_l2, category_l3, category_code)
 
             title = tpl.label or f"话术 #{tpl.id}"
             safety_level = meta.get("safety_level", "general")
@@ -228,17 +248,27 @@ async def index_single_speech_template(db: Session, template_id: int) -> dict:
     if not tpl or tpl.deleted_at:
         return {"indexed": 0, "error": "not found"}
 
-    cat_l2 = ""
-    cat_l1 = ""
+    # Resolve L3 → L2 → L1 + code
+    cat_l1, cat_l2, cat_l3, cat_code = "", "", "", ""
     if tpl.category_id:
         cat = db.query(SpeechCategory).get(tpl.category_id)
-        if cat and cat.level == 2 and cat.parent_id:
-            cat_l2 = cat.name
-            parent = db.query(SpeechCategory).get(cat.parent_id)
-            if parent:
-                cat_l1 = parent.name
+        if cat:
+            cat_code = cat.code or ""
+            if cat.level == 3:
+                cat_l3 = cat.name
+                parent = db.query(SpeechCategory).get(cat.parent_id) if cat.parent_id else None
+                if parent:
+                    cat_l2 = parent.name
+                    grandparent = db.query(SpeechCategory).get(parent.parent_id) if parent.parent_id else None
+                    if grandparent:
+                        cat_l1 = grandparent.name
+            elif cat.level == 2:
+                cat_l2 = cat.name
+                parent = db.query(SpeechCategory).get(cat.parent_id) if cat.parent_id else None
+                if parent:
+                    cat_l1 = parent.name
 
-    semantic_text = _build_semantic_text_speech(tpl, cat_l1, cat_l2)
+    semantic_text = _build_semantic_text_speech(tpl, cat_l1, cat_l2, cat_l3, cat_code)
     source_hash = compute_hash(semantic_text)
 
     existing = db.query(RagResource).filter_by(
@@ -257,7 +287,7 @@ async def index_single_speech_template(db: Session, template_id: int) -> dict:
         return {"indexed": 0, "error": "embedding mismatch"}
 
     meta = _parse_metadata(tpl)
-    meta_payload = _build_payload_from_metadata(meta, cat_l1, cat_l2)
+    meta_payload = _build_payload_from_metadata(meta, cat_l1, cat_l2, cat_l3, cat_code)
     title = tpl.label or f"话术 #{tpl.id}"
     safety_level = meta.get("safety_level", "general")
     visibility = meta.get("visibility", "coach_internal")

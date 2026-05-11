@@ -13,33 +13,123 @@ _log = logging.getLogger(__name__)
 
 STYLES = ('professional', 'encouraging', 'competitive')
 
-# 分类体系种子数据（3 级：L1 > L2 > L3）
+# 分类体系种子数据（3 级：L1 > L2 > L3），含 code 稳定标识
 CATEGORY_SEED = [
-    {'name': '健康管理类', 'children': [
-        {'name': '体重管理', 'children': ['减重速度咨询', '减重原理咨询', '体重目标设定', '体重监测问题']},
-        {'name': '饮食管理', 'children': ['饮食计划咨询', '食物选择建议', '饮食记录问题', '特殊饮食需求']},
-        {'name': '运动管理', 'children': ['运动计划咨询', '运动强度建议', '运动效果评估', '运动安全注意']},
-        {'name': '生理指标管理', 'children': ['血糖管理咨询', '血压管理咨询', '指标监测指导', '异常指标处理']},
-        {'name': '生活习惯管理', 'children': ['睡眠管理咨询', '饮水管理咨询', '情绪调节指导', '作息规律建议']},
-        {'name': '特定人群健康', 'children': ['老年人健康管理', '孕妇健康管理', '慢性病患者管理', '特殊职业人群管理']},
+    {'name': '健康管理类', 'code': 'health', 'children': [
+        {'name': '体重管理', 'code': 'health.weight', 'children': [
+            {'name': '减重速度咨询', 'code': 'health.weight.loss_speed'},
+            {'name': '减重原理咨询', 'code': 'health.weight.loss_principle'},
+            {'name': '体重目标设定', 'code': 'health.weight.goal_setting'},
+            {'name': '体重监测问题', 'code': 'health.weight.monitoring'},
+        ]},
+        {'name': '饮食管理', 'code': 'health.diet', 'children': [
+            {'name': '饮食计划咨询', 'code': 'health.diet.plan'},
+            {'name': '食物选择建议', 'code': 'health.diet.food_choice'},
+            {'name': '饮食记录问题', 'code': 'health.diet.record'},
+            {'name': '特殊饮食需求', 'code': 'health.diet.special'},
+        ]},
+        {'name': '运动管理', 'code': 'health.exercise', 'children': [
+            {'name': '运动计划咨询', 'code': 'health.exercise.plan'},
+            {'name': '运动强度建议', 'code': 'health.exercise.intensity'},
+            {'name': '运动效果评估', 'code': 'health.exercise.evaluation'},
+            {'name': '运动安全注意', 'code': 'health.exercise.safety'},
+        ]},
+        {'name': '生理指标管理', 'code': 'health.indicator', 'children': [
+            {'name': '血糖管理咨询', 'code': 'health.indicator.blood_sugar'},
+            {'name': '血压管理咨询', 'code': 'health.indicator.blood_pressure'},
+            {'name': '指标监测指导', 'code': 'health.indicator.monitoring'},
+            {'name': '异常指标处理', 'code': 'health.indicator.abnormal'},
+        ]},
+        {'name': '生活习惯管理', 'code': 'health.lifestyle', 'children': [
+            {'name': '睡眠管理咨询', 'code': 'health.lifestyle.sleep'},
+            {'name': '饮水管理咨询', 'code': 'health.lifestyle.water'},
+            {'name': '情绪调节指导', 'code': 'health.lifestyle.emotion'},
+            {'name': '作息规律建议', 'code': 'health.lifestyle.routine'},
+        ]},
+        {'name': '特定人群健康', 'code': 'health.special', 'children': [
+            {'name': '老年人健康管理', 'code': 'health.special.elderly'},
+            {'name': '孕妇健康管理', 'code': 'health.special.pregnant'},
+            {'name': '慢性病患者管理', 'code': 'health.special.chronic'},
+            {'name': '特殊职业人群管理', 'code': 'health.special.occupational'},
+        ]},
     ]},
-    {'name': '系统操作类', 'children': [
-        {'name': '功能操作', 'children': ['打卡功能操作', '数据上传操作', '课程学习操作', '设备连接操作']},
-        {'name': '系统异常', 'children': ['操作入口异常', '系统兼容性问题', '数据加载异常', '功能响应缓慢']},
-        {'name': '数据问题', 'children': ['数据记录异常', '数据统计错误', '数据同步问题', '数据导出问题']},
-        {'name': '设备管理', 'children': ['设备连接问题', '设备识别失败', '设备数据同步', '设备故障排查']},
+    {'name': '系统操作类', 'code': 'system', 'children': [
+        {'name': '功能操作', 'code': 'system.function', 'children': [
+            {'name': '打卡功能操作', 'code': 'system.function.checkin'},
+            {'name': '数据上传操作', 'code': 'system.function.upload'},
+            {'name': '课程学习操作', 'code': 'system.function.course'},
+            {'name': '设备连接操作', 'code': 'system.function.device'},
+        ]},
+        {'name': '系统异常', 'code': 'system.error', 'children': [
+            {'name': '操作入口异常', 'code': 'system.error.entry'},
+            {'name': '系统兼容性问题', 'code': 'system.error.compat'},
+            {'name': '数据加载异常', 'code': 'system.error.loading'},
+            {'name': '功能响应缓慢', 'code': 'system.error.slow'},
+        ]},
+        {'name': '数据问题', 'code': 'system.data', 'children': [
+            {'name': '数据记录异常', 'code': 'system.data.record'},
+            {'name': '数据统计错误', 'code': 'system.data.stats'},
+            {'name': '数据同步问题', 'code': 'system.data.sync'},
+            {'name': '数据导出问题', 'code': 'system.data.export'},
+        ]},
+        {'name': '设备管理', 'code': 'system.device', 'children': [
+            {'name': '设备连接问题', 'code': 'system.device.connect'},
+            {'name': '设备识别失败', 'code': 'system.device.detect'},
+            {'name': '设备数据同步', 'code': 'system.device.sync'},
+            {'name': '设备故障排查', 'code': 'system.device.troubleshoot'},
+        ]},
     ]},
-    {'name': '社区运营类', 'children': [
-        {'name': '社群管理', 'children': ['社群加入退出', '社群互动管理', '社群规则咨询', '社群成员管理']},
-        {'name': '活动管理', 'children': ['活动参与咨询', '活动规则了解', '活动奖励查询', '活动反馈建议']},
-        {'name': '积分管理', 'children': ['积分获取咨询', '积分使用规则', '积分异常查询', '积分兑换问题']},
-        {'name': '内容管理', 'children': ['课程内容咨询', '资料获取方式', '内容更新通知', '内容质量反馈']},
+    {'name': '社区运营类', 'code': 'community', 'children': [
+        {'name': '社群管理', 'code': 'community.group', 'children': [
+            {'name': '社群加入退出', 'code': 'community.group.join'},
+            {'name': '社群互动管理', 'code': 'community.group.interact'},
+            {'name': '社群规则咨询', 'code': 'community.group.rules'},
+            {'name': '社群成员管理', 'code': 'community.group.members'},
+        ]},
+        {'name': '活动管理', 'code': 'community.activity', 'children': [
+            {'name': '活动参与咨询', 'code': 'community.activity.join'},
+            {'name': '活动规则了解', 'code': 'community.activity.rules'},
+            {'name': '活动奖励查询', 'code': 'community.activity.reward'},
+            {'name': '活动反馈建议', 'code': 'community.activity.feedback'},
+        ]},
+        {'name': '积分管理', 'code': 'community.points', 'children': [
+            {'name': '积分获取咨询', 'code': 'community.points.earning'},
+            {'name': '积分使用规则', 'code': 'community.points.usage'},
+            {'name': '积分异常查询', 'code': 'community.points.issue'},
+            {'name': '积分兑换问题', 'code': 'community.points.redeem'},
+        ]},
+        {'name': '内容管理', 'code': 'community.content', 'children': [
+            {'name': '课程内容咨询', 'code': 'community.content.course'},
+            {'name': '资料获取方式', 'code': 'community.content.material'},
+            {'name': '内容更新通知', 'code': 'community.content.update'},
+            {'name': '内容质量反馈', 'code': 'community.content.feedback'},
+        ]},
     ]},
-    {'name': '服务支持类', 'children': [
-        {'name': '用户协助', 'children': ['操作指导协助', '问题解决协助', '需求反馈协助', '个性化服务协助']},
-        {'name': '教练服务', 'children': ['教练咨询预约', '教练服务查询', '教练指导反馈', '教练更换申请']},
-        {'name': '问题反馈', 'children': ['问题提交渠道', '问题处理进度', '问题解决方案', '问题反馈评价']},
-        {'name': '产品建议', 'children': ['功能优化建议', '新功能需求', '产品体验反馈', '服务改进建议']},
+    {'name': '服务支持类', 'code': 'service', 'children': [
+        {'name': '用户协助', 'code': 'service.user', 'children': [
+            {'name': '操作指导协助', 'code': 'service.user.guide'},
+            {'name': '问题解决协助', 'code': 'service.user.problem'},
+            {'name': '需求反馈协助', 'code': 'service.user.feedback'},
+            {'name': '个性化服务协助', 'code': 'service.user.personal'},
+        ]},
+        {'name': '教练服务', 'code': 'service.coach', 'children': [
+            {'name': '教练咨询预约', 'code': 'service.coach.booking'},
+            {'name': '教练服务查询', 'code': 'service.coach.query'},
+            {'name': '教练指导反馈', 'code': 'service.coach.feedback'},
+            {'name': '教练更换申请', 'code': 'service.coach.change'},
+        ]},
+        {'name': '问题反馈', 'code': 'service.issue', 'children': [
+            {'name': '问题提交渠道', 'code': 'service.issue.submit'},
+            {'name': '问题处理进度', 'code': 'service.issue.progress'},
+            {'name': '问题解决方案', 'code': 'service.issue.solution'},
+            {'name': '问题反馈评价', 'code': 'service.issue.review'},
+        ]},
+        {'name': '产品建议', 'code': 'service.product', 'children': [
+            {'name': '功能优化建议', 'code': 'service.product.optimize'},
+            {'name': '新功能需求', 'code': 'service.product.feature'},
+            {'name': '产品体验反馈', 'code': 'service.product.experience'},
+            {'name': '服务改进建议', 'code': 'service.product.improve'},
+        ]},
     ]},
 ]
 

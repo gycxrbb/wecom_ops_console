@@ -77,7 +77,7 @@ export function useSpeechTemplates() {
 
   const isPointsScene = computed(() => {
     const scene = scenes.value.find(s => s.key === activeScene.value)
-    return scene?.category_l2 === '积分管理'
+    return scene?.category_code?.startsWith('community.points') ?? false
   })
 
   const categorizeOptions = computed(() =>
@@ -194,9 +194,14 @@ export function useSpeechTemplates() {
     }
   }
 
-  const openCreateTemplate = (categoryId: number) => {
+  const openCreateTemplate = (categoryId: number, categoryCode?: string) => {
     createTemplateCategoryId.value = categoryId
-    createTemplateSceneKey.value = ''
+    // Auto-generate scene_key from category_code: e.g. "health.diet.food_choice" → "health_diet_food_choice"
+    if (categoryCode) {
+      createTemplateSceneKey.value = categoryCode.replace(/\./g, '_')
+    } else {
+      createTemplateSceneKey.value = ''
+    }
     createTemplateStyle.value = 'professional'
     createTemplateLabel.value = ''
     createTemplateContent.value = ''
@@ -335,8 +340,7 @@ export function useSpeechTemplates() {
 
   // ── RAG metadata ──
 
-  const ragMetaDialogVisible = ref(false)
-  const ragMetaTarget = ref<Template | null>(null)
+  const editDrawerVisible = ref(false)
   const ragMetaOriginal = ref<Record<string, any> | null>(null)
   const ragMetaForm = reactive<Record<string, any>>({
     summary: '', customer_goal: [], intervention_scene: [],
@@ -345,8 +349,7 @@ export function useSpeechTemplates() {
   })
   const ragMetaSaving = ref(false)
 
-  const openRagMetaDialog = (tpl: Template) => {
-    ragMetaTarget.value = tpl
+  const loadRagMeta = (tpl: Template) => {
     const meta = tpl.metadata_json || {}
     ragMetaOriginal.value = JSON.parse(JSON.stringify(meta))
     ragMetaForm.summary = meta.summary || ''
@@ -357,14 +360,35 @@ export function useSpeechTemplates() {
     ragMetaForm.visibility = meta.visibility || ''
     ragMetaForm.tags = meta.tags || []
     ragMetaForm.usage_note = meta.usage_note || ''
-    ragMetaDialogVisible.value = true
   }
 
-  const handleSaveRagMeta = async () => {
-    if (!ragMetaTarget.value) return
-    // Compute diff
-    const changes: string[] = []
+  const handleSaveEditDrawer = async () => {
+    const tpl = currentEditingTpl.value
+    if (!tpl) return
+
+    // Save content
+    if (tpl._editContent !== tpl.content || tpl.label) {
+      tpl._saving = true
+      try {
+        const res: any = await request.put(`/v1/speech-templates/${tpl.id}`, {
+          content: tpl._editContent,
+          label: tpl.label,
+        })
+        tpl.content = tpl._editContent
+        if (res.metadata_json) tpl.metadata_json = res.metadata_json
+      } catch (e) {
+        console.error(e)
+        ElMessage.error('内容保存失败')
+        tpl._saving = false
+        return
+      } finally {
+        tpl._saving = false
+      }
+    }
+
+    // Save RAG metadata (check if changed)
     const orig = ragMetaOriginal.value || {}
+    const changes: string[] = []
     const fields = ['summary', 'safety_level', 'visibility', 'usage_note'] as const
     for (const f of fields) {
       if (ragMetaForm[f] !== (orig[f] || '')) changes.push(f)
@@ -375,33 +399,38 @@ export function useSpeechTemplates() {
       const oldVal = JSON.stringify([...(orig[f] || [])].sort())
       if (newVal !== oldVal) changes.push(f)
     }
-    if (changes.length === 0) {
-      ElMessage.info('配置未变更')
-      return
-    }
-    try {
-      await ElMessageBox.confirm(
-        `以下 ${changes.length} 个字段将被更新：${changes.join('、')}`,
-        '确认保存 RAG 配置',
-        { type: 'info', confirmButtonText: '保存', cancelButtonText: '取消' },
-      )
-    } catch { return }
 
-    ragMetaSaving.value = true
-    try {
-      const res: any = await request.patch(
-        `/v1/speech-templates/${ragMetaTarget.value.id}/rag-meta`,
-        ragMetaForm,
-      )
-      ragMetaTarget.value.metadata_json = res.metadata_json || null
-      ElMessage.success('RAG 配置已保存并重新索引')
-      ragMetaDialogVisible.value = false
-    } catch (e) {
-      console.error(e)
-      ElMessage.error('RAG 配置保存失败')
-    } finally {
-      ragMetaSaving.value = false
+    if (changes.length > 0) {
+      ragMetaSaving.value = true
+      try {
+        const res: any = await request.patch(
+          `/v1/speech-templates/${tpl.id}/rag-meta`,
+          ragMetaForm,
+        )
+        tpl.metadata_json = res.metadata_json || null
+        if (res.dropped_values) {
+          ElMessage.warning(`部分值被词表过滤：${JSON.stringify(res.dropped_values)}`)
+        }
+      } catch (e) {
+        console.error(e)
+        ElMessage.error('RAG 配置保存失败')
+        ragMetaSaving.value = false
+        return
+      } finally {
+        ragMetaSaving.value = false
+      }
     }
+
+    editDrawerVisible.value = false
+    ElMessage.success('已保存')
+  }
+
+  // Load RAG meta when drawer opens
+  const openEditDrawer = () => {
+    if (currentEditingTpl.value) {
+      loadRagMeta(currentEditingTpl.value)
+    }
+    editDrawerVisible.value = true
   }
 
   // Move dialog: target parent options depend on node level
@@ -424,7 +453,7 @@ export function useSpeechTemplates() {
     categorizeDialogVisible, categorizeSceneKey, categorizeTargetId, categorizeOptions,
     createTemplateDialogVisible, createTemplateCategoryId, createTemplateSceneKey,
     createTemplateStyle, createTemplateLabel, createTemplateContent, createTemplateSaving,
-    ragMetaDialogVisible, ragMetaTarget, ragMetaForm, ragMetaOriginal, ragMetaSaving,
+    editDrawerVisible, ragMetaForm, ragMetaSaving,
     // Computed
     sidebarTree, uncategorizedScenes, currentSceneLabel, currentTemplates,
     currentEditingTpl, isPointsScene,
@@ -433,7 +462,7 @@ export function useSpeechTemplates() {
     saveTemplate, openCreateTemplate, handleCreateTemplate,
     startRename, saveRename, handleDeleteCategory, openMoveDialog, handleMoveCategory,
     openCreateL2, openCreateL3, handleCreateL1, openCategorizeDialog, handleCategorizeScene,
-    openRagMetaDialog, handleSaveRagMeta,
+    handleSaveEditDrawer, openEditDrawer,
     loadCategories,
   }
 }

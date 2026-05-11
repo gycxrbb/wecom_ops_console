@@ -23,3 +23,18 @@ export function hasPermission(user: any, key: PermissionKey): boolean {
 export function moduleVisible(user: any, key: PermissionKey): boolean {
   return hasPermission(user, key)
 }
+
+/**
+ * 统一的访问判断：路由守卫与菜单可见性共用同一套逻辑。
+ * meta.role       -> 要求特定角色（如 'admin'）
+ * meta.permission -> 要求特定模块权限 key
+ */
+export function canAccess(
+  user: any,
+  meta: { role?: string; permission?: PermissionKey } | undefined | null,
+): boolean {
+  if (!meta) return true
+  if (meta.role && user?.role !== meta.role) return false
+  if (meta.permission && !hasPermission(user, meta.permission)) return false
+  return true
+}

@@ -66,6 +66,7 @@ import { useUserStore } from '#/stores/user'
 import { Expand, RefreshRight } from '@element-plus/icons-vue'
 import ThemeToggle from '#/components/ThemeToggle.vue'
 import SidebarContent from './SidebarContent.vue'
+import { useRouteTitle } from '#/composables/useMenu'
 
 const isDark = ref(localStorage.getItem('theme') === 'dark' || !localStorage.getItem('theme'))
 
@@ -137,28 +138,9 @@ const handleCommand = (command: string) => {
   }
 }
 
-const getRouteName = () => {
-  const map: Record<string, string> = {
-    '/': '首页看板',
-    '/dashboard': '面板看板',
-    '/send': '发送中心',
-    '/groups': '群管理',
-    '/templates': '模板中心',
-    '/speech-templates': '话术管理',
-    '/assets': '素材库',
-    '/schedules': '定时任务',
-    '/crm-profile': '客户档案',
-    '/logs': '发送记录',
-    '/approvals': '审批中心',
-    '/users': '用户管理',
-    '/permissions': '权限管理',
-    '/profile': '个人中心',
-    '/feedback-review': '反馈审核',
-    '/auto-ranking': '自动排行推送',
-    '/rag-manage': '知识库管理'
-  }
-  return map[route.path] || '页面'
-}
+// 面包屑标题直接从路由 meta 取，单一真值源
+const { resolveTitle } = useRouteTitle()
+const getRouteName = () => resolveTitle(route.path)
 </script>
 
 <style scoped>

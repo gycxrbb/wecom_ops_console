@@ -14,85 +14,21 @@
       active-text-color="#22C55E"
       @select="onMenuSelect"
     >
-      <div class="menu-group">核心业务</div>
-      <el-menu-item index="/">
-        <el-icon><DataBoard /></el-icon>
-        <span>看板</span>
-      </el-menu-item>
-      <el-menu-item index="/send" v-if="moduleVisible('send')">
-        <el-icon><Promotion /></el-icon>
-        <span>发送中心</span>
-      </el-menu-item>
-      <el-menu-item index="/auto-ranking" v-if="userStore.user?.role === 'admin'">
-        <el-icon><TrendCharts /></el-icon>
-        <span>自动排行推送</span>
-      </el-menu-item>
-
-      <div class="menu-group" style="margin-top: 20px;">数据管理</div>
-      <el-menu-item index="/groups" v-if="moduleVisible('group')">
-        <el-icon><ChatDotRound /></el-icon>
-        <span>群管理</span>
-      </el-menu-item>
-      <el-menu-item index="/templates" v-if="moduleVisible('template')">
-        <el-icon><Document /></el-icon>
-        <span>模板中心</span>
-      </el-menu-item>
-      <el-menu-item index="/assets" v-if="moduleVisible('asset')">
-        <el-icon><Picture /></el-icon>
-        <span>素材库</span>
-      </el-menu-item>
-      <el-menu-item index="/schedules" v-if="moduleVisible('schedule')">
-        <el-icon><Timer /></el-icon>
-        <span>定时任务</span>
-      </el-menu-item>
-      <el-menu-item index="/sop-docs" v-if="moduleVisible('sop')">
-        <el-icon><Notebook /></el-icon>
-        <span>飞书文档</span>
-      </el-menu-item>
-
-      <div class="menu-group" style="margin-top: 20px;">运营配置</div>
-      <el-menu-item index="/crm-profile" v-if="moduleVisible('crm_profile')">
-        <el-icon><UserFilled /></el-icon>
-        <span>客户档案</span>
-      </el-menu-item>
-      <el-menu-item index="/speech-templates" v-if="moduleVisible('speech_template')">
-        <el-icon><ChatLineSquare /></el-icon>
-        <span>话术管理</span>
-      </el-menu-item>
-
-      <div class="menu-group" style="margin-top: 20px;">系统设置</div>
-      <el-menu-item index="/system-teaching">
-        <el-icon><Reading /></el-icon>
-        <span>系统教学</span>
-      </el-menu-item>
-      <el-menu-item index="/logs" v-if="moduleVisible('log')">
-        <el-icon><Tickets /></el-icon>
-        <span>发送记录</span>
-      </el-menu-item>
-      <el-menu-item index="/approvals" v-if="moduleVisible('approval')">
-        <el-icon><Stamp /></el-icon>
-        <span>审批中心</span>
-      </el-menu-item>
-      <el-menu-item index="/users" v-if="userStore.user?.role === 'admin'">
-        <el-icon><User /></el-icon>
-        <span>用户管理</span>
-      </el-menu-item>
-      <el-menu-item index="/permissions" v-if="userStore.user?.role === 'admin'">
-        <el-icon><Lock /></el-icon>
-        <span>权限管理</span>
-      </el-menu-item>
-      <el-menu-item index="/prompt-manage" v-if="userStore.user?.role === 'admin'">
-        <el-icon><EditPen /></el-icon>
-        <span>提示词管理</span>
-      </el-menu-item>
-      <el-menu-item index="/feedback-review" v-if="userStore.user?.role === 'admin'">
-        <el-icon><Comment /></el-icon>
-        <span>反馈审核</span>
-      </el-menu-item>
-      <el-menu-item index="/rag-manage" v-if="userStore.user?.role === 'admin'">
-        <el-icon><Coin /></el-icon>
-        <span>知识库管理</span>
-      </el-menu-item>
+      <template v-for="(group, gIdx) in menuGroups" :key="group.group">
+        <div class="menu-group" :style="gIdx === 0 ? undefined : { marginTop: '20px' }">
+          {{ group.group }}
+        </div>
+        <el-menu-item
+          v-for="item in group.items"
+          :key="item.path"
+          :index="item.path"
+        >
+          <el-icon v-if="item.icon && iconMap[item.icon]">
+            <component :is="iconMap[item.icon]" />
+          </el-icon>
+          <span>{{ item.title }}</span>
+        </el-menu-item>
+      </template>
     </el-menu>
 
     <div class="user-footer">
@@ -122,10 +58,21 @@
 </template>
 
 <script setup lang="ts">
-import { DataBoard, Promotion, ChatDotRound, Document, Picture, Timer, Tickets, Stamp, User, Lock, CaretBottom, Notebook, ChatLineSquare, Reading, UserFilled, EditPen, Comment, TrendCharts, Coin } from '@element-plus/icons-vue'
-import { moduleVisible as checkVisible, type PermissionKey } from '#/utils/permissions'
+import {
+  DataBoard, Promotion, ChatDotRound, Document, Picture, Timer, Tickets,
+  Stamp, User, Lock, CaretBottom, Notebook, ChatLineSquare, Reading,
+  UserFilled, EditPen, Comment, TrendCharts, Coin,
+} from '@element-plus/icons-vue'
+import { useMenu } from '#/composables/useMenu'
 
-const props = defineProps<{
+// 图标名 -> 组件 的查表映射，与路由 meta.icon 对应
+const iconMap: Record<string, any> = {
+  DataBoard, Promotion, ChatDotRound, Document, Picture, Timer, Tickets,
+  Stamp, User, Lock, Notebook, ChatLineSquare, Reading, UserFilled,
+  EditPen, Comment, TrendCharts, Coin,
+}
+
+defineProps<{
   isDark: boolean
   routePath: string
   userStore: any
@@ -136,7 +83,7 @@ const emit = defineEmits<{
   (e: 'navigate'): void
 }>()
 
-const moduleVisible = (key: string) => checkVisible(props.userStore?.user, key as PermissionKey)
+const { menuGroups } = useMenu()
 
 const onMenuSelect = () => {
   emit('navigate')

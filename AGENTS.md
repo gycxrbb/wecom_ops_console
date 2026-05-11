@@ -372,81 +372,127 @@ Skill 总则：
 --------------------------------------------------
 
 这是防止"屎山代码"的硬性约束，所有线程必须遵守。
+详细教程和完整示例见 `docs/工程规范-目录架构与文件拆分指南.md`。
 
 ### 1. 文件大小红线
 
-- 单个 Python 文件不超过 **800 行**，超过必须拆分，一般是300-500行
-- 单个 JS/TS 文件不超过 **600 行**，超过按页面/功能拆分，一般是200-500行
-- 单个 Vue 文件不超过 **600行** ，一般是300-500行
-- 不允许以"临时先放这里"为由突破红线
+| 文件类型 | 红线 | 达 70% 时 |
+|---------|------|----------|
+| Python 路由/服务 | 300 行 | 开始规划拆分 |
+| Python 聚合器(router.py) | 50 行 | 只做 include_router |
+| TS composable | 400 行 | 提取类型/纯函数/独立能力 |
+| Vue SFC `<template>` | 200 行 | 拆子组件 |
+| Vue SFC `<script>` | 400 行 | 提取 composable |
+| CSS | 500 行 | 按组件拆分 |
 
-### 2. 后端三层分离
+### 2. 后端模块化架构
 
-- **路由层**（router）：只做参数接收、校验、调用 service、返回响应，禁止写业务逻辑
-- **服务层**（service）：放业务逻辑、状态编排、外部调用
-- **数据层**（model）：ORM 定义 + 复杂查询封装为 classmethod
-- 路由函数里禁止写超过 5 行的数据库查询或业务编排
-
-### 3. 路由按资源拆分
-
-新增接口必须按资源放到对应的路由文件：
+每个功能模块自包含，标准结构：
 
 ```
-routers/
-├── auth.py          # 登录/登出
-├── pages.py         # Jinja2 页面渲染
-└── api/
-    ├── __init__.py  # 汇总注册所有子路由
-    ├── groups.py    # 群管理
-    ├── templates.py # 模板管理
-    ├── assets.py    # 素材管理
-    ├── messages.py  # 消息发送、预览、重试
-    ├── schedules.py # 定时任务
-    ├── approvals.py # 审批
-    ├── users.py     # 用户管理
-    └── dashboard.py # 看板
+app/<module_name>/
+├── models.py              # ORM 模型
+├── router.py              # 聚合器（只做 include_router，不写端点）
+├── routers/               # 按资源拆分的路由文件
+│   ├── __init__.py
+│   ├── resource_a.py      # 一个资源一个文件
+│   └── resource_b.py
+├── schemas/               # Pydantic 请求/响应结构
+│   └── resource_a.py
+└── services/              # 业务逻辑（复杂时可建子包）
+    ├── resource_a.py
+    └── sub_module/        # 子包用 _ 前缀文件做内部实现
+        ├── __init__.py    # 公开 API（re-export）
+        ├── _core.py
+        └── _helpers.py
 ```
 
-- 禁止继续往 api.py 里堆叠新接口
-- 禁止把多个不相关资源的接口写在同一个文件
+路由聚合器模板（`router.py` 固定写法）：
 
-### 4. 响应序列化
-
-- 用 Pydantic schema 管理请求/响应结构，不要手拼 dict
-- schema 文件按资源拆分到 schemas/ 目录
-
-### 5. 错误处理
-
-- 使用统一的业务异常类（如 BizError）+ 全局异常处理器
-- 禁止每个路由函数各自构造不同格式的错误响应
-
-### 6. 前端 Vue 拆分
-
-前端项目（基于 Vue 3 + TypeScript）位于 `frontend` 目录：
-
-```
-frontend/src/
-├── components/     # 全局公共组件
-├── composables/    # 全局公共逻辑
-├── layout/         # 页面布局
-├── router/         # 路由配置
-├── stores/         # Pinia 状态
-├── utils/          # 工具（Axios 封装等）
-└── views/          # 视图
-    ├── Dashboard.vue
-    ├── SendCenter/ # 复杂页面按模块拆分（如：逻辑/样式/子组件分离）
-    │   ├── index.vue
-    │   ├── composables/
-    │   ├── components/
-    │   └── styles/
-    └── ...
+```python
+router = APIRouter(prefix="/api/v1/xxx", tags=["xxx"], route_class=UnifiedResponseRoute)
+router.include_router(routers.resource_a.router)
+router.include_router(routers.resource_b.router)
+# 条件注册用 if + 延迟 import
 ```
 
-### 7. 禁止事项
+三层职责严格分离：
 
-- 禁止在路由函数里写业务逻辑后再复制粘贴到另一个路由
-- 禁止新增代码时"顺手"往已有的大文件里追加而不拆分
-- 禁止以"先跑起来再说"为借口跳过分层
+| 层 | 职责 | 禁止 |
+|----|------|------|
+| 路由层 routers/ | 参数校验→调 service→返回响应 | 写业务逻辑、>5行DB查询 |
+| 服务层 services/ | 业务编排、外部调用 | 处理 HTTP 请求/响应 |
+| 数据层 models.py | ORM 定义 | 调外部服务 |
+
+### 3. 前端模块化架构
+
+每个页面模块自包含：
+
+```
+frontend/src/views/<ModuleName>/
+├── index.vue              # 页面入口（组装子组件，不写复杂逻辑）
+├── composables/           # 该页面的逻辑
+│   ├── xxxTypes.ts        # 类型定义
+│   ├── useXxxCore.ts      # composable（核心状态）
+│   ├── useXxxUpload.ts    # composable（独立能力）
+│   └── sseStream.ts       # 纯函数（无 Vue 响应式）
+├── components/            # 该页面的子组件
+└── styles/
+    └── XxxModule.css
+```
+
+### 4. 全局 vs 局部放置规则
+
+```
+被 ≥2 个不同模块引用 → 放全局 src/components/ 或 src/composables/ 或 app/services/
+永远只被 1 个模块引用 → 放局部 views/<模块>/ 或 app/<module>/
+```
+
+- 不提前提到全局——第一次写放局部，第二次 import 时再提
+- 全局位置改动影响多个模块，需要更谨慎
+- 后端同理：跨模块 service 放 `app/services/`，模块专属放 `app/<module>/services/`
+
+### 5. 新增功能的文件放置决策
+
+**后端**：
+
+```
+是全新功能模块？
+├── 是 → 新建 app/<module>/ 目录，含 models/router/routers/schemas/services
+└── 否 → 在已有模块内新增
+    ├── 新资源？→ 新建 routers/xxx.py + schemas/xxx.py + services/xxx.py，router.py 加 include
+    └── 同资源新端点？→ 直接追加到已有路由文件（前提：未超 300 行）
+```
+
+**前端**：
+
+```
+是全新页面？
+├── 是 → 新建 views/<Module>/ 目录 + router/index.ts 注册路由 + SidebarContent 加菜单
+└── 否 → 在已有页面内新增
+    ├── 新视觉区域？→ 新建 components/XxxPanel.vue
+    ├── 新逻辑能力？→ 新建 composables/useXxx.ts
+    └── 新类型？→ 新建 composables/xxxTypes.ts
+```
+
+### 6. 前后端衔接：API 对齐三件事
+
+前后端通过 API 接口通信，必须对齐：
+
+1. **路径一致**：后端 `@router.get("/{id}/checkin/tasks")` = 前端 `request.get('/v1/crm-customers/${id}/checkin/tasks')`
+2. **字段名一致**：后端 Pydantic schema 的字段名 = 前端 TypeScript type 的字段名
+3. **返回结构一致**：后端 `response_model` 的嵌套结构 = 前端 `res.xxx` 的取值路径
+
+联调排查顺序：前端 Network 面板看请求是否发出 → 422 检查字段名 → 500 检查后端日志 → 数据返回但页面空检查 res 结构
+
+### 7. 防膨胀纪律
+
+- 文件达红线 70% 时主动规划拆分，不要等到超标再拆
+- 路由聚合器（router.py）禁止写端点代码，只做 include_router
+- Composable 按能力拆分：核心状态放主 composable，独立能力（上传、反馈）提取为子 composable 通过参数注入依赖
+- 子路由/子服务用延迟 import（`from ..services.xxx import xxx as _xxx`）避免循环依赖
+- 禁止以"先跑起来再说"跳过分层
+- 禁止新增代码时"顺手"往已有大文件追加而不拆分
 
 --------------------------------------------------
 十四、开发完成验证规则

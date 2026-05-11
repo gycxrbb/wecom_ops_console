@@ -9,6 +9,7 @@ from .. import models
 from ..database import get_db
 from ..models import SpeechCategory, SpeechTemplate
 from ..route_helper import UnifiedResponseRoute
+from ..schemas.speech_template import SpeechMetadata
 from ..security import get_current_user, require_role, require_permission
 from ..services.crm_speech_templates import (
     SCENE_CATEGORY_MAP,
@@ -19,6 +20,11 @@ from ..services.crm_speech_templates import (
     seed_speech_templates,
 )
 from ..services.speech_template_import import decode_csv_bytes, import_speech_templates_csv
+from ..services.speech_template_service import (
+    upsert_speech_template,
+    validate_metadata_vocabulary,
+    validate_safety_rules,
+)
 
 router = APIRouter(
     prefix='/api/v1/speech-templates',
@@ -85,15 +91,15 @@ def list_scenes(request: Request, db: Session = Depends(get_db)):
     # Build category lookup: scene_key -> {category_id, l1, l2, l3}
     cat_map: dict[str, dict] = {}
     rows = (
-        db.query(SpeechTemplate.scene_key, SpeechCategory.id, SpeechCategory.name, SpeechCategory.parent_id)
+        db.query(SpeechTemplate.scene_key, SpeechCategory.id, SpeechCategory.name, SpeechCategory.parent_id, SpeechCategory.code)
         .outerjoin(SpeechCategory, SpeechTemplate.category_id == SpeechCategory.id)
         .distinct(SpeechTemplate.scene_key)
         .all()
     )
     parent_ids = set()
-    for scene_key, cat_id, cat_name, parent_id in rows:
+    for scene_key, cat_id, cat_name, parent_id, cat_code in rows:
         if cat_id:
-            cat_map[scene_key] = {'category_id': cat_id, 'l3': cat_name, 'parent_id': parent_id}
+            cat_map[scene_key] = {'category_id': cat_id, 'l3': cat_name, 'parent_id': parent_id, 'code': cat_code}
             if parent_id:
                 parent_ids.add(parent_id)
 
@@ -112,7 +118,7 @@ def list_scenes(request: Request, db: Session = Depends(get_db)):
             if l3_id:
                 db.query(SpeechTemplate).filter_by(scene_key=key, category_id=None).update({'category_id': l3_id})
                 cat_row = db.query(SpeechCategory).get(l3_id)
-                cat_map[key] = {'category_id': l3_id, 'l3': l3_name, 'parent_id': cat_row.parent_id}
+                cat_map[key] = {'category_id': l3_id, 'l3': l3_name, 'parent_id': cat_row.parent_id, 'code': cat_row.code}
                 if cat_row.parent_id:
                     parent_ids.add(cat_row.parent_id)
         db.commit()
@@ -143,6 +149,7 @@ def list_scenes(request: Request, db: Session = Depends(get_db)):
             'label': SCENE_LABELS.get(key, key),
             'styles': list(STYLES),
             'category_id': cat_map.get(key, {}).get('category_id'),
+            'category_code': cat_map.get(key, {}).get('code'),
             'category_l1': l1_names.get(l2_to_l1.get(cat_map.get(key, {}).get('parent_id')), ''),
             'category_l2': l2_names.get(cat_map.get(key, {}).get('parent_id'), ''),
             'category_l3': cat_map.get(key, {}).get('l3', ''),
@@ -167,17 +174,21 @@ def update_template(
 ):
     user = get_current_user(request, db)
     require_permission(user, 'speech_template')
-    row = db.query(SpeechTemplate).get(template_id)
-    if not row:
-        raise HTTPException(404, '模板不存在')
-    row.content = req.content
-    if req.label:
-        row.label = req.label
-    if req.category_id is not None:
-        row.category_id = req.category_id
-    db.commit()
-    db.refresh(row)
-    invalidate_cache()
+    try:
+        row = upsert_speech_template(
+            db,
+            template_id=template_id,
+            scene_key='',  # not changing identity
+            style='',
+            label=req.label,
+            content=req.content,
+            category_id=req.category_id,
+            allow_builtin_override=False,
+        )
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+    except ValueError as e:
+        raise HTTPException(404, str(e))
     return _template_response(row)
 
 
@@ -198,19 +209,18 @@ def create_template(
     )
     if existing:
         raise HTTPException(400, f'{req.scene_key}/{req.style} 已存在')
-    row = SpeechTemplate(
-        scene_key=req.scene_key,
-        style=req.style,
-        label=req.label or SCENE_LABELS.get(req.scene_key, req.scene_key),
-        content=req.content,
-        is_builtin=0,
-        owner_id=user.id,
-        category_id=req.category_id,
-    )
-    db.add(row)
-    db.commit()
-    db.refresh(row)
-    invalidate_cache()
+    try:
+        row = upsert_speech_template(
+            db,
+            scene_key=req.scene_key,
+            style=req.style,
+            label=req.label or SCENE_LABELS.get(req.scene_key, req.scene_key),
+            content=req.content,
+            category_id=req.category_id,
+            owner_id=user.id,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     return _template_response(row)
 
 
@@ -266,27 +276,47 @@ async def update_rag_meta(
     row = db.query(SpeechTemplate).get(template_id)
     if not row:
         raise HTTPException(404, '模板不存在')
+    if row.is_builtin == 1:
+        raise HTTPException(403, '内置模板不可修改')
 
-    import json as _json
-    meta: dict = {}
-    if row.metadata_json:
-        try:
-            meta = _json.loads(row.metadata_json)
-        except (ValueError, TypeError):
-            meta = {}
+    # Build metadata from request, validate against vocabulary
+    meta = SpeechMetadata(
+        summary=req.summary,
+        customer_goal=req.customer_goal or [],
+        intervention_scene=req.intervention_scene or [],
+        question_type=req.question_type or [],
+        safety_level=req.safety_level,
+        visibility=req.visibility,
+        tags=req.tags or [],
+        usage_note=req.usage_note,
+    )
+    meta, dropped = validate_metadata_vocabulary(meta)
 
-    updates = req.model_dump(exclude_none=True)
-    meta.update(updates)
-    row.metadata_json = _json.dumps(meta, ensure_ascii=False) if meta else ""
-    db.commit()
-    db.refresh(row)
-    invalidate_cache()
+    # Check safety rules
+    safety_errors = validate_safety_rules(meta)
+    if safety_errors:
+        raise HTTPException(400, '；'.join(safety_errors))
 
-    # Incremental RAG index for this single template
+    # Save via service
+    try:
+        row = upsert_speech_template(
+            db,
+            template_id=template_id,
+            scene_key=row.scene_key,
+            style=row.style,
+            metadata=meta,
+        )
+    except (PermissionError, ValueError) as e:
+        raise HTTPException(400, str(e))
+
+    # Incremental RAG index
     from ..rag.resource_indexer import index_single_speech_template
     await index_single_speech_template(db, row.id)
 
-    return _template_response(row)
+    result = _template_response(row)
+    if dropped:
+        result['dropped_values'] = dropped
+    return result
 
 
 @router.delete('/{template_id}')
@@ -363,18 +393,18 @@ def list_categories(request: Request, db: Session = Depends(get_db)):
             l3_children = []
             for l3 in l3_by_parent.get(l2.id, []):
                 l3_children.append({
-                    'id': l3.id, 'name': l3.name, 'level': 3,
+                    'id': l3.id, 'name': l3.name, 'code': l3.code, 'level': 3,
                     'parent_id': l2.id, 'sort_order': l3.sort_order,
                     'template_count': counts.get(l3.id, 0),
                 })
             l2_children.append({
-                'id': l2.id, 'name': l2.name, 'level': 2,
+                'id': l2.id, 'name': l2.name, 'code': l2.code, 'level': 2,
                 'parent_id': l1.id, 'sort_order': l2.sort_order,
                 'template_count': counts.get(l2.id, 0),
                 'children': l3_children,
             })
         result.append({
-            'id': l1.id, 'name': l1.name, 'level': 1,
+            'id': l1.id, 'name': l1.name, 'code': l1.code, 'level': 1,
             'sort_order': l1.sort_order,
             'children': l2_children,
         })
@@ -398,7 +428,7 @@ def create_category(req: CategoryCreateReq, request: Request, db: Session = Depe
     db.add(row)
     db.commit()
     db.refresh(row)
-    return {'id': row.id, 'name': row.name, 'level': row.level, 'parent_id': row.parent_id}
+    return {'id': row.id, 'name': row.name, 'code': row.code, 'level': row.level, 'parent_id': row.parent_id}
 
 
 @router.put('/categories/{category_id}')
@@ -411,7 +441,7 @@ def update_category(category_id: int, req: CategoryUpdateReq, request: Request, 
     row.name = req.name
     row.sort_order = req.sort_order
     db.commit()
-    return {'id': row.id, 'name': row.name}
+    return {'id': row.id, 'name': row.name, 'code': row.code}
 
 
 @router.delete('/categories/{category_id}')

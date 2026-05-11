@@ -584,6 +584,12 @@ def ensure_speech_category_schema(engine: Engine) -> None:
         if 'metadata_json' not in existing_columns:
             conn.execute(text("ALTER TABLE speech_templates ADD COLUMN metadata_json TEXT"))
 
+        # 3. Add code column to speech_categories if missing
+        cat_columns = [c['name'] for c in inspector.get_columns('speech_categories')]
+        if 'code' not in cat_columns:
+            conn.execute(text("ALTER TABLE speech_categories ADD COLUMN code VARCHAR(128)"))
+            _ensure_named_index(conn, 'speech_categories', 'uq_speech_cat_code', ('code',), unique=True)
+
     # 3. Seed / migrate categories
     from .models import SpeechCategory, SpeechTemplate
     Session = sessionmaker(bind=engine)
@@ -593,34 +599,71 @@ def ensure_speech_category_schema(engine: Engine) -> None:
             _seed_3level_categories(db)
         else:
             _migrate_to_3level_categories(db)
+
+        # Migrate old visibility values in metadata_json
+        _migrate_visibility_values(db)
     finally:
         db.close()
 
 
+def _migrate_visibility_values(db) -> None:
+    """Replace legacy visibility values in speech_templates.metadata_json."""
+    from .models import SpeechTemplate
+    import json as _json
+
+    VISIBILITY_MAP = {
+        'customer_sendable': 'customer_visible',
+        'internal': 'coach_internal',
+        'public': 'customer_visible',
+    }
+    rows = db.query(SpeechTemplate).filter(
+        SpeechTemplate.metadata_json.isnot(None),
+        SpeechTemplate.metadata_json != '',
+    ).all()
+    updated = 0
+    for row in rows:
+        try:
+            meta = _json.loads(row.metadata_json)
+        except (ValueError, TypeError):
+            continue
+        vis = meta.get('visibility')
+        if vis and vis in VISIBILITY_MAP:
+            meta['visibility'] = VISIBILITY_MAP[vis]
+            row.metadata_json = _json.dumps(meta, ensure_ascii=False)
+            updated += 1
+    if updated:
+        db.commit()
+
+
 def _seed_3level_categories(db) -> None:
-    """Fresh install: create L1 > L2 > L3 categories and backfill template category_id."""
+    """Fresh install: create L1 > L2 > L3 categories with codes and backfill template category_id."""
     from .models import SpeechCategory, SpeechTemplate
     from .services.crm_speech_templates import CATEGORY_SEED, SCENE_CATEGORY_MAP
 
     l3_name_to_id: dict[str, int] = {}
     for l1_idx, l1 in enumerate(CATEGORY_SEED, 1):
-        cat_l1 = SpeechCategory(name=l1['name'], level=1, sort_order=l1_idx)
+        cat_l1 = SpeechCategory(name=l1['name'], code=l1.get('code'), level=1, sort_order=l1_idx)
         db.add(cat_l1)
         db.flush()
         for l2_idx, l2_child in enumerate(l1['children'], 1):
             if isinstance(l2_child, str):
                 cat_l2 = SpeechCategory(name=l2_child, level=2, parent_id=cat_l1.id, sort_order=l2_idx)
-                db.add(cat_l2)
-                db.flush()
             else:
-                cat_l2 = SpeechCategory(name=l2_child['name'], level=2, parent_id=cat_l1.id, sort_order=l2_idx)
-                db.add(cat_l2)
+                cat_l2 = SpeechCategory(name=l2_child['name'], code=l2_child.get('code'), level=2, parent_id=cat_l1.id, sort_order=l2_idx)
+            db.add(cat_l2)
+            db.flush()
+            children = l2_child.get('children', []) if isinstance(l2_child, dict) else []
+            for l3_idx, l3_item in enumerate(children, 1):
+                if isinstance(l3_item, dict):
+                    l3_name = l3_item['name']
+                    l3_code = l3_item.get('code')
+                else:
+                    l3_name = l3_item
+                    l3_code = None
+                cat_l3 = SpeechCategory(name=l3_name, code=l3_code, level=3, parent_id=cat_l2.id, sort_order=l3_idx)
+                db.add(cat_l3)
                 db.flush()
-                for l3_idx, l3_name in enumerate(l2_child.get('children', []), 1):
-                    cat_l3 = SpeechCategory(name=l3_name, level=3, parent_id=cat_l2.id, sort_order=l3_idx)
-                    db.add(cat_l3)
-                    db.flush()
-                    l3_name_to_id[l3_name] = cat_l3.id
+                l3_name_to_id[l3_name] = cat_l3.id
     db.commit()
 
     # Backfill category_id for existing templates → point to L3
@@ -633,29 +676,63 @@ def _seed_3level_categories(db) -> None:
     db.commit()
 
 
+def _backfill_category_codes(db, name_to_code: dict[str, str]) -> None:
+    """Backfill code column on existing categories that have no code set."""
+    from .models import SpeechCategory
+    rows = db.query(SpeechCategory).filter(
+        SpeechCategory.deleted_at.is_(None),
+    ).all()
+    updated = 0
+    for row in rows:
+        if not row.code and row.name in name_to_code:
+            row.code = name_to_code[row.name]
+            updated += 1
+    if updated:
+        db.commit()
+
+
 def _migrate_to_3level_categories(db) -> None:
-    """Existing DB: create L3 categories under existing L2, migrate template category_id from L2 → L3."""
+    """Existing DB: create L3 categories under existing L2, migrate template category_id from L2 → L3, backfill codes."""
     from .models import SpeechCategory, SpeechTemplate
     from .services.crm_speech_templates import CATEGORY_SEED, SCENE_CATEGORY_MAP
 
+    # Build name -> code lookup from seed for backfill
+    name_to_code: dict[str, str] = {}
+    for l1 in CATEGORY_SEED:
+        name_to_code[l1['name']] = l1.get('code', '')
+        for l2_child in l1['children']:
+            if isinstance(l2_child, dict):
+                name_to_code[l2_child['name']] = l2_child.get('code', '')
+                for l3_item in l2_child.get('children', []):
+                    if isinstance(l3_item, dict):
+                        name_to_code[l3_item['name']] = l3_item.get('code', '')
+
     existing_l3 = db.query(SpeechCategory).filter(SpeechCategory.level == 3, SpeechCategory.deleted_at.is_(None)).count()
     if existing_l3 > 0:
-        return  # Already migrated
+        # L3 already exists — just backfill codes if missing
+        _backfill_category_codes(db, name_to_code)
+        return
 
     # Build L2 name -> L3 children from seed
-    l2_to_l3_names: dict[str, list[str]] = {}
+    l2_to_l3_children: dict[str, list] = {}
     for l1 in CATEGORY_SEED:
         for l2_child in l1['children']:
             if isinstance(l2_child, dict):
-                l2_to_l3_names[l2_child['name']] = l2_child.get('children', [])
+                l2_to_l3_children[l2_child['name']] = l2_child.get('children', [])
 
     # Create L3 categories under each existing L2
     l3_name_to_id: dict[str, int] = {}
     l2_cats = db.query(SpeechCategory).filter(SpeechCategory.level == 2, SpeechCategory.deleted_at.is_(None)).all()
     for l2 in l2_cats:
-        l3_names = l2_to_l3_names.get(l2.name, [])
-        for idx, l3_name in enumerate(l3_names, 1):
-            cat_l3 = SpeechCategory(name=l3_name, level=3, parent_id=l2.id, sort_order=idx)
+        l3_children = l2_to_l3_children.get(l2.name, [])
+        for idx, l3_item in enumerate(l3_children, 1):
+            if isinstance(l3_item, dict):
+                l3_name = l3_item['name']
+                l3_code = l3_item.get('code')
+            else:
+                l3_name = l3_item
+                l3_code = None
+            cat_l3 = SpeechCategory(name=l3_name, code=l3_code, level=3, parent_id=l2.id, sort_order=idx)
             db.add(cat_l3)
             db.flush()
             l3_name_to_id[l3_name] = cat_l3.id
@@ -675,11 +752,13 @@ def _migrate_to_3level_categories(db) -> None:
             if l3_id:
                 tpl.category_id = l3_id
         else:
-            # Fallback: assign to first L3 under this L2
             first_l3 = db.query(SpeechCategory).filter_by(parent_id=cat.id, level=3).order_by(SpeechCategory.sort_order).first()
             if first_l3:
                 tpl.category_id = first_l3.id
     db.commit()
+
+    # Backfill codes on existing L1/L2 as well
+    _backfill_category_codes(db, name_to_code)
 
 
 def ensure_crm_ai_feedback_schema(engine: Engine) -> None:

@@ -156,6 +156,18 @@ def validate_row(row: dict[str, str], line_no: int) -> list[str]:
     return errors
 
 
+def _check_safety_rules(row: dict[str, str], line_no: int) -> list[str]:
+    """Validate safety-level hard rules. Returns error list."""
+    errors = []
+    safety = normalize_code(row.get("safety_level"))
+    visibility = normalize_code(row.get("visibility"))
+    if safety == "contraindicated":
+        errors.append(f"第 {line_no} 行 safety_level=contraindicated，禁止进入 RAG 索引")
+    if safety in ("medical_sensitive", "doctor_review") and visibility == "customer_visible":
+        errors.append(f"第 {line_no} 行 safety_level={safety} 不可设为 customer_visible")
+    return errors
+
+
 def parse_csv_text(csv_text: str) -> list[dict[str, str]]:
     reader = csv.DictReader(StringIO(csv_text))
     return [{k: (v or "") for k, v in row.items() if k is not None} for row in reader]
@@ -176,7 +188,7 @@ def import_speech_template_rows(
         "rows": [],
     }
 
-    # Pre-load category lookup: L3 name -> category id
+    # Pre-load category lookups
     l3_name_to_id: dict[str, int] = dict(
         db.query(models.SpeechCategory.name, models.SpeechCategory.id)
         .filter(
@@ -184,7 +196,6 @@ def import_speech_template_rows(
             models.SpeechCategory.deleted_at.is_(None),
         ).all()
     )
-    # Fallback: L2 name -> category id (for old data without L3)
     l2_name_to_id: dict[str, int] = dict(
         db.query(models.SpeechCategory.name, models.SpeechCategory.id)
         .filter(
@@ -192,10 +203,19 @@ def import_speech_template_rows(
             models.SpeechCategory.deleted_at.is_(None),
         ).all()
     )
+    code_to_id: dict[str, int] = dict(
+        db.query(models.SpeechCategory.code, models.SpeechCategory.id)
+        .filter(
+            models.SpeechCategory.code.isnot(None),
+            models.SpeechCategory.deleted_at.is_(None),
+        ).all()
+    )
 
     try:
         for index, row in enumerate(rows, start=2):
             row_errors = validate_row(row, index)
+            safety_errors = _check_safety_rules(row, index)
+            row_errors.extend(safety_errors)
             if row_errors:
                 stats["errors"].extend(row_errors)
                 stats["skipped"] += 1
@@ -213,13 +233,22 @@ def import_speech_template_rows(
             content = build_content(row)
             metadata_json = _build_metadata_json(row)
 
-            # Resolve category_id from SCENE_CATEGORY_MAP → L3
-            mapping = SCENE_CATEGORY_MAP.get(scene_key)
+            # Resolve category_id: category_code > SCENE_CATEGORY_MAP > None
             category_id: int | None = None
-            if isinstance(mapping, tuple):
-                category_id = l3_name_to_id.get(mapping[1])
-            elif mapping:
-                category_id = l2_name_to_id.get(mapping)
+            cat_code_raw = (row.get("category_code") or "").strip()
+            if cat_code_raw:
+                cat_code = normalize_code(cat_code_raw)
+                category_id = code_to_id.get(cat_code)
+                if not category_id:
+                    stats["errors"].append(f"第 {index} 行 category_code '{cat_code_raw}' 未找到对应分类")
+                    stats["skipped"] += 1
+                    continue
+            else:
+                mapping = SCENE_CATEGORY_MAP.get(scene_key)
+                if isinstance(mapping, tuple):
+                    category_id = l3_name_to_id.get(mapping[1])
+                elif mapping:
+                    category_id = l2_name_to_id.get(mapping)
 
             # Dedup by (scene_key, style) for non-builtin templates
             existing = (
@@ -259,6 +288,7 @@ def import_speech_template_rows(
                 "scene_key": scene_key,
                 "style": style,
                 "action": action,
+                "category_code": cat_code_raw or "",
             })
 
         if dry_run:
@@ -277,8 +307,9 @@ def import_speech_templates_csv(
     csv_text: str,
     *,
     dry_run: bool = False,
+    owner_id: int | None = None,
 ) -> dict[str, Any]:
-    return import_speech_template_rows(db, parse_csv_text(csv_text), dry_run=dry_run)
+    return import_speech_template_rows(db, parse_csv_text(csv_text), dry_run=dry_run, owner_id=owner_id)
 
 
 def import_speech_templates_csv_file(
@@ -286,5 +317,6 @@ def import_speech_templates_csv_file(
     csv_path: Path,
     *,
     dry_run: bool = False,
+    owner_id: int | None = None,
 ) -> dict[str, Any]:
-    return import_speech_templates_csv(db, decode_csv_bytes(csv_path.read_bytes()), dry_run=dry_run)
+    return import_speech_templates_csv(db, decode_csv_bytes(csv_path.read_bytes()), dry_run=dry_run, owner_id=owner_id)

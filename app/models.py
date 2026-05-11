@@ -317,6 +317,7 @@ class SpeechCategory(Base, TimestampMixin):
     __tablename__ = 'speech_categories'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(64), nullable=False)
+    code: Mapped[str | None] = mapped_column(String(128), nullable=True, unique=True)
     parent_id: Mapped[int | None] = mapped_column(ForeignKey('speech_categories.id'), nullable=True)
     level: Mapped[int] = mapped_column(Integer, default=1)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)

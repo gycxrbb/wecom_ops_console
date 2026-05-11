@@ -82,7 +82,7 @@
                         <span class="speech-scene-item__key">{{ scene.key }}</span>
                         <button v-if="hoveredScene === scene.key" class="scene-categorize-btn" title="归类" @click.stop="openCategorizeDialog(scene.key)">&#128193;</button>
                       </div>
-                      <div class="speech-scene-item speech-scene-item--action" @click="openCreateTemplate(l3.id)">
+                      <div class="speech-scene-item speech-scene-item--action" @click="openCreateTemplate(l3.id, l3.code)">
                         <span style="color: var(--text-muted)">+ 新建话术</span>
                       </div>
                     </template>
@@ -117,7 +117,7 @@
           </div>
         </div>
 
-        <!-- Editor -->
+        <!-- Editor preview (click to open drawer) -->
         <div class="speech-editor" v-if="activeScene">
           <div class="speech-editor-card">
             <div class="speech-editor-card__header">
@@ -130,30 +130,17 @@
                 <button v-for="tpl in currentTemplates" :key="tpl.style" class="speech-style-btn"
                   :class="{ 'is-active': activeStyle === tpl.style }" @click="activeStyle = tpl.style"
                 >{{ styleLabel(tpl.style) }}</button>
-                <button v-if="currentEditingTpl" class="speech-style-btn" style="border-color: #22c55e; color: #22c55e;" @click="openRagMetaDialog(currentEditingTpl)">
-                  RAG 配置
-                </button>
               </div>
             </div>
 
-            <div v-if="currentEditingTpl" class="speech-editor-card__body">
-              <div class="speech-editor-card__content-label">
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#22c55e" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-                <span>话术内容</span>
-                <span class="speech-char-count" :class="{ 'is-over': currentEditingTpl._editContent.length > 2000 }">
-                  {{ currentEditingTpl._editContent.length }}/2000
-                </span>
+            <div v-if="currentEditingTpl" class="speech-editor-card__preview" @click="openEditDrawer">
+              <div class="speech-editor-card__preview-label">
+                <span>{{ currentEditingTpl.label || '未命名' }}</span>
+                <el-button type="primary" size="small">编辑</el-button>
               </div>
-              <el-input v-model="currentEditingTpl._editContent" type="textarea" :rows="10"
-                :placeholder="isPointsScene ? '话术内容（支持 {name} {rank} {detail} {activity} 占位符）' : '请输入话术内容'"
-              />
-              <div class="speech-editor-card__footer">
-                <span v-if="isPointsScene" class="speech-editor-card__hint">占位符: {name} {rank} {detail} {activity}</span>
-                <span v-else></span>
-                <el-button type="primary" :loading="currentEditingTpl._saving"
-                  :disabled="currentEditingTpl._editContent === currentEditingTpl.content"
-                  @click="saveTemplate(currentEditingTpl)"
-                >保存</el-button>
+              <div class="speech-editor-card__preview-content">{{ currentEditingTpl._editContent?.slice(0, 120) }}{{ (currentEditingTpl._editContent?.length || 0) > 120 ? '...' : '' }}</div>
+              <div v-if="currentEditingTpl.metadata_json && Object.keys(currentEditingTpl.metadata_json).length" class="speech-editor-card__rag-badges">
+                <el-tag v-for="(val, key) in currentEditingTpl.metadata_json" :key="key" size="small" type="info" class="rag-badge">{{ key }}</el-tag>
               </div>
             </div>
 
@@ -228,59 +215,75 @@
       </template>
     </el-dialog>
 
-    <!-- RAG Meta dialog -->
-    <el-dialog v-model="ragMetaDialogVisible" title="RAG 配置" width="600px">
-      <div v-if="ragMetaTarget" style="margin-bottom: 12px; color: var(--text-secondary);">
-        {{ ragMetaTarget.label }} / {{ styleLabel(ragMetaTarget.style) }}
-        <span v-if="ragMetaTarget.metadata_json && Object.keys(ragMetaTarget.metadata_json).length"
-          style="color: #e6a23c; margin-left: 8px;">（已有配置，保存将覆盖）</span>
-      </div>
-      <el-form label-width="90px" size="small">
-        <el-form-item label="摘要">
-          <el-input v-model="ragMetaForm.summary" type="textarea" :rows="2" placeholder="话术摘要，用于 RAG 检索增强" />
-        </el-form-item>
-        <el-form-item label="客户目标">
-          <el-select v-model="ragMetaForm.customer_goal" multiple filterable allow-create placeholder="选择或输入标签">
-            <el-option v-for="t in tagOptions('customer_goal')" :key="t.value" :label="t.label" :value="t.value" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="干预场景">
-          <el-select v-model="ragMetaForm.intervention_scene" multiple filterable allow-create placeholder="选择或输入标签">
-            <el-option v-for="t in tagOptions('intervention_scene')" :key="t.value" :label="t.label" :value="t.value" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="问题类型">
-          <el-select v-model="ragMetaForm.question_type" multiple filterable allow-create placeholder="选择或输入标签">
-            <el-option v-for="t in tagOptions('question_type')" :key="t.value" :label="t.label" :value="t.value" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="安全级别">
-          <el-radio-group v-model="ragMetaForm.safety_level">
-            <el-radio value="">未设置</el-radio>
-            <el-radio value="general">general</el-radio>
-            <el-radio value="caution">caution</el-radio>
-            <el-radio value="risk">risk</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="可见性">
-          <el-radio-group v-model="ragMetaForm.visibility">
-            <el-radio value="">未设置</el-radio>
-            <el-radio value="coach_internal">内部</el-radio>
-            <el-radio value="customer_visible">客户可见</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="自定义标签">
-          <el-select v-model="ragMetaForm.tags" multiple filterable allow-create default-first-option placeholder="输入标签回车添加" />
-        </el-form-item>
-        <el-form-item label="使用说明">
-          <el-input v-model="ragMetaForm.usage_note" type="textarea" :rows="2" placeholder="使用场景描述" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="ragMetaDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="ragMetaSaving" @click="handleSaveRagMeta">保存并重新索引</el-button>
+    <!-- Edit drawer (content + RAG) -->
+    <el-drawer v-model="editDrawerVisible" :title="`编辑：${currentEditingTpl?.label || currentSceneLabel}`" size="560px" :destroy-on-close="false">
+      <template v-if="currentEditingTpl">
+        <el-form label-width="80px" size="small">
+          <el-form-item label="标题">
+            <el-input v-model="currentEditingTpl.label" placeholder="话术标题" />
+          </el-form-item>
+          <el-form-item label="内容">
+            <el-input v-model="currentEditingTpl._editContent" type="textarea" :rows="8"
+              :placeholder="isPointsScene ? '话术内容（支持 {name} {rank} {detail} {activity} 占位符）' : '请输入话术内容'"
+            />
+            <div class="speech-char-count" :class="{ 'is-over': currentEditingTpl._editContent.length > 2000 }">
+              {{ currentEditingTpl._editContent.length }}/2000
+            </div>
+            <span v-if="isPointsScene" class="speech-editor-card__hint">占位符: {name} {rank} {detail} {activity}</span>
+          </el-form-item>
+        </el-form>
+
+        <el-divider content-position="left">RAG 配置</el-divider>
+
+        <el-form label-width="80px" size="small">
+          <el-form-item label="摘要">
+            <el-input v-model="ragMetaForm.summary" type="textarea" :rows="2" placeholder="话术摘要，用于 RAG 检索增强" />
+          </el-form-item>
+          <el-form-item label="客户目标">
+            <el-select v-model="ragMetaForm.customer_goal" multiple filterable allow-create placeholder="选择或输入标签">
+              <el-option v-for="t in tagOptions('customer_goal')" :key="t.value" :label="t.label" :value="t.value" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="干预场景">
+            <el-select v-model="ragMetaForm.intervention_scene" multiple filterable allow-create placeholder="选择或输入标签">
+              <el-option v-for="t in tagOptions('intervention_scene')" :key="t.value" :label="t.label" :value="t.value" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="问题类型">
+            <el-select v-model="ragMetaForm.question_type" multiple filterable allow-create placeholder="选择或输入标签">
+              <el-option v-for="t in tagOptions('question_type')" :key="t.value" :label="t.label" :value="t.value" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="安全级别">
+            <el-radio-group v-model="ragMetaForm.safety_level">
+              <el-radio value="">未设置</el-radio>
+              <el-radio value="general">general</el-radio>
+              <el-radio value="nutrition_education">nutrition_education</el-radio>
+              <el-radio value="medical_sensitive">medical_sensitive</el-radio>
+              <el-radio value="doctor_review">doctor_review</el-radio>
+              <el-radio value="contraindicated">contraindicated</el-radio>
+            </el-radio-group>
+          </el-form-item>
+          <el-form-item label="可见性">
+            <el-radio-group v-model="ragMetaForm.visibility">
+              <el-radio value="">未设置</el-radio>
+              <el-radio value="coach_internal">内部</el-radio>
+              <el-radio value="customer_visible">客户可见</el-radio>
+            </el-radio-group>
+          </el-form-item>
+          <el-form-item label="自定义标签">
+            <el-select v-model="ragMetaForm.tags" multiple filterable allow-create default-first-option placeholder="输入标签回车添加" />
+          </el-form-item>
+          <el-form-item label="使用说明">
+            <el-input v-model="ragMetaForm.usage_note" type="textarea" :rows="2" placeholder="使用场景描述" />
+          </el-form-item>
+        </el-form>
       </template>
-    </el-dialog>
+      <template #footer>
+        <el-button @click="editDrawerVisible = false">取消</el-button>
+        <el-button type="primary" :loading="currentEditingTpl?._saving || ragMetaSaving" @click="handleSaveEditDrawer">保存全部</el-button>
+      </template>
+    </el-drawer>
 
     <!-- CSV Import dialog -->
     <el-dialog v-model="importDialogVisible" title="导入话术 CSV" width="720px">
@@ -343,14 +346,14 @@ const {
   categorizeDialogVisible, categorizeSceneKey, categorizeTargetId, categorizeOptions,
   createTemplateDialogVisible, createTemplateCategoryId, createTemplateSceneKey,
   createTemplateStyle, createTemplateLabel, createTemplateContent, createTemplateSaving,
-  ragMetaDialogVisible, ragMetaTarget, ragMetaForm, ragMetaSaving,
+  editDrawerVisible, ragMetaForm, ragMetaSaving,
   sidebarTree, uncategorizedScenes, currentSceneLabel, currentTemplates,
   currentEditingTpl, isPointsScene,
   selectScene, toggleNode, styleLabel, getCategoryIcon, fetchData,
   saveTemplate, openCreateTemplate, handleCreateTemplate,
   startRename, saveRename, handleDeleteCategory, openMoveDialog, handleMoveCategory,
   openCreateL2, openCreateL3, handleCreateL1, openCategorizeDialog, handleCategorizeScene,
-  openRagMetaDialog, handleSaveRagMeta,
+  handleSaveEditDrawer, openEditDrawer,
 } = useSpeechTemplates()
 
 const { options: tagOptions } = useRagTags()
