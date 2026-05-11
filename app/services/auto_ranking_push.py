@@ -5,7 +5,7 @@ import asyncio
 import json
 import logging
 import random
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 
 from zoneinfo import ZoneInfo
 
@@ -54,7 +54,16 @@ def _should_skip(cfg: AutoRankingConfig, today: date) -> bool:
 async def execute_auto_ranking(cfg: AutoRankingConfig) -> dict:
     """执行一次自动排行推送。返回 {sent, skipped, failed, error}。"""
     now = datetime.now(_tz)
-    today = now.date()
+
+    # 计算目标推送时间（cron 提前 1 分钟触发，需处理跨午夜场景）
+    push_hour = cfg.push_hour or 0
+    push_minute = cfg.push_minute or 0
+    target_time = now.replace(hour=push_hour, minute=push_minute, second=0, microsecond=0)
+    if target_time <= now - timedelta(minutes=1):
+        target_time += timedelta(days=1)
+
+    # 用目标推送时间的日期做判断（解决 00:00 推送时 cron 23:59 触发的日期偏差）
+    today = target_time.date()
 
     # 冷却期检查：距上次执行不足 5 分钟则跳过，防止 misfire 重复触发
     if cfg.last_run_at:
@@ -109,10 +118,9 @@ async def execute_auto_ranking(cfg: AutoRankingConfig) -> dict:
         return {'sent': 0, 'skipped': 0, 'error': '无有效排行消息'}
 
     # 预生成完成，等待至准点再发送（cron 提前 1 分钟触发）
-    target_time = now.replace(hour=cfg.push_hour or 0, minute=cfg.push_minute or 0, second=0, microsecond=0)
     wait_seconds = (target_time - datetime.now(_tz)).total_seconds()
     if 0 < wait_seconds < 120:
-        _log.info('自动排行 %s: 预生成完成，等待 %.1fs 至准点 %02d:%02d 推送', cfg.name, wait_seconds, cfg.push_hour or 0, cfg.push_minute or 0)
+        _log.info('自动排行 %s: 预生成完成，等待 %.1fs 至准点 %02d:%02d 推送', cfg.name, wait_seconds, push_hour, push_minute)
         await asyncio.sleep(wait_seconds)
 
     # 发送
@@ -154,6 +162,7 @@ async def execute_auto_ranking(cfg: AutoRankingConfig) -> dict:
                     _failed += 1
                     _err = str(exc)[:200]
                     _log.warning('自动排行 %s: 推送失败 - %s', cfg.name, exc)
+                    db.rollback()  # 确保 session 干净后再写失败记录
                     mark_send_failure(db, msg_record, str(exc)[:255], payload=None)
             return _sent, _failed, _err
 
