@@ -132,7 +132,7 @@ def sync_crm_admin_to_local(db: Session, admin: dict[str, Any]) -> models.User:
             auth_source="crm",
             role="coach",
             password_hash=pwd_context.hash(secrets.token_hex(16)),
-            permissions_json="{}",
+            permissions_json='{"crm_profile": true}',
             status=1,
             crm_admin_id=admin.get("id"),
         )

@@ -191,7 +191,7 @@ def authenticate(db: Session, username: str, password: str):
 def get_current_user(request: Request, db: Session):
     user_id = None
 
-    # 1. JWT Bearer token
+    # 1. 企微 JWT Bearer token
     auth_header = request.headers.get("Authorization")
     if auth_header and auth_header.startswith("Bearer "):
         token = auth_header.split(" ")[1]
@@ -201,7 +201,13 @@ def get_current_user(request: Request, db: Session):
         except PyJWTError:
             pass
 
-    # 2. Session fallback
+        # 2. CRM JWT fallback（企微 JWT 解析失败时尝试）
+        if not user_id and settings.crm_jwt_secret_key:
+            user = _try_crm_token_fallback(token, db)
+            if user:
+                return user
+
+    # 3. Session fallback
     if not user_id:
         user_id = request.session.get('user_id')
 
@@ -213,6 +219,35 @@ def get_current_user(request: Request, db: Session):
         if 'user_id' in request.session:
             request.session.clear()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Not authenticated')
+    return user
+
+
+def _try_crm_token_fallback(token: str, db):
+    """尝试用 CRM JWT 密钥解析 token，按 crm_admin_id 查本地用户。"""
+    try:
+        payload = jwt.decode(token, settings.crm_jwt_secret_key, algorithms=['HS256'])
+    except PyJWTError:
+        return None
+
+    crm_admin_id = payload.get("id")
+    if not crm_admin_id:
+        return None
+
+    user = db.query(models.User).filter(
+        models.User.crm_admin_id == int(crm_admin_id),
+        models.User.status == 1,
+    ).first()
+    if not user:
+        return None
+
+    # CRM 用户首次通过 JWT 访问时，自动补上 crm_profile 权限
+    perms = json_loads(user.permissions_json, {})
+    if not perms.get("crm_profile"):
+        perms["crm_profile"] = True
+        user.permissions_json = json_dumps(perms)
+        db.commit()
+        db.refresh(user)
+
     return user
 
 

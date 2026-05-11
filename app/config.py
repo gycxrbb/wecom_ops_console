@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     crm_admin_db_password: str = ''
     crm_admin_db_name: str = 'mfgcrmdb'
     crm_admin_table_name: str = 'admins'
+    crm_jwt_secret_key: str = ''                                # CRM 后端 APP_PUBLIC_KEY，用于验证 CRM 签发的 JWT
+    crm_token_strict_redis_check: bool = False                  # 生产环境建议开启 Redis token 比对
     database_url: str = 'sqlite:///./data/app.db'
     redis_url: str = 'redis://127.0.0.1:6379/0'
     asset_storage_provider: str = 'local'
