@@ -13,6 +13,27 @@ _log = logging.getLogger(__name__)
 
 STYLES = ('professional', 'encouraging', 'competitive')
 
+_CODE_RE = __import__('re').compile(r'^[a-z][a-z0-9_.]*$')
+
+
+def pinyin_slug(name: str) -> str:
+    """中文名转拼音 slug。如 '新分类' → 'xin_fen_lei'。"""
+    try:
+        from pypinyin import lazy_pinyin
+        parts = lazy_pinyin(name)
+        return '_'.join(parts).lower()[:64]
+    except ImportError:
+        import hashlib
+        return f"cat_{hashlib.md5(name.encode()).hexdigest()[:8]}"
+
+
+def derive_category_code(name: str, parent_code: str | None = None) -> str:
+    """Derive a category code from name and optional parent code."""
+    slug = pinyin_slug(name)
+    if parent_code:
+        return f"{parent_code}.{slug}"
+    return slug
+
 # 分类体系种子数据（3 级：L1 > L2 > L3），含 code 稳定标识
 CATEGORY_SEED = [
     {'name': '健康管理类', 'code': 'health', 'children': [

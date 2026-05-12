@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 import random
+import time as _time
 from datetime import datetime, date, timedelta
 
 from zoneinfo import ZoneInfo
@@ -23,6 +24,9 @@ _tz = ZoneInfo('Asia/Shanghai')
 
 _COOLDOWN_SECONDS = 300  # 同一配置 5 分钟内不重复执行
 _MAX_RETRY_ROUNDS = 2    # 失败条目最多重试 2 轮
+_PER_MSG_RETRIES = 3     # 单条消息最多重试 3 次
+_PER_MSG_DELAY = 2.0     # 普通重试间隔
+_RATE_LIMIT_DELAY = 30.0 # 限流重试间隔
 
 
 def _load_json(text: str, default=None):
@@ -67,8 +71,7 @@ async def execute_auto_ranking(cfg: AutoRankingConfig) -> dict:
 
     # 冷却期检查：距上次执行不足 5 分钟则跳过，防止 misfire 重复触发
     if cfg.last_run_at:
-        last_run_utc = cfg.last_run_at.replace(tzinfo=None) if cfg.last_run_at.tzinfo else cfg.last_run_at
-        elapsed = (datetime.utcnow() - last_run_utc).total_seconds()
+        elapsed = (datetime.utcnow() - cfg.last_run_at).total_seconds()
         if elapsed < _COOLDOWN_SECONDS:
             _log.info('自动排行 %s: 跳过，距上次执行仅 %.0fs (< %ds)', cfg.name, elapsed, _COOLDOWN_SECONDS)
             return {'sent': 0, 'skipped': 0, 'error': '', 'cooldown': True}
@@ -140,77 +143,101 @@ async def execute_auto_ranking(cfg: AutoRankingConfig) -> dict:
             return {'sent': 0, 'skipped': 0, 'error': f'目标群 {target_group.id} 未配置 webhook'}
 
         pending_items = [i for i in items if not i.get('skipped') and i.get('content_json')]
+        total_count = len(pending_items)
+        send_start = _time.time()
 
-        async def _send_batch(batch_items: list[dict]) -> tuple[int, int, str]:
-            """发送一批消息，返回 (sent, failed, last_error)。"""
+        async def _send_batch(batch_items: list[dict], retry_round: int = 0) -> tuple[int, int, str, list[dict]]:
+            """发送一批消息，返回 (sent, failed, last_error, failed_items)。"""
             _sent, _failed, _err = 0, 0, ''
+            _failed_items: list[dict] = []
             for item in batch_items:
                 msg_record = create_send_record(
                     db=db, group_id=target_group.id,
                     msg_type=item.get('msg_type', 'markdown'),
                     content_json=item['content_json'], config_id=cfg.id,
+                    retry_round=retry_round,
                 )
-                try:
-                    payload, response = await WeComService.send(
-                        webhook=webhook, msg_type=item.get('msg_type', 'markdown'),
-                        content=item['content_json'], group_key=str(target_group.id),
-                    )
-                    _sent += 1
-                    mark_send_success(db, msg_record, payload=payload, response=response)
-                    await asyncio.sleep(1.2)
-                except Exception as exc:
+                last_exc: Exception | None = None
+                for attempt in range(1, _PER_MSG_RETRIES + 1):
+                    try:
+                        payload, response = await WeComService.send(
+                            webhook=webhook, msg_type=item.get('msg_type', 'markdown'),
+                            content=item['content_json'], group_key=str(target_group.id),
+                        )
+                        _sent += 1
+                        mark_send_success(db, msg_record, payload=payload, response=response)
+                        last_exc = None
+                        break
+                    except Exception as exc:
+                        last_exc = exc
+                        error_str = str(exc).lower()
+                        if '45009' in error_str or 'freq' in error_str or '限流' in error_str:
+                            _log.warning('自动排行 %s: 限流，等待 %.0fs (attempt %d/%d)',
+                                         cfg.name, _RATE_LIMIT_DELAY, attempt, _PER_MSG_RETRIES)
+                            await asyncio.sleep(_RATE_LIMIT_DELAY)
+                        elif attempt < _PER_MSG_RETRIES:
+                            _log.warning('自动排行 %s: 发送失败，%.1fs 后重试 (attempt %d/%d): %s',
+                                         cfg.name, _PER_MSG_DELAY, attempt, _PER_MSG_RETRIES, exc)
+                            await asyncio.sleep(_PER_MSG_DELAY)
+                if last_exc is not None:
                     _failed += 1
-                    _err = str(exc)[:200]
-                    _log.warning('自动排行 %s: 推送失败 - %s', cfg.name, exc)
-                    db.rollback()  # 确保 session 干净后再写失败记录
-                    mark_send_failure(db, msg_record, str(exc)[:255], payload=None)
-            return _sent, _failed, _err
+                    _err = str(last_exc)[:200]
+                    _failed_items.append(item)
+                    _log.warning('自动排行 %s: 推送失败（已重试 %d 次）- %s',
+                                 cfg.name, _PER_MSG_RETRIES, last_exc)
+                    db.rollback()
+                    mark_send_failure(db, msg_record, str(last_exc)[:255], payload=None)
+                else:
+                    await asyncio.sleep(1.2)
+            return _sent, _failed, _err, _failed_items
 
         # ── 首轮发送 ──
-        sent, failed, last_error = await _send_batch(pending_items)
+        sent, failed, last_error, failed_items = await _send_batch(pending_items)
 
-        # ── 容错重试：整队重发 ──
+        # ── 容错重试：只重发失败条目 ──
         retry_round = 0
         while failed > 0 and retry_round < _MAX_RETRY_ROUNDS:
             retry_round += 1
-            _log.info('自动排行 %s: 第 %d 轮整队重试，等待 61s 释放限流窗口', cfg.name, retry_round)
+            _log.info('自动排行 %s: 第 %d 轮重试（%d 条失败），等待 61s 释放限流窗口',
+                      cfg.name, retry_round, len(failed_items))
             await asyncio.sleep(61)
-
-            # 删除上一轮的 Message 记录
-            old_msgs = db.query(Message).filter(
-                Message.source_type == 'auto_ranking',
-                Message.source_id == cfg.id,
-            ).all()
-            for om in old_msgs:
-                db.query(MessageLog).filter(MessageLog.message_id == om.id).delete()
-                db.delete(om)
-            db.commit()
 
             # 重试通知
             try:
                 await WeComService.send(webhook, 'text', {
-                    'content': f'⚠️ 自动排行推送存在失败条目，正在第 {retry_round} 次整队重试（共 {len(pending_items)} 条）'
+                    'content': f'⚠️ 积分排行推送存在 {len(failed_items)} 条失败，正在第 {retry_round} 次重试'
                 }, group_key=f'auto-ranking-retry-{cfg.id}')
-            except Exception:
-                pass
+            except Exception as exc:
+                _log.warning('自动排行 %s: 重试通知发送失败: %s', cfg.name, exc)
 
-            # 整队重发
-            sent, failed, last_error = await _send_batch(pending_items)
-            _log.info('自动排行 %s: 第 %d 轮整队重试完成，成功 %d，失败 %d', cfg.name, retry_round, sent, failed)
+            # 只重发失败条目
+            r_sent, r_failed, r_err, failed_items = await _send_batch(failed_items, retry_round=retry_round)
+            sent += r_sent
+            failed = r_failed
+            if r_err:
+                last_error = r_err
+            _log.info('自动排行 %s: 第 %d 轮重试完成，本轮成功 %d 仍失败 %d',
+                      cfg.name, retry_round, r_sent, r_failed)
 
         # ── 推送完成通知 ──
         if sent > 0:
+            elapsed = _time.time() - send_start
             now_str = datetime.now(_tz).strftime('%Y-%m-%d %H:%M')
-            summary = f'【{cfg.name}】推送完成\n时间：{now_str}\n成功：{sent} 条'
+            lines = [
+                f'📊 **{cfg.name}推送完成**',
+                f'⏰ 时间：{now_str}',
+                f'✅ 成功：{sent} / {total_count} 条',
+                f'⏱ 耗时：{elapsed:.1f} 秒',
+            ]
             if failed > 0:
-                summary += f'\n失败：{failed} 条'
+                lines.append(f'❌ 失败：{failed} 条')
             try:
                 await WeComService.send(
-                    webhook=webhook, msg_type='text',
-                    content={'content': summary}, group_key=str(target_group.id),
+                    webhook=webhook, msg_type='markdown',
+                    content={'content': '\n'.join(lines)}, group_key=str(target_group.id),
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                _log.warning('自动排行 %s: 推送完成通知发送失败: %s', cfg.name, exc)
     finally:
         db.close()
 

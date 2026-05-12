@@ -166,7 +166,7 @@ class ScheduleService:
                     result = await execute_auto_ranking(cfg)
                     logger.info('Auto ranking %s: sent=%d skipped=%d failed=%d error=%s cooldown=%s', cfg_name, result.get('sent', 0), result.get('skipped', 0), result.get('failed', 0), str(result.get('error', ''))[:80], result.get('cooldown', False))
                     from datetime import datetime as _dt
-                    cfg.last_run_at = _dt.now(tz)
+                    cfg.last_run_at = _dt.utcnow()
                     cfg.last_error = result.get('error', '')
                     db2.commit()
                 except Exception as exc:
@@ -174,6 +174,8 @@ class ScheduleService:
                     try:
                         cfg = db2.query(AutoRankingConfig).get(cfg_id)
                         if cfg:
+                            from datetime import datetime as _dt
+                            cfg.last_run_at = _dt.utcnow()
                             cfg.last_error = str(exc)[:200]
                             db2.commit()
                     except Exception:

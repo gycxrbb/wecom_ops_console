@@ -59,7 +59,7 @@ RAG 相关真值分三层：
 关键字段：
 
 ```text
-title,clean_content,summary,status,customer_goal,intervention_scene,content_kind,visibility,safety_level,question_type,tags,usage_note,tone,reviewer,review_note
+title,clean_content,category_code,summary,status,customer_goal,intervention_scene,content_kind,visibility,safety_level,question_type,tags,usage_note,tone,reviewer,review_note
 ```
 
 当前导入逻辑：
@@ -67,8 +67,11 @@ title,clean_content,summary,status,customer_goal,intervention_scene,content_kind
 - `title` 必须有。
 - `clean_content` 或 `content` 必须有。
 - `status` 只接受 `approved` 或 `active`。
-- 标签必须使用当前词表 code。
+- 标签必须使用当前词表 code。不在词表中的值会被丢弃并报告 warning。
 - `visibility` 只应使用 `coach_internal` 或 `customer_visible`。
+- `category_code` 推荐填写，用于精确定位三级分类（如 `health.diet.food_choice`）。
+- 安全级别硬规则：`contraindicated` 禁止入库；`medical_sensitive` / `doctor_review` 不可设为 `customer_visible`。
+- 导入结果会区分 error（阻断）和 warning（非阻断，如未知标签被忽略），应逐一排查。
 
 ### 2. 落业务表
 
@@ -85,9 +88,10 @@ scripts/import_speech_templates_csv.py
 |----------|------------|
 | title | `speech_templates.label` |
 | clean_content | `speech_templates.content` |
+| category_code | 解析为 `speech_templates.category_id`（通过 `speech_categories.code` 匹配） |
 | tone | `speech_templates.style` |
-| intervention_scene / question_type | 参与推导 `speech_templates.scene_key` |
-| summary / customer_goal / intervention_scene / question_type / visibility / safety_level / tags / usage_note | `speech_templates.metadata_json` |
+| intervention_scene / question_type | 参与推导 `speech_templates.scene_key`（场景列表从 `rag_tags` 动态加载） |
+| summary / customer_goal / intervention_scene / question_type / visibility / safety_level / tags / usage_note | `speech_templates.metadata_json`（未知标签被丢弃并报告 warning） |
 
 ### 3. RAG 索引
 
@@ -105,7 +109,8 @@ app/rag/resource_indexer.py
 - 目标、场景、问题类型
 - 使用场景
 - 自由标签
-- 话术分类 L1/L2
+- 话术分类 L1/L2/L3
+- 分类 code（如 `health.diet.food_choice`）
 
 然后写入：
 
@@ -116,7 +121,7 @@ rag_chunks
 Qdrant payload
 ```
 
-Qdrant payload 会保存 `customer_goal / intervention_scene / question_type / visibility / safety_level / content_kind / status` 等字段，用于后续过滤和加权。
+Qdrant payload 会保存 `customer_goal / intervention_scene / question_type / visibility / safety_level / content_kind / status / category_code / category_l3` 等字段，用于后续过滤和加权。
 
 ---
 
@@ -288,11 +293,12 @@ rag_retrieval_logs
 
 这些是审查当前库时发现的历史问题，不代表新规范应该照着填。
 
-1. 历史话术里仍有 `visibility=customer_sendable`，应统一迁移为 `customer_visible`。
+1. ~~历史话术里仍有 `visibility=customer_sendable`，应统一迁移为 `customer_visible`。~~ **已修复**：系统迁移脚本已自动将 `customer_sendable` / `internal` / `public` 统一替换为 `customer_visible` / `coach_internal`。
 2. 历史素材 RAG 里仍有 active weak 资源，其中部分素材已删除或没有 `rag_meta_json`。
 3. 个别素材 RAG meta 里仍有中文标签或旧 code，例如 `血糖管理`、`lifestyle_change`、`exercise_guidance`。
-4. `question-category.xlsx` 的三级、细分分类尚未进入 RAG payload，当前只落了话术分类 L1/L2。
+4. ~~`question-category.xlsx` 的三级、细分分类尚未进入 RAG payload，当前只落了话术分类 L1/L2。~~ **已修复**：RAG payload 现在包含 L3 分类名称和 `category_code`（如 `health.diet.food_choice`）。
 5. `rag_resource_tags` 当前为空，这是实现现状；标签主要在 `metadata_json`、`semantic_text` 和 Qdrant payload 中生效。
+6. CSV 导入时不在词表中的标签值会被静默丢弃——**已改善**：导入结果现在会报告 warning 列出被丢弃的标签值，标注同学可据此补充词表后重新导入。
 
 ---
 
@@ -301,13 +307,15 @@ rag_retrieval_logs
 上线或批量导入前，建议按这个顺序检查：
 
 - [ ] CSV 表头与规范一致。
-- [ ] 所有受控字段都使用英文 code。
-- [ ] 没有使用 `customer_sendable` 作为 visibility。
-- [ ] `medical_sensitive / doctor_review / contraindicated` 没有标成 `customer_visible`。
+- [ ] 话术 CSV 中 `category_code` 列填写了正确的分类标识（如 `health.diet.food_choice`）。
+- [ ] 所有受控字段都使用英文 code，且在词表中存在。
+- [ ] `contraindicated` 话术不会出现在 CSV 中（会被导入拦截）。
+- [ ] `medical_sensitive / doctor_review` 没有标成 `customer_visible`。
 - [ ] 素材都能匹配到 `materials`。
 - [ ] 素材 `storage_status=ready`。
 - [ ] `customer_visible` 素材有 public_url。
 - [ ] 图片有 alt_text，视频有 transcript 或 alt_text。
+- [ ] 导入后检查结果中的 errors（阻断）和 warnings（非阻断），逐一处理。
 - [ ] 导入后 `rag_resources` 和 `rag_chunks` 数量符合预期。
 - [ ] Qdrant `wecom_health_rag` points 数量与 `rag_chunks` 基本对齐。
 - [ ] 用固定问题做检索回放，检查 `rag_retrieval_logs.hit_json`。
@@ -319,14 +327,16 @@ rag_retrieval_logs
 ### 已经能做什么
 
 - 能把审核后的话术导入系统，并索引进 RAG。
+- 能通过 `category_code` 精确指定话术的三级分类（L1/L2/L3 均在 RAG payload 中）。
+- 能在话术管理页面直接管理标签（新增/编辑），无需联系后端。
 - 能把已有素材补充 RAG 标注，并作为推荐素材返回。
 - 能按场景、安全等级、语义相似度和标签加权做检索。
+- 能在 CSV 导入时自动校验安全级别硬规则，并报告未知标签 warning。
 - 能记录检索日志，支持复盘为什么召回或没召回。
 
 ### 半能做什么
 
 - 能过滤 weak/stale，但历史 weak 素材还需要一次治理。
-- 能使用 L1/L2 话术分类，但还没把 `question-category.xlsx` 的三级/细分分类正式纳入检索。
 - 能用 Qdrant payload 做过滤，但 `rag_resource_tags` 关系表还不是正式主链路。
 
 ### 还不能做什么
@@ -337,8 +347,8 @@ rag_retrieval_logs
 
 ### 当前 blocker
 
-最大 blocker 不是文档，而是历史 RAG 数据治理：旧 visibility、旧标签 code、weak/deleted 素材 active 状态需要统一清理并重建索引。
+最大 blocker 不是文档，而是历史 RAG 数据治理：旧标签 code、weak/deleted 素材 active 状态需要统一清理并重建索引。（旧 `visibility` 值已由迁移脚本自动修复。）
 
 ### 下一步最值得做什么
 
-先做一轮 RAG 数据治理脚本和重建索引，再扩大语料导入范围。否则新规范写得再清楚，旧索引仍会干扰检索质量和验收判断。
+先做一轮 RAG 数据治理脚本和重建索引（重点是 weak 素材清理和旧标签 code 修正），再扩大语料导入范围。否则新规范写得再清楚，旧索引仍会干扰检索质量和验收判断。

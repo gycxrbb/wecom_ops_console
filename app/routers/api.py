@@ -273,9 +273,30 @@ def serialize_schedule(schedule: models.Schedule, group_names: dict[int, str] | 
     }
 
 
+def _extract_content_preview(rendered_content: str, max_len: int = 10) -> str:
+    """从 rendered_content 提取前 max_len 个字符作为预览。"""
+    if not rendered_content:
+        return ''
+    try:
+        data = json.loads(rendered_content)
+        if isinstance(data, dict):
+            text = data.get('content', '')
+        else:
+            text = str(data)
+    except (json.JSONDecodeError, TypeError):
+        text = rendered_content
+    # 去掉 markdown 标记符号和首尾空白
+    cleaned = text.replace('**', '').replace('#', '').strip()
+    return cleaned[:max_len] + ('...' if len(cleaned) > max_len else '')
+
+
 def serialize_log(log: models.MessageLog):
     message = log.message
     group = message.group if message and message.group else None
+    # 自动排行的 batch retry_round 存在 message.retry_count，首轮为 0
+    retry_round = 0
+    if message and message.source_type == 'auto_ranking' and message.retry_count and message.retry_count > 0:
+        retry_round = message.retry_count
     return {
         'id': log.id,
         'job_id': message.source_id if message and message.source_type in ('schedule', 'auto_ranking') else None,
@@ -283,9 +304,11 @@ def serialize_log(log: models.MessageLog):
         'group_name': group.name if group else '',
         'msg_type': message.msg_type if message else '',
         'run_mode': 'retry' if log.attempt_no > 1 else (message.source_type if message else 'manual'),
+        'retry_round': retry_round,
         'success': bool(log.success),
         'resolved': bool(log.resolved),
         'error_message': log.error_message,
+        'content_preview': _extract_content_preview(message.rendered_content) if message else '',
         'request_json': json_loads(log.request_payload, {}),
         'response_json': json_loads(log.response_payload, {}),
         'created_at': _dt(log.created_at),
@@ -633,7 +656,7 @@ async def _perform_job_send_inner(db: Session, schedule: models.Schedule, run_mo
                     if nw:
                         try:
                             await WeComService.send(nw, 'text', {
-                                'content': f'⚠️ 上轮积分排行推送存在失败条目，正在执行第 {retry_round} 次整体重试（共 {len(batch_items)} 条）'
+                                'content': f'⚠️ 积分排行推送存在失败条目，正在第 {retry_round} 次整队重试（共 {len(batch_items)} 条）'
                             }, group_key=f'retry-notify-{ng.id}')
                         except Exception:
                             pass

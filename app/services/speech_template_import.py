@@ -37,7 +37,8 @@ SCENE_ALIASES = {
     "follow_up_review": "period_review",
 }
 
-KNOWN_SCENES = {
+# Base fallback scenes (used when tag_cache is not yet loaded)
+_FALLBACK_SCENES = {
     "meal_checkin",
     "meal_review",
     "obstacle_breaking",
@@ -47,6 +48,18 @@ KNOWN_SCENES = {
     "period_review",
     "maintenance",
 }
+
+
+def _get_known_scenes() -> set[str]:
+    """Load known scene keys from rag_tags (intervention_scene dimension), fallback to hardcoded."""
+    try:
+        from ..rag.tag_cache import tag_cache
+        codes = tag_cache.get_valid_codes("intervention_scene")
+        if codes:
+            return set(codes)
+    except Exception:
+        pass
+    return _FALLBACK_SCENES
 
 SOURCE_TYPE_ALIASES = {
     "speech": "speech_template",
@@ -92,11 +105,12 @@ def normalize_style(row: dict[str, str]) -> str:
 
 
 def normalize_scene_key(row: dict[str, str]) -> str:
+    known_scenes = _get_known_scenes()
     candidates = split_tag_values(row.get("intervention_scene"))
     candidates.extend(split_tag_values(row.get("question_type")))
     for code in candidates:
         mapped = SCENE_ALIASES.get(code, code)
-        if mapped in KNOWN_SCENES:
+        if mapped in known_scenes:
             return mapped
 
     question_type = normalize_code(row.get("question_type"))
@@ -111,18 +125,23 @@ def build_content(row: dict[str, str]) -> str:
     return content or summary
 
 
-def _build_metadata_json(row: dict[str, str]) -> str:
-    """Serialize CSV annotation fields into JSON for RAG indexing."""
+def _build_metadata_json(row: dict[str, str]) -> tuple[str, list[str]]:
+    """Serialize CSV annotation fields into JSON for RAG indexing. Returns (json_str, warnings)."""
     meta: dict[str, Any] = {}
-    customer_goal = resolve_tag_values("customer_goal", row.get("customer_goal"))
-    if customer_goal:
-        meta["customer_goal"] = customer_goal
-    intervention_scene = resolve_tag_values("intervention_scene", row.get("intervention_scene"))
-    if intervention_scene:
-        meta["intervention_scene"] = intervention_scene
-    question_type = resolve_tag_values("question_type", row.get("question_type"))
-    if question_type:
-        meta["question_type"] = question_type
+    warnings: list[str] = []
+
+    # Multi-value tag fields with unknown-value tracking
+    for field in ("customer_goal", "intervention_scene", "question_type"):
+        raw = split_tag_values(row.get(field))
+        if not raw:
+            continue
+        resolved = resolve_tag_values(field, "|".join(raw))
+        dropped = [v for v in raw if v not in resolved]
+        if dropped:
+            warnings.append(f"{field}: {', '.join(dropped)} 未命中词表")
+        if resolved:
+            meta[field] = resolved
+
     safety_level = resolve_code("safety_level", normalize_code(row.get("safety_level")))
     if safety_level:
         meta["safety_level"] = safety_level
@@ -138,7 +157,8 @@ def _build_metadata_json(row: dict[str, str]) -> str:
     usage_note = (row.get("usage_note") or "").strip()
     if usage_note:
         meta["usage_note"] = usage_note
-    return json.dumps(meta, ensure_ascii=False) if meta else ""
+    json_str = json.dumps(meta, ensure_ascii=False) if meta else ""
+    return json_str, warnings
 
 
 def validate_row(row: dict[str, str], line_no: int) -> list[str]:
@@ -185,6 +205,7 @@ def import_speech_template_rows(
         "updated": 0,
         "skipped": 0,
         "errors": [],
+        "warnings": [],
         "rows": [],
     }
 
@@ -231,7 +252,10 @@ def import_speech_template_rows(
             style = normalize_style(row)
             title = (row.get("title") or "").strip()
             content = build_content(row)
-            metadata_json = _build_metadata_json(row)
+            metadata_json, meta_warnings = _build_metadata_json(row)
+            if meta_warnings:
+                for w in meta_warnings:
+                    stats["warnings"].append(f"第 {index} 行 {w}")
 
             # Resolve category_id: category_code > SCENE_CATEGORY_MAP > None
             category_id: int | None = None

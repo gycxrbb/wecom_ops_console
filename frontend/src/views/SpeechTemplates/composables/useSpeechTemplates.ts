@@ -289,29 +289,17 @@ export function useSpeechTemplates() {
   }
 
   const openCreateL2 = (parentId: number) => {
-    ElMessageBox.prompt('请输入子类名称', '新建子类', {
-      confirmButtonText: '创建',
-      cancelButtonText: '取消',
-      inputPattern: /\S+/,
-      inputErrorMessage: '名称不能为空',
-    }).then(async ({ value }) => {
-      await request.post('/v1/speech-templates/categories', { name: value, parent_id: parentId })
-      ElMessage.success('已创建')
-      await loadCategories()
-    }).catch(() => {})
+    createCatParentId.value = parentId
+    createCatName.value = ''
+    createCatCode.value = ''
+    createCatDialogVisible.value = true
   }
 
   const openCreateL3 = (parentId: number) => {
-    ElMessageBox.prompt('请输入三级分类名称', '新建三级分类', {
-      confirmButtonText: '创建',
-      cancelButtonText: '取消',
-      inputPattern: /\S+/,
-      inputErrorMessage: '名称不能为空',
-    }).then(async ({ value }) => {
-      await request.post('/v1/speech-templates/categories', { name: value, parent_id: parentId })
-      ElMessage.success('已创建')
-      await loadCategories()
-    }).catch(() => {})
+    createCatParentId.value = parentId
+    createCatName.value = ''
+    createCatCode.value = ''
+    createCatDialogVisible.value = true
   }
 
   const handleCreateL1 = async () => {
@@ -320,6 +308,28 @@ export function useSpeechTemplates() {
     ElMessage.success('已创建')
     createL1DialogVisible.value = false
     await loadCategories()
+  }
+
+  // Unified category create dialog (L2/L3)
+  const createCatDialogVisible = ref(false)
+  const createCatParentId = ref<number | null>(null)
+  const createCatName = ref('')
+  const createCatCode = ref('')
+
+  const handleCreateCat = async () => {
+    if (!createCatName.value.trim()) return
+    try {
+      await request.post('/v1/speech-templates/categories', {
+        name: createCatName.value.trim(),
+        code: createCatCode.value.trim() || undefined,
+        parent_id: createCatParentId.value,
+      })
+      ElMessage.success('已创建')
+      createCatDialogVisible.value = false
+      await loadCategories()
+    } catch (e: any) {
+      ElMessage.warning(e?.response?.data?.detail || '创建失败')
+    }
   }
 
   const openCategorizeDialog = (sceneKey: string) => {
@@ -449,6 +459,7 @@ export function useSpeechTemplates() {
     loading, scenes, categories, templatesMap, activeScene, activeStyle, expandedState,
     hoveredL1, hoveredL2, hoveredL3, hoveredScene, renamingId, renamingName, renameInputRef,
     createL1DialogVisible, createL1Name,
+    createCatDialogVisible, createCatParentId, createCatName, createCatCode, handleCreateCat,
     moveDialogVisible, moveTargetNode, moveTargetParentId, moveTargetOptions,
     categorizeDialogVisible, categorizeSceneKey, categorizeTargetId, categorizeOptions,
     createTemplateDialogVisible, createTemplateCategoryId, createTemplateSceneKey,

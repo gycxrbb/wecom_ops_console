@@ -161,6 +161,22 @@
       </template>
     </el-dialog>
 
+    <!-- Create sub-category dialog (L2/L3) -->
+    <el-dialog v-model="createCatDialogVisible" title="新建子分类" width="460px">
+      <el-form label-width="80px">
+        <el-form-item label="名称">
+          <el-input v-model="createCatName" placeholder="如：新分类名称" />
+        </el-form-item>
+        <el-form-item label="标识 code">
+          <el-input v-model="createCatCode" placeholder="如 health.diet.new_item（留空自动生成）" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="createCatDialogVisible = false">取消</el-button>
+        <el-button type="primary" :disabled="!createCatName.trim()" @click="handleCreateCat">创建</el-button>
+      </template>
+    </el-dialog>
+
     <!-- Move category dialog -->
     <el-dialog v-model="moveDialogVisible" title="移动分类" width="400px">
       <p style="margin-bottom: 12px; color: var(--text-secondary);">将「{{ moveTargetNode?.name }}」移动到：</p>
@@ -240,19 +256,28 @@
             <el-input v-model="ragMetaForm.summary" type="textarea" :rows="2" placeholder="话术摘要，用于 RAG 检索增强" />
           </el-form-item>
           <el-form-item label="客户目标">
-            <el-select v-model="ragMetaForm.customer_goal" multiple filterable allow-create placeholder="选择或输入标签">
-              <el-option v-for="t in tagOptions('customer_goal')" :key="t.value" :label="t.label" :value="t.value" />
-            </el-select>
+            <div style="display: flex; gap: 8px; width: 100%;">
+              <el-select v-model="ragMetaForm.customer_goal" multiple filterable allow-create placeholder="选择标签（或输入新增）" style="flex: 1">
+                <el-option v-for="t in tagOptions('customer_goal')" :key="t.value" :label="t.label" :value="t.value" />
+              </el-select>
+              <el-button size="small" @click="tagManageDimension = 'customer_goal'; tagManageVisible = true">管理</el-button>
+            </div>
           </el-form-item>
           <el-form-item label="干预场景">
-            <el-select v-model="ragMetaForm.intervention_scene" multiple filterable allow-create placeholder="选择或输入标签">
-              <el-option v-for="t in tagOptions('intervention_scene')" :key="t.value" :label="t.label" :value="t.value" />
-            </el-select>
+            <div style="display: flex; gap: 8px; width: 100%;">
+              <el-select v-model="ragMetaForm.intervention_scene" multiple filterable allow-create placeholder="选择标签（或输入新增）" style="flex: 1">
+                <el-option v-for="t in tagOptions('intervention_scene')" :key="t.value" :label="t.label" :value="t.value" />
+              </el-select>
+              <el-button size="small" @click="tagManageDimension = 'intervention_scene'; tagManageVisible = true">管理</el-button>
+            </div>
           </el-form-item>
           <el-form-item label="问题类型">
-            <el-select v-model="ragMetaForm.question_type" multiple filterable allow-create placeholder="选择或输入标签">
-              <el-option v-for="t in tagOptions('question_type')" :key="t.value" :label="t.label" :value="t.value" />
-            </el-select>
+            <div style="display: flex; gap: 8px; width: 100%;">
+              <el-select v-model="ragMetaForm.question_type" multiple filterable allow-create placeholder="选择标签（或输入新增）" style="flex: 1">
+                <el-option v-for="t in tagOptions('question_type')" :key="t.value" :label="t.label" :value="t.value" />
+              </el-select>
+              <el-button size="small" @click="tagManageDimension = 'question_type'; tagManageVisible = true">管理</el-button>
+            </div>
           </el-form-item>
           <el-form-item label="安全级别">
             <el-radio-group v-model="ragMetaForm.safety_level">
@@ -307,6 +332,9 @@
           <el-alert v-if="importResult.errors?.length" type="warning" :closable="false" show-icon class="speech-import__errors">
             <template #title>{{ importResult.errors.slice(0, 5).join('；') }}</template>
           </el-alert>
+          <el-alert v-if="importResult.warnings?.length" type="info" :closable="false" show-icon class="speech-import__errors">
+            <template #title>标签提示：{{ importResult.warnings.slice(0, 5).join('；') }}</template>
+          </el-alert>
           <el-table v-if="importResult.rows?.length" :data="importResult.rows" size="small" max-height="220">
             <el-table-column prop="action" label="动作" width="90" />
             <el-table-column prop="scene_key" label="场景" width="150" />
@@ -319,6 +347,34 @@
         <el-button @click="importDialogVisible = false">关闭</el-button>
         <el-button type="primary" :disabled="!importFile" :loading="importing" @click="submitCsvImport">开始导入</el-button>
       </template>
+    </el-dialog>
+
+    <!-- Tag management dialog -->
+    <el-dialog v-model="tagManageVisible" :title="`${tagManageDimension} 标签管理`" width="520px">
+      <div style="margin-bottom: 12px;">
+        <el-button size="small" @click="tagNewVisible = true; tagNewCode = ''; tagNewName = ''">+ 新增标签</el-button>
+      </div>
+      <el-table :data="tagOptions(tagManageDimension)" size="small" max-height="300">
+        <el-table-column prop="value" label="code" width="160" />
+        <el-table-column prop="label" label="名称" width="120" />
+        <el-table-column label="别名" min-width="140">
+          <template #default="{ row }">{{ (row.aliases || []).join('、') || '-' }}</template>
+        </el-table-column>
+      </el-table>
+      <div v-if="tagNewVisible" style="margin-top: 12px; padding: 12px; border: 1px solid var(--border-color); border-radius: 8px;">
+        <el-form label-width="60px" size="small">
+          <el-form-item label="code">
+            <el-input v-model="tagNewCode" placeholder="英文标识，如 postpartum_weight" />
+          </el-form-item>
+          <el-form-item label="名称">
+            <el-input v-model="tagNewName" placeholder="中文名，如 产后体重管理" />
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" :disabled="!tagNewCode || !tagNewName" @click="handleCreateTag">创建</el-button>
+            <el-button @click="tagNewVisible = false">取消</el-button>
+          </el-form-item>
+        </el-form>
+      </div>
     </el-dialog>
   </div>
 </template>
@@ -333,7 +389,7 @@ import { useSpeechTemplates } from './SpeechTemplates/composables/useSpeechTempl
 import { useRagTags } from '#/composables/useRagTags'
 
 type ImportResult = {
-  created: number; updated: number; skipped: number; errors: string[]
+  created: number; updated: number; skipped: number; errors: string[]; warnings: string[]
   rows: Array<{ source_id: string; title: string; scene_key: string; style: string; action: string }>
   rag_index?: Record<string, number> | null
 }
@@ -342,6 +398,7 @@ const {
   loading, scenes, categories, templatesMap, activeScene, activeStyle, expandedState,
   hoveredL1, hoveredL2, hoveredL3, hoveredScene, renamingId, renamingName,
   createL1DialogVisible, createL1Name,
+  createCatDialogVisible, createCatParentId, createCatName, createCatCode, handleCreateCat,
   moveDialogVisible, moveTargetNode, moveTargetParentId, moveTargetOptions,
   categorizeDialogVisible, categorizeSceneKey, categorizeTargetId, categorizeOptions,
   createTemplateDialogVisible, createTemplateCategoryId, createTemplateSceneKey,
@@ -356,7 +413,27 @@ const {
   handleSaveEditDrawer, openEditDrawer,
 } = useSpeechTemplates()
 
-const { options: tagOptions } = useRagTags()
+const { options: tagOptions, createTag } = useRagTags()
+
+// Tag management
+const tagManageVisible = ref(false)
+const tagManageDimension = ref('')
+const tagNewVisible = ref(false)
+const tagNewCode = ref('')
+const tagNewName = ref('')
+
+const handleCreateTag = async () => {
+  if (!tagNewCode.value || !tagNewName.value || !tagManageDimension.value) return
+  try {
+    await createTag(tagManageDimension.value, tagNewCode.value.trim(), tagNewName.value.trim())
+    tagNewCode.value = ''
+    tagNewName.value = ''
+    tagNewVisible.value = false
+    ElMessage.success('标签已创建')
+  } catch (e: any) {
+    ElMessage.warning(e?.response?.data?.detail || '创建失败')
+  }
+}
 
 // CSV import (kept local)
 const importDialogVisible = ref(false)

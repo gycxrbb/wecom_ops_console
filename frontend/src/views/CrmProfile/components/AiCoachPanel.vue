@@ -686,6 +686,7 @@ const moduleLabelMap: Record<string, string> = {
   habit_adherence_14d: '近14天习惯执行',
   plan_progress_14d: '近14天计划推进',
   learning_engagement_30d: '近30天学习吸收',
+  service_issues: '用户阻碍',
 }
 const usedModuleLabels = computed(() => props.usedModules.map(m => moduleLabelMap[m] || m))
 
@@ -700,6 +701,7 @@ const moduleColorMap: Record<string, string> = {
   habit_adherence_14d: '#db2777',
   plan_progress_14d: '#0ea5e9',
   learning_engagement_30d: '#84cc16',
+  service_issues: '#64748b',
 }
 
 const usedModuleEntries = computed(() =>

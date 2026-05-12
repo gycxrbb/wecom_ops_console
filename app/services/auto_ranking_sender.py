@@ -15,6 +15,7 @@ def create_send_record(
     msg_type: str,
     content_json: dict,
     config_id: int,
+    retry_round: int = 0,
 ) -> Message:
     msg = Message(
         source_type='auto_ranking',
@@ -25,6 +26,7 @@ def create_send_record(
         request_payload='{}',
         status='pending',
         created_by=None,
+        retry_count=retry_round,
     )
     db.add(msg)
     db.commit()

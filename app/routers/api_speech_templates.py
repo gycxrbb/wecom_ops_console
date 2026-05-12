@@ -343,12 +343,14 @@ def delete_template(
 
 class CategoryCreateReq(BaseModel):
     name: str
+    code: str | None = None
     parent_id: int | None = None
     sort_order: int = 0
 
 
 class CategoryUpdateReq(BaseModel):
     name: str
+    code: str | None = None
     sort_order: int = 0
 
 
@@ -415,6 +417,7 @@ def list_categories(request: Request, db: Session = Depends(get_db)):
 def create_category(req: CategoryCreateReq, request: Request, db: Session = Depends(get_db)):
     user = get_current_user(request, db)
     require_role(user, 'admin')
+    parent_code: str | None = None
     if req.parent_id:
         parent = db.query(SpeechCategory).get(req.parent_id)
         if not parent or parent.deleted_at:
@@ -422,9 +425,27 @@ def create_category(req: CategoryCreateReq, request: Request, db: Session = Depe
         level = parent.level + 1
         if level > 3:
             raise HTTPException(400, '最多支持 3 级分类')
+        parent_code = parent.code
     else:
         level = 1
-    row = SpeechCategory(name=req.name, parent_id=req.parent_id, level=level, sort_order=req.sort_order)
+
+    # Resolve code: explicit > auto-derive
+    code = req.code
+    if not code:
+        from ..services.crm_speech_templates import derive_category_code
+        code = derive_category_code(req.name, parent_code)
+
+    # Validate code format
+    from ..services.crm_speech_templates import _CODE_RE
+    if not _CODE_RE.match(code):
+        raise HTTPException(400, f'code 格式不合法: {code}（仅允许小写字母、数字、点、下划线）')
+
+    # Check uniqueness
+    existing = db.query(SpeechCategory).filter_by(code=code, deleted_at=None).first()
+    if existing:
+        raise HTTPException(400, f'code 已存在: {code}')
+
+    row = SpeechCategory(name=req.name, code=code, parent_id=req.parent_id, level=level, sort_order=req.sort_order)
     db.add(row)
     db.commit()
     db.refresh(row)
@@ -440,6 +461,15 @@ def update_category(category_id: int, req: CategoryUpdateReq, request: Request, 
         raise HTTPException(404, '分类不存在')
     row.name = req.name
     row.sort_order = req.sort_order
+    if req.code is not None:
+        from ..services.crm_speech_templates import _CODE_RE
+        if not _CODE_RE.match(req.code):
+            raise HTTPException(400, f'code 格式不合法: {req.code}')
+        if req.code != row.code:
+            existing = db.query(SpeechCategory).filter_by(code=req.code, deleted_at=None).first()
+            if existing:
+                raise HTTPException(400, f'code 已存在: {req.code}')
+            row.code = req.code
     db.commit()
     return {'id': row.id, 'name': row.name, 'code': row.code}
 

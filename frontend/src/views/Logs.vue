@@ -2,12 +2,14 @@
   <div class="view-container">
     <h2>发送记录</h2>
     <el-table :data="logs" style="width: 100%" v-loading="loading">
-      <el-table-column prop="created_at" label="时间" width="180" />
+      <el-table-column type="index" label="#" width="50" />
+      <el-table-column prop="created_at" label="时间" width="170" />
       <el-table-column prop="group_name" label="群组" />
       <el-table-column prop="msg_type" label="消息类型" />
       <el-table-column prop="run_mode" label="触发方式">
         <template #default="{ row }">
-          {{ ({ manual: '手动', schedule: '定时', auto_ranking: '自动排行', retry: '重试' } as Record<string, string>)[row.run_mode as string] || row.run_mode }}
+          <span>{{ runModeLabel(row) }}</span>
+          <el-tag v-if="row.retry_round" type="warning" size="small" style="margin-left: 4px">第{{ row.retry_round }}轮重试</el-tag>
         </template>
       </el-table-column>
       <el-table-column label="状态">
@@ -15,6 +17,7 @@
           <el-tag :type="row.success ? 'success' : 'danger'">{{ row.success ? '成功' : '失败' }}</el-tag>
         </template>
       </el-table-column>
+      <el-table-column prop="content_preview" label="内容预览" show-overflow-tooltip />
       <el-table-column type="expand">
         <template #default="props">
           <div style="padding: 20px;">
@@ -67,6 +70,9 @@ const formatPayload = (value: any) => {
   if (!value) return '-'
   return typeof value === 'string' ? value : JSON.stringify(value, null, 2)
 }
+
+const _runModeMap: Record<string, string> = { manual: '手动', schedule: '定时', auto_ranking: '自动排行', retry: '重试' }
+const runModeLabel = (row: any) => _runModeMap[row.run_mode as string] || row.run_mode
 
 onMounted(() => {
   fetchLogs()

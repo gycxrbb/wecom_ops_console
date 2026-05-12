@@ -3,23 +3,30 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from ..database import SessionLocal
 from ..security import decrypt_webhook, json_dumps
 from .wecom import WeComService
 
 _log = logging.getLogger(__name__)
+_tz = ZoneInfo('Asia/Shanghai')
 
 
-def _build_summary_markdown(success_count: int, total_count: int,
-                            group_names: list[str], elapsed_sec: float) -> str:
+def _build_summary_markdown(title: str, success_count: int, total_count: int,
+                            failed_count: int, group_names: list[str], elapsed_sec: float) -> str:
     names = '、'.join(group_names) if group_names else '无'
+    now_str = datetime.now(_tz).strftime('%Y-%m-%d %H:%M')
     lines = [
-        '📊 **积分排行推送完成**',
+        f'📊 **{title}推送完成**',
+        f'⏰ 时间：{now_str}',
         f'✅ 成功：{success_count} / {total_count} 条',
         f'📦 已推送群：{names}',
-        f'⏱ 总耗时：{elapsed_sec:.1f} 秒',
+        f'⏱ 耗时：{elapsed_sec:.1f} 秒',
     ]
+    if failed_count > 0:
+        lines.append(f'❌ 失败：{failed_count} 条')
     return '\n'.join(lines)
 
 
@@ -62,8 +69,10 @@ async def send_ranking_summary(schedule_id: int, start_time: float) -> None:
                        .filter(models.Message.source_type == 'schedule',
                                models.Message.source_id == schedule_id)
                        .count())
+        failed_count = total_count - success_count
+        title = schedule.title or '积分排行'
 
-        md = _build_summary_markdown(success_count, total_count, group_names, round(elapsed, 1))
+        md = _build_summary_markdown(title, success_count, total_count, failed_count, group_names, round(elapsed, 1))
         content = {'content': md}
 
         for name, webhook in group_webhooks:
