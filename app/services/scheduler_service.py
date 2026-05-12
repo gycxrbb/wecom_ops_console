@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from ..database import SessionLocal
 from .. import models
 from ..security import json_loads
+from ..config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -156,17 +157,27 @@ class ScheduleService:
 
         def _make_fire(cfg_id: int, cfg_name: str):
             async def _fire():
+                # Redis 分布式锁：多 worker 环境下只有一个能执行
+                import redis as _redis
+                lock_key = f'auto_ranking_lock:{cfg_id}'
+                lock_ttl = 600  # 10 分钟，覆盖整个发送周期
+                r = _redis.from_url(settings.redis_url)
+                acquired = r.set(lock_key, '1', nx=True, ex=lock_ttl)
+                if not acquired:
+                    logger.info('Auto ranking %s skipped: another worker holds the lock', cfg_name)
+                    return
+
                 logger.info('Auto ranking push: firing config %s (%s)', cfg_id, cfg_name)
                 db2 = SessionLocal()
                 try:
                     cfg = db2.query(AutoRankingConfig).get(cfg_id)
                     if not cfg or not cfg.enabled:
                         logger.info('Auto ranking %s skipped: not found or disabled', cfg_id)
+                        r.delete(lock_key)
                         return
                     result = await execute_auto_ranking(cfg)
                     logger.info('Auto ranking %s: sent=%d skipped=%d failed=%d error=%s cooldown=%s', cfg_name, result.get('sent', 0), result.get('skipped', 0), result.get('failed', 0), str(result.get('error', ''))[:80], result.get('cooldown', False))
-                    from datetime import datetime as _dt
-                    cfg.last_run_at = _dt.utcnow()
+                    cfg.last_run_at = datetime.now(tz).replace(tzinfo=None)
                     cfg.last_error = result.get('error', '')
                     db2.commit()
                 except Exception as exc:
@@ -174,14 +185,14 @@ class ScheduleService:
                     try:
                         cfg = db2.query(AutoRankingConfig).get(cfg_id)
                         if cfg:
-                            from datetime import datetime as _dt
-                            cfg.last_run_at = _dt.utcnow()
+                            cfg.last_run_at = datetime.now(tz).replace(tzinfo=None)
                             cfg.last_error = str(exc)[:200]
                             db2.commit()
                     except Exception:
                         pass
                 finally:
                     db2.close()
+                    r.delete(lock_key)
             return _fire
 
         for cfg in configs:

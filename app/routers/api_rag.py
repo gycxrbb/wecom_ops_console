@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..config import settings
@@ -225,6 +226,27 @@ def get_resource_detail(resource_id: int, request: Request, db: Session = Depend
         db.query(RagTag).join(RagResourceTag, RagResourceTag.tag_id == RagTag.id)
         .filter(RagResourceTag.resource_id == r.id).all()
     )
+    # Load source metadata for editing
+    source_meta = {}
+    if r.source_type == "speech_template":
+        import json as _json
+        from ..models import SpeechTemplate
+        tpl = db.query(SpeechTemplate).filter(SpeechTemplate.id == r.source_id).first()
+        if tpl and tpl.metadata_json:
+            try:
+                source_meta = _json.loads(tpl.metadata_json)
+            except Exception:
+                pass
+    elif r.source_type == "material":
+        import json as _json
+        from ..models import Material
+        mat = db.query(Material).filter(Material.id == r.source_id).first()
+        if mat and getattr(mat, "rag_meta_json", None):
+            try:
+                source_meta = _json.loads(mat.rag_meta_json)
+            except Exception:
+                pass
+
     return {
         "id": r.id, "source_type": r.source_type, "source_id": r.source_id,
         "title": r.title, "summary": r.summary,
@@ -236,6 +258,7 @@ def get_resource_detail(resource_id: int, request: Request, db: Session = Depend
                      "text_preview": (c.chunk_text or "")[:200],
                      "embedding_model": c.embedding_model, "status": c.status} for c in chunks],
         "tags": [{"id": t.id, "dimension": t.dimension, "code": t.code, "name": t.name} for t in tag_rows],
+        "metadata": source_meta,
     }
 
 
@@ -312,6 +335,75 @@ def enable_resource(resource_id: int, request: Request, db: Session = Depends(ge
     return {"status": "ok"}
 
 
+class RagMetaUpdateReq(BaseModel):
+    safety_level: str | None = None
+    visibility: str | None = None
+    summary: str | None = None
+    customer_goal: list[str] | None = None
+    intervention_scene: list[str] | None = None
+    question_type: list[str] | None = None
+    tags: list[str] | None = None
+    usage_note: str | None = None
+
+
+@router.patch("/resources/{resource_id}/metadata")
+async def update_resource_metadata(
+    resource_id: int, req: RagMetaUpdateReq, request: Request, db: Session = Depends(get_db)
+):
+    _require_admin(request, db)
+    from ..models_rag import RagResource
+    r = db.query(RagResource).filter(RagResource.id == resource_id).first()
+    if not r:
+        raise HTTPException(404, "资源不存在")
+
+    if req.safety_level is not None:
+        r.safety_level = req.safety_level
+    if req.visibility is not None:
+        r.visibility = req.visibility
+    if req.summary is not None:
+        r.summary = req.summary
+
+    # Update source metadata if speech_template
+    if r.source_type == "speech_template":
+        import json as _json
+        from ..models import SpeechTemplate
+        tpl = db.query(SpeechTemplate).filter(SpeechTemplate.id == r.source_id).first()
+        if tpl:
+            meta = _json.loads(tpl.metadata_json) if tpl.metadata_json else {}
+            _TAG_FIELDS = ("customer_goal", "intervention_scene", "question_type", "tags")
+            changed = False
+            for field in ("safety_level", "visibility", "summary", "usage_note"):
+                val = getattr(req, field, None)
+                if val is not None and meta.get(field) != val:
+                    meta[field] = val
+                    changed = True
+            for field in _TAG_FIELDS:
+                val = getattr(req, field, None)
+                if val is not None:
+                    meta[field] = val
+                    changed = True
+            if changed:
+                tpl.metadata_json = _json.dumps(meta, ensure_ascii=False)
+
+    db.commit()
+
+    # Auto-reindex
+    r.source_hash = ""
+    db.commit()
+    index_db = SessionLocal()
+    try:
+        if r.source_type == "speech_template":
+            from ..rag.resource_indexer import index_single_speech_template
+            result = await index_single_speech_template(index_db, r.source_id)
+        else:
+            from ..rag.resource_indexer import index_single_material
+            result = await index_single_material(index_db, r.source_id)
+    finally:
+        index_db.close()
+
+    return {"status": "ok", "result": result}
+
+
 @router.post("/resources/{resource_id}/reindex")
 async def reindex_single_resource(resource_id: int, request: Request, db: Session = Depends(get_db)):
     _require_admin(request, db)
@@ -377,7 +469,7 @@ def list_retrieval_logs(
         "items": [{"id": l.id, "customer_id": l.customer_id,
                     "query_text": (l.query_text or "")[:100],
                     "latency_ms": l.latency_ms,
-                    "hits": _count_hits(_jl(l.hit_json)),
+                    "hits": _count_hits(_jl(l.hit_json, None)),
                     "created_at": l.created_at.isoformat() if l.created_at else None} for l in logs],
         "total": total, "page": page, "page_size": page_size,
     }
@@ -394,10 +486,10 @@ def get_retrieval_log(log_id: int, request: Request, db: Session = Depends(get_d
     return {
         "id": l.id, "session_id": l.session_id, "message_id": l.message_id,
         "customer_id": l.customer_id, "query_text": l.query_text,
-        "filter_json": _jl(l.filter_json), "hit_json": _jl(l.hit_json),
-        "hits": _count_hits(_jl(l.hit_json)),
-        "intent_json": _jl(l.intent_json), "query_intent_json": _jl(l.query_intent_json),
-        "rerank_scores_json": _jl(l.rerank_scores_json),
+        "filter_json": _jl(l.filter_json, None), "hit_json": _jl(l.hit_json, None),
+        "hits": _count_hits(_jl(l.hit_json, None)),
+        "intent_json": _jl(l.intent_json, None), "query_intent_json": _jl(l.query_intent_json, None),
+        "rerank_scores_json": _jl(l.rerank_scores_json, None),
         "latency_ms": l.latency_ms,
         "created_at": l.created_at.isoformat() if l.created_at else None,
     }

@@ -57,9 +57,10 @@
       <el-table-column label="更新时间" width="150">
         <template #default="{ row }">{{ row.updated_at?.slice(0, 16).replace('T', ' ') }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="200" align="center">
+      <el-table-column label="操作" width="260" align="center">
         <template #default="{ row }">
           <el-button size="small" text type="primary" @click="viewDetail(row)">详情</el-button>
+          <el-button size="small" text type="success" @click="openEditMeta(row)">编辑</el-button>
           <el-button v-if="row.status === 'active'" size="small" text type="warning" @click="toggleStatus(row, 'disabled')">禁用</el-button>
           <el-button v-else size="small" text type="success" @click="toggleStatus(row, 'active')">启用</el-button>
           <el-button size="small" text @click="reindexOne(row)">重建</el-button>
@@ -110,6 +111,55 @@
         </div>
       </div>
     </el-dialog>
+
+    <!-- Edit RAG Meta Dialog -->
+    <el-dialog v-model="editMetaVisible" title="编辑 RAG 配置" width="600px" destroy-on-close>
+      <el-form label-width="90px" size="default">
+        <el-form-item label="摘要">
+          <el-input v-model="editMeta.summary" type="textarea" :rows="2" placeholder="一句话描述资源内容" />
+        </el-form-item>
+        <el-form-item label="客户目标">
+          <el-select v-model="editMeta.customer_goal" multiple filterable allow-create style="width: 100%" placeholder="选择客户目标">
+            <el-option v-for="o in tagOptions('customer_goal')" :key="o.value" :label="o.label" :value="o.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="干预场景">
+          <el-select v-model="editMeta.intervention_scene" multiple filterable allow-create style="width: 100%" placeholder="选择干预场景">
+            <el-option v-for="o in tagOptions('intervention_scene')" :key="o.value" :label="o.label" :value="o.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="问题类型">
+          <el-select v-model="editMeta.question_type" multiple filterable allow-create style="width: 100%" placeholder="选择问题类型">
+            <el-option v-for="o in tagOptions('question_type')" :key="o.value" :label="o.label" :value="o.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="安全级别">
+          <el-select v-model="editMeta.safety_level" style="width: 100%">
+            <el-option label="通用 (general)" value="general" />
+            <el-option label="营养宣教 (nutrition_education)" value="nutrition_education" />
+            <el-option label="医疗敏感 (medical_sensitive)" value="medical_sensitive" />
+            <el-option label="需医生审核 (doctor_review)" value="doctor_review" />
+            <el-option label="禁用 (contraindicated)" value="contraindicated" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="可见性">
+          <el-select v-model="editMeta.visibility" style="width: 100%">
+            <el-option label="仅教练内部 (coach_internal)" value="coach_internal" />
+            <el-option label="可对客户可见 (customer_visible)" value="customer_visible" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="自定义标签">
+          <el-select v-model="editMeta.tags" multiple filterable allow-create style="width: 100%" placeholder="添加标签" />
+        </el-form-item>
+        <el-form-item label="使用说明">
+          <el-input v-model="editMeta.usage_note" type="textarea" :rows="2" placeholder="使用场景说明" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="editMetaVisible = false">取消</el-button>
+        <el-button type="primary" :loading="editMetaSaving" @click="handleSaveMeta">保存并重建</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -117,6 +167,9 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import request from '#/utils/request'
+import { useRagTags } from '#/composables/useRagTags'
+
+const { options: tagOptions } = useRagTags()
 
 const loading = ref(false)
 const items = ref<any[]>([])
@@ -127,6 +180,21 @@ const filters = reactive({ q: '', source_type: '', content_kind: '', quality: ''
 const detailVisible = ref(false)
 const detail = ref<any>(null)
 const showFullText = ref(false)
+
+// Edit RAG meta
+const editMetaVisible = ref(false)
+const editMetaSaving = ref(false)
+const editMeta = reactive({
+  id: 0,
+  safety_level: '',
+  visibility: '',
+  summary: '',
+  customer_goal: [] as string[],
+  intervention_scene: [] as string[],
+  question_type: [] as string[],
+  tags: [] as string[],
+  usage_note: '',
+})
 
 const qualityType = (q: string) => {
   if (q === 'ok') return 'success'
@@ -198,6 +266,47 @@ const reindexOne = async (row: any) => {
     fetchList()
   } catch (e: any) {
     ElMessage.error('重建失败: ' + String(e))
+  }
+}
+
+const openEditMeta = async (row: any) => {
+  try {
+    const res: any = await request.get(`/v1/rag/resources/${row.id}`)
+    editMeta.id = res.id
+    editMeta.safety_level = res.safety_level || 'general'
+    editMeta.visibility = res.visibility || 'coach_internal'
+    editMeta.summary = res.summary || ''
+    editMeta.customer_goal = res.metadata?.customer_goal || []
+    editMeta.intervention_scene = res.metadata?.intervention_scene || []
+    editMeta.question_type = res.metadata?.question_type || []
+    editMeta.tags = res.metadata?.tags || []
+    editMeta.usage_note = res.metadata?.usage_note || ''
+    editMetaVisible.value = true
+  } catch (e: any) {
+    ElMessage.error('加载失败: ' + String(e))
+  }
+}
+
+const handleSaveMeta = async () => {
+  editMetaSaving.value = true
+  try {
+    await request.patch(`/v1/rag/resources/${editMeta.id}/metadata`, {
+      safety_level: editMeta.safety_level,
+      visibility: editMeta.visibility,
+      summary: editMeta.summary,
+      customer_goal: editMeta.customer_goal,
+      intervention_scene: editMeta.intervention_scene,
+      question_type: editMeta.question_type,
+      tags: editMeta.tags,
+      usage_note: editMeta.usage_note,
+    })
+    ElMessage.success('已保存并重建索引')
+    editMetaVisible.value = false
+    fetchList()
+  } catch (e: any) {
+    ElMessage.error('保存失败: ' + String(e))
+  } finally {
+    editMetaSaving.value = false
   }
 }
 

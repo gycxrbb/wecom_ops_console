@@ -71,7 +71,7 @@ async def execute_auto_ranking(cfg: AutoRankingConfig) -> dict:
 
     # 冷却期检查：距上次执行不足 5 分钟则跳过，防止 misfire 重复触发
     if cfg.last_run_at:
-        elapsed = (datetime.utcnow() - cfg.last_run_at).total_seconds()
+        elapsed = (datetime.now(_tz) - cfg.last_run_at.replace(tzinfo=_tz)).total_seconds()
         if elapsed < _COOLDOWN_SECONDS:
             _log.info('自动排行 %s: 跳过，距上次执行仅 %.0fs (< %ds)', cfg.name, elapsed, _COOLDOWN_SECONDS)
             return {'sent': 0, 'skipped': 0, 'error': '', 'cooldown': True}
@@ -222,19 +222,16 @@ async def execute_auto_ranking(cfg: AutoRankingConfig) -> dict:
         # ── 推送完成通知 ──
         if sent > 0:
             elapsed = _time.time() - send_start
-            now_str = datetime.now(_tz).strftime('%Y-%m-%d %H:%M')
-            lines = [
-                f'📊 **{cfg.name}推送完成**',
-                f'⏰ 时间：{now_str}',
-                f'✅ 成功：{sent} / {total_count} 条',
-                f'⏱ 耗时：{elapsed:.1f} 秒',
-            ]
-            if failed > 0:
-                lines.append(f'❌ 失败：{failed} 条')
+            from .batch_summary import _build_summary_markdown
+            md = _build_summary_markdown(
+                title=cfg.name, success_count=sent, total_count=total_count,
+                failed_count=failed, group_names=[target_group.name],
+                elapsed_sec=elapsed,
+            )
             try:
                 await WeComService.send(
                     webhook=webhook, msg_type='markdown',
-                    content={'content': '\n'.join(lines)}, group_key=str(target_group.id),
+                    content={'content': md}, group_key=str(target_group.id),
                 )
             except Exception as exc:
                 _log.warning('自动排行 %s: 推送完成通知发送失败: %s', cfg.name, exc)
