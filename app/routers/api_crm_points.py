@@ -214,6 +214,7 @@ class AutoRankingConfigReq(BaseModel):
     skip_dates: list[str] = []
     push_hour: int = 0
     push_minute: int = 0
+    rank_metric: str = 'current_points'
 
 
 class AutoRankingPreviewReq(BaseModel):
@@ -260,6 +261,7 @@ def upsert_auto_ranking_config(req: AutoRankingConfigReq, request: Request, db: 
     cfg.skip_dates_json = json.dumps(req.skip_dates)
     cfg.push_hour = req.push_hour
     cfg.push_minute = req.push_minute
+    cfg.rank_metric = req.rank_metric
     cfg.last_run_at = None  # 改配置后重置冷却期，允许新时间立即生效
     cfg.last_error = ''
     db.commit()
@@ -315,6 +317,7 @@ def _serialize_config(cfg):
         'skip_dates': json.loads(cfg.skip_dates_json or '[]'),
         'push_hour': cfg.push_hour or 0,
         'push_minute': cfg.push_minute or 0,
+        'rank_metric': cfg.rank_metric or 'current_points',
         'last_run_at': str(cfg.last_run_at) if cfg.last_run_at else None,
         'last_error': cfg.last_error or '',
     }

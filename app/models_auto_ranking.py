@@ -28,5 +28,6 @@ class AutoRankingConfig(Base, TimestampMixinAuto):
     skip_dates_json: Mapped[str] = mapped_column(Text, default='[]')
     push_hour: Mapped[int] = mapped_column(Integer, default=0)
     push_minute: Mapped[int] = mapped_column(Integer, default=0)
+    rank_metric: Mapped[str] = mapped_column(String(32), default='current_points')
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_error: Mapped[str] = mapped_column(Text, default='')

@@ -354,3 +354,28 @@ def fetch_customer_last_week_breakdown_bulk(
         if conn:
             _return_connection(conn)
     return result
+
+
+# ── 自定义当月周期（基于 groups.start_time） ────────────────────
+
+def get_group_custom_month_range(start_time: datetime) -> tuple[datetime, datetime]:
+    """根据群的 start_time，计算当前所在的 30 天周期范围。
+
+    每 30 天为一个周期，从 start_time 起算。返回 (period_start, period_end)。
+    """
+    import zoneinfo
+    tz = zoneinfo.ZoneInfo('Asia/Shanghai')
+    now = datetime.now(tz)
+
+    # 确保 start_time 是 naive datetime (CST)
+    st = start_time.replace(tzinfo=None) if start_time.tzinfo else start_time
+
+    # now 也用 naive datetime 做比较（CST 本地时间）
+    now_naive = now.replace(tzinfo=None)
+
+    period_start = st
+    while period_start + timedelta(days=30) <= now_naive:
+        period_start += timedelta(days=30)
+
+    period_end = period_start + timedelta(days=30)
+    return period_start, period_end

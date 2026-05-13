@@ -65,6 +65,10 @@ export function useAiCoach() {
         outputStyle.value = ''
       }
       expansionOptions.value = res.expansion_options || {}
+      // Default: select all expansion options so AI sees full detail
+      if (!selectedExpansions.value.length && Object.keys(expansionOptions.value).length) {
+        selectedExpansions.value = Object.keys(expansionOptions.value)
+      }
       availableModels.value = res.available_models?.length
         ? res.available_models
         : ['deepseek-v4-pro','gpt-5.5','gpt-5.4','gpt-4o-mini','deepseek-v4-flash','deepseek-v3.2-fast','claude-opus-4-7','kimi-k2.6','glm-5.1','gemini-3.1-pro-preview','xiaomi-mimo-v2.5','doubao-seed-2-0-pro']

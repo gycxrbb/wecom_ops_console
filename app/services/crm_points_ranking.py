@@ -28,10 +28,14 @@ _SPEECH_TEMPLATES = {
 }
 
 
-def _format_rank_line(rank: int, name: str, points: float, week_pts: float = 0) -> str:
+def _format_rank_line(rank: int, name: str, points: float, week_pts: float = 0,
+                      total_points: float = 0, show_total: bool = False) -> str:
     """格式化单行排行"""
     medal = _MEDALS.get(rank)
     prefix = medal if medal else f'{rank}.'
+    if show_total:
+        week_info = f'本周+{week_pts:.0f}，' if week_pts > 0 else ''
+        return f'{prefix} {name} {points:.0f}分（{week_info}总积分{total_points:.0f}）'
     week_info = f'（本周+{week_pts:.0f}）' if week_pts > 0 else ''
     return f'{prefix} {name} {points:.0f}分{week_info}'
 
@@ -76,11 +80,24 @@ def _generate_group_ranking_message_from_members(
     speech_style: str = 'professional',
     insights: list[dict] | None = None,
     breakdown_map: dict[int, dict[str, float]] | None = None,
+    group_start_time=None,
 ) -> dict[str, Any] | None:
     if not members:
         return None
 
-    positive_members = [member for member in members if float(member.get('current_points', 0) or 0) > 0]
+    # 当月积分排名模式：custom_month_points 已在 preview_ranking_batch 预处理阶段注入
+    is_custom_month = rank_metric == 'custom_month_points'
+    if is_custom_month and group_start_time:
+        # 仅在单群调用（非 batch）时需要计算
+        if not any(m.get('custom_month_points') is not None for m in members):
+            from .crm_points_metrics import get_group_custom_month_range, fetch_customer_period_points
+            period_start, period_end = get_group_custom_month_range(group_start_time)
+            customer_ids = [m['id'] for m in members]
+            custom_points = fetch_customer_period_points(customer_ids, period_start, period_end)
+            for m in members:
+                m['custom_month_points'] = custom_points.get(m['id'], 0.0)
+
+    positive_members = [member for member in members if float(member.get(rank_metric, 0) or 0) > 0]
     if not positive_members:
         return None
 
@@ -91,24 +108,53 @@ def _generate_group_ranking_message_from_members(
     group_week = sum(float(member.get('week_points', 0) or 0) for member in positive_members)
     group_month = sum(float(member.get('month_points', 0) or 0) for member in positive_members)
 
-    lines = [f'📊 {crm_group_name}']
+    _metric_labels = {
+        'current_points': '总积分排名',
+        'week_points': '本周积分排名',
+        'month_points': '本月积分排名',
+        'custom_month_points': '本月积分排名',
+    }
+    _metric_label = _metric_labels.get(rank_metric, '')
+    _score_labels = {
+        'current_points': '群总分',
+        'week_points': '群本周总分',
+        'month_points': '群本月总分',
+        'custom_month_points': '群本月总分',
+    }
+    _score_label = _score_labels.get(rank_metric, '群总分')
+    _metric_sum = sum(float(member.get(rank_metric, 0) or 0) for member in positive_members)
+    lines = [f'📊 {crm_group_name}{" " + _metric_label if _metric_label else ""}']
     if include_week_month:
-        lines.append(f'群总分: {group_current:.0f}（本周+{group_week:.0f}，本月+{group_month:.0f}）')
+        lines.append(f'{_score_label}: {_metric_sum:.0f}（本周+{group_week:.0f}，本月+{group_month:.0f}）')
     else:
-        lines.append(f'群总分: {group_current:.0f}')
+        lines.append(f'{_score_label}: {_metric_sum:.0f}')
 
     lines.append('')
     lines.append('🏆 成员排行榜:')
 
     for index, member in enumerate(ranked_members, start=1):
-        lines.append(
-            _format_rank_line(
-                index,
-                member.get('name') or f'未命名成员#{member["id"]}',
-                float(member.get('current_points', 0) or 0),
-                float(member.get('week_points', 0) or 0),
+        if is_custom_month:
+            primary_pts = float(member.get('custom_month_points', 0) or 0)
+            total_pts = float(member.get('current_points', 0) or 0)
+            lines.append(
+                _format_rank_line(
+                    index,
+                    member.get('name') or f'未命名成员#{member["id"]}',
+                    primary_pts,
+                    float(member.get('week_points', 0) or 0),
+                    total_points=total_pts,
+                    show_total=True,
+                )
             )
-        )
+        else:
+            lines.append(
+                _format_rank_line(
+                    index,
+                    member.get('name') or f'未命名成员#{member["id"]}',
+                    float(member.get('current_points', 0) or 0),
+                    float(member.get('week_points', 0) or 0),
+                )
+            )
         if breakdown_map:
             bd_line = _format_breakdown_line(breakdown_map.get(member['id']))
             if bd_line:
@@ -119,7 +165,7 @@ def _generate_group_ranking_message_from_members(
         insight_candidates = ranked_members[:_INSIGHT_MEMBER_LIMIT]
         from .crm_points_insights import detect_individual_insights
         insights = detect_individual_insights(ranked_members, insight_candidates)
-    insight_speeches = build_grouped_insight_speeches(insights, speech_style)
+    insight_speeches = build_grouped_insight_speeches(insights, speech_style, rank_metric=rank_metric)
 
     if insight_speeches:
         lines.append('')
@@ -210,7 +256,41 @@ def preview_ranking_batch(
     load_members_ms = int((time.perf_counter() - load_members_started_at) * 1000)
 
     # ── 预处理：为每群排序并收集洞察候选人 ──
-    preprocessed: list[tuple[int, str, list[dict], list[dict]]] = []  # (gid, name, members, ranked)
+    # 当月积分模式需要预计算 custom_month_points 字段
+    is_custom_month = rank_metric == 'custom_month_points'
+    if is_custom_month:
+        from .crm_points_metrics import get_group_custom_month_range, fetch_customer_period_points
+        # 按 (period_start, period_end) 分组，相同时间范围合并为一次查询
+        period_groups: dict[tuple[datetime, datetime], list[tuple[int, list[int]]]] = {}
+        for gid in crm_group_ids:
+            group_payload = group_members_map.get(gid)
+            if not group_payload:
+                continue
+            st = group_payload.get('start_time')
+            if not st:
+                continue
+            members_g = group_payload.get('members', [])
+            if not members_g:
+                continue
+            period_start, period_end = get_group_custom_month_range(st)
+            period_groups.setdefault((period_start, period_end), []).append(
+                (gid, [m['id'] for m in members_g])
+            )
+        # 每个时间范围只查一次 point_logs
+        for (p_start, p_end), group_list in period_groups.items():
+            all_cids: list[int] = []
+            cid_to_gids: dict[int, list[int]] = {}
+            for gid, cids in group_list:
+                for cid in cids:
+                    all_cids.append(cid)
+                    cid_to_gids.setdefault(cid, []).append(gid)
+            pts_map = fetch_customer_period_points(all_cids, p_start, p_end)
+            # 直接注入到 members
+            for gid, cids in group_list:
+                for m in group_members_map[gid].get('members', []):
+                    m['custom_month_points'] = pts_map.get(m['id'], 0.0)
+
+    preprocessed: list[tuple[int, str, list[dict], list[dict], Any]] = []  # (gid, name, members, ranked, start_time)
     for gid in crm_group_ids:
         group_payload = group_members_map.get(gid)
         group_name = (
@@ -219,17 +299,18 @@ def preview_ranking_batch(
             else crm_group_names.get(gid, f'群#{gid}')
         )
         members = group_payload.get('members', []) if group_payload else []
-        positive_members = [m for m in members if float(m.get('current_points', 0) or 0) > 0]
+        group_start_time = group_payload.get('start_time') if group_payload else None
+        positive_members = [m for m in members if float(m.get(rank_metric, 0) or 0) > 0]
         positive_members.sort(key=lambda m: float(m.get(rank_metric, 0) or 0), reverse=True)
         ranked = positive_members[:top_n]
-        preprocessed.append((gid, group_name, members, ranked))
+        preprocessed.append((gid, group_name, members, ranked, group_start_time))
 
     # ── 批量洞察：一次 point_logs 查询覆盖所有群 ──
     insights_started_at = time.perf_counter()
     scenes_set = set(enabled_scenes) if enabled_scenes else None
     groups_candidates: list[tuple[list[dict], list[dict]]] = []
     valid_indices: list[int] = []
-    for idx, (gid, gname, members, ranked) in enumerate(preprocessed):
+    for idx, (gid, gname, members, ranked, _st) in enumerate(preprocessed):
         if not ranked:
             continue
         # 扩展候选人：top N + 底部 6 名（覆盖 reverse_bottom）
@@ -258,7 +339,7 @@ def preview_ranking_batch(
     if include_last_week_breakdown:
         breakdown_started_at = time.perf_counter()
         all_customer_ids = set()
-        for _, _, _, ranked in preprocessed:
+        for _, _, _, ranked, _ in preprocessed:
             for m in ranked:
                 all_customer_ids.add(m['id'])
         if all_customer_ids:
@@ -272,7 +353,7 @@ def preview_ranking_batch(
     # ── 生成消息 ──
     build_items_started_at = time.perf_counter()
     slow_groups: list[dict[str, Any]] = []
-    for idx, (gid, group_name, members, ranked) in enumerate(preprocessed):
+    for idx, (gid, group_name, members, ranked, group_start_time) in enumerate(preprocessed):
         group_started_at = time.perf_counter()
         try:
             msg = _generate_group_ranking_message_from_members(
@@ -285,6 +366,7 @@ def preview_ranking_batch(
                 speech_style=speech_style,
                 insights=bulk_insights_map.get(idx),
                 breakdown_map=breakdown_map if include_last_week_breakdown else None,
+                group_start_time=group_start_time,
             )
             if msg is None:
                 items.append(_build_skipped_item(gid, group_name, '该群无正积分成员'))

@@ -5,7 +5,7 @@ import json
 import logging
 from typing import Any
 
-from ._health_summary_const import WATER_TARGET_ML
+from ._registry import WATER_TARGET_ML
 
 _log = logging.getLogger(__name__)
 

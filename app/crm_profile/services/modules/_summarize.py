@@ -1,19 +1,14 @@
 """Base summary builder (backward-compatible fields) + trend flags + data quality."""
 from __future__ import annotations
 
-from ._health_summary_const import WATER_TARGET_ML, WEIGHT_DIVISOR
+from ._health_summary_const import WEIGHT_DIVISOR
+from ._registry import WATER_TARGET_ML, HEALTH_METRICS
 
-# Precision registry — each metric's unit and decimal places for structured output.
+# Precision registry — derived from the metric registry for backward compat.
 FIELD_FORMATS = {
-    "weight": {"unit": "kg", "precision": 2},
-    "blood_pressure_avg_sbp": {"unit": "mmHg", "precision": 0},
-    "blood_pressure_avg_dbp": {"unit": "mmHg", "precision": 0},
-    "fbs_avg": {"unit": "mmol/L", "precision": 1},
-    "pbs_avg": {"unit": "mmol/L", "precision": 1},
-    "water_avg_ml": {"unit": "ml", "precision": 0},
-    "kcal_avg": {"unit": "kcal", "precision": 0},
-    "sleep_avg_min": {"unit": "min", "precision": 0},
-    "step_avg": {"unit": "步", "precision": 0},
+    k: {"unit": m.unit, "precision": m.precision}
+    for k, m in HEALTH_METRICS.items()
+    if m.precision >= 0
 }
 
 

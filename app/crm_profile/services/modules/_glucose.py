@@ -5,7 +5,7 @@ import json
 import logging
 from typing import Any
 
-from ._health_summary_const import GLUCOSE_HIGH_THRESHOLD, GLUCOSE_LOW_THRESHOLD
+from ._registry import GLUCOSE_HIGH as GLUCOSE_HIGH_THRESHOLD, GLUCOSE_LOW as GLUCOSE_LOW_THRESHOLD
 
 _log = logging.getLogger(__name__)
 

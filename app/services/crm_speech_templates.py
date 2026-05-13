@@ -567,9 +567,9 @@ def build_insight_speech(
 
 # 场景描述片段，用于生成合并话术
 _SCENE_SUMMARY: dict[str, str] = {
-    'top_leader': '积分榜稳居 TOP3',
-    'top_six': '冲进积分前六',
-    'top_ten': '积分排名前十',
+    'top_leader': '{metric}稳居 TOP3',
+    'top_six': '冲进{metric}前六',
+    'top_ten': '{metric}排名前十',
     'consistent': '连续多日坚持打卡',
     'surge': '近期积分暴涨',
     'comeback': '强势回归打卡',
@@ -579,18 +579,28 @@ _SCENE_SUMMARY: dict[str, str] = {
     'lurker_remind': '很久没冒泡了',
 }
 
+_METRIC_LABELS: dict[str, str] = {
+    'current_points': '总积分榜',
+    'week_points': '本周积分榜',
+    'month_points': '本月积分榜',
+    'custom_month_points': '本月积分榜',
+}
+
 
 def build_grouped_insight_speeches(
     insights: list[dict],
     style: str = 'professional',
     max_scenes: int = 5,
+    rank_metric: str = 'current_points',
 ) -> list[str]:
     """按场景分组生成合并话术：同场景多人合成一句"""
+    metric_label = _METRIC_LABELS.get(rank_metric, '积分榜')
+
     def _build_multi_member_grouped_speech(scene_key: str, names: str, summary: str) -> str:
         rank_scene_summary = {
-            'top_leader': '稳居积分榜 TOP3',
-            'top_six': '已经冲进积分榜前六',
-            'top_ten': '正在积分榜前十持续竞争',
+            'top_leader': f'稳居{metric_label} TOP3',
+            'top_six': f'已经冲进{metric_label}前六',
+            'top_ten': f'正在{metric_label}前十持续竞争',
         }
         normalized_summary = rank_scene_summary.get(scene_key, summary)
 
@@ -621,16 +631,23 @@ def build_grouped_insight_speeches(
         names = '、'.join(m['name'] for m in members if m['name'])
         if not names:
             continue
-        summary = _SCENE_SUMMARY.get(scene_key, '表现突出')
+        summary = _SCENE_SUMMARY.get(scene_key, '表现突出').format(metric=metric_label)
         detail = members[0].get('detail', '')
 
         if len(members) > 1:
             speeches.append(_build_multi_member_grouped_speech(scene_key, names, summary))
             continue
 
-        # 单人场景仍沿用原模板渲染
+        # 单人场景仍沿用原模板渲染，替换积分维度描述
         template_speech = get_speech(scene_key, style, name=names, rank=members[0].get('rank', 0), detail=detail, activity='积极参与')
         if template_speech:
+            if scene_key in ('top_leader', 'top_six', 'top_ten'):
+                template_speech = (template_speech
+                    .replace('积分榜排名', '\x00METRIC\x00排名')
+                    .replace('积分排名', '\x00METRIC\x00排名')
+                    .replace('积分 TOP', '\x00METRIC\x00 TOP')
+                    .replace('积分榜', '\x00METRIC\x00')
+                    .replace('\x00METRIC\x00', metric_label))
             speeches.append(template_speech)
         else:
             speeches.append(f'{names} {summary}！{detail}')

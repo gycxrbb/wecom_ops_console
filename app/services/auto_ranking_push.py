@@ -105,7 +105,7 @@ async def execute_auto_ranking(cfg: AutoRankingConfig) -> dict:
             crm_group_ids=crm_group_ids,
             crm_group_names=crm_group_names,
             top_n=50,
-            rank_metric='current_points',
+            rank_metric=cfg.rank_metric or 'current_points',
             include_week_month=True,
             speech_style=cfg.speech_style or 'professional',
             skip_empty_groups=True,

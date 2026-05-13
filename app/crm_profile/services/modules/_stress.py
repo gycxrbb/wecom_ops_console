@@ -7,8 +7,7 @@ from typing import Any
 
 _log = logging.getLogger(__name__)
 
-# Stress level bands
-STRESS_HIGH_THRESHOLD = 80
+from ._registry import STRESS_HIGH as STRESS_HIGH_THRESHOLD
 
 
 def build_stress_summary(stress_rows: list[dict], health_records: list[dict]) -> dict | None:

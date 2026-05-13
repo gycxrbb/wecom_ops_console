@@ -468,6 +468,8 @@ _CRM_AI_PHASE2_COLUMNS = {
         "scene_key": "VARCHAR(32)",
         "output_style": "VARCHAR(32)",
         "selected_expansions": "TEXT",
+        "health_window_days": "INT",
+        "cache_key": "VARCHAR(128)",
     },
 }
 
@@ -903,3 +905,5 @@ def ensure_auto_ranking_config_schema(engine: Engine) -> None:
                 conn.execute(text("ALTER TABLE auto_ranking_configs ADD COLUMN push_hour INTEGER DEFAULT 0"))
             if "push_minute" not in cols:
                 conn.execute(text("ALTER TABLE auto_ranking_configs ADD COLUMN push_minute INTEGER DEFAULT 0"))
+            if "rank_metric" not in cols:
+                conn.execute(text("ALTER TABLE auto_ranking_configs ADD COLUMN rank_metric VARCHAR(32) DEFAULT 'current_points'"))

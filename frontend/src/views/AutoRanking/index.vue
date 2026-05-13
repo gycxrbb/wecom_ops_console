@@ -125,6 +125,13 @@
           </el-select>
         </el-form-item>
 
+        <el-form-item label="排名方式">
+          <el-select v-model="form.rank_metric" style="width: 100%">
+            <el-option label="总积分排名" value="current_points" />
+            <el-option label="当月积分排名" value="custom_month_points" />
+          </el-select>
+        </el-form-item>
+
         <el-form-item label="周一明细">
           <el-switch v-model="form.include_breakdown_on_monday" active-text="周一自动开启上周积分明细" />
         </el-form-item>
@@ -181,6 +188,7 @@ interface Config {
   extra_scene_pool: string[]
   scene_count: number
   speech_style: string
+  rank_metric: string
   include_breakdown_on_monday: boolean
   skip_weekends: boolean
   skip_dates: string[]
@@ -225,6 +233,7 @@ const form = reactive({
   extra_scene_pool: [] as string[],
   scene_count: 3,
   speech_style: 'professional',
+  rank_metric: 'current_points',
   include_breakdown_on_monday: true,
   skip_weekends: false,
   skip_dates: [] as string[],
@@ -333,6 +342,7 @@ const openDialog = (row?: Config) => {
     form.extra_scene_pool = [...row.extra_scene_pool]
     form.scene_count = row.scene_count
     form.speech_style = row.speech_style
+    form.rank_metric = row.rank_metric || 'current_points'
     form.include_breakdown_on_monday = row.include_breakdown_on_monday
     form.skip_weekends = row.skip_weekends
     form.skip_dates = [...row.skip_dates]
@@ -346,6 +356,7 @@ const openDialog = (row?: Config) => {
     form.extra_scene_pool = []
     form.scene_count = 3
     form.speech_style = 'professional'
+    form.rank_metric = 'current_points'
     form.include_breakdown_on_monday = true
     form.skip_weekends = false
     form.skip_dates = []
@@ -378,6 +389,7 @@ const saveConfig = async () => {
       extra_scene_pool: form.extra_scene_pool,
       scene_count: form.scene_count,
       speech_style: form.speech_style,
+      rank_metric: form.rank_metric,
       include_breakdown_on_monday: form.include_breakdown_on_monday,
       skip_weekends: form.skip_weekends,
       skip_dates: form.skip_dates,

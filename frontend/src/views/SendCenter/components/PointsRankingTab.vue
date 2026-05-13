@@ -24,9 +24,9 @@
           />
           <label>排序指标</label>
           <el-select v-model="config.rankMetric" size="small" style="width: 120px">
+            <el-option label="当月积分" value="custom_month_points" />
             <el-option label="当前积分" value="current_points" />
             <el-option label="本周积分" value="week_points" />
-            <el-option label="本月积分" value="month_points" />
           </el-select>
           <label>话术风格</label>
           <el-select v-model="config.speechStyle" size="small" style="width: 120px">
@@ -243,7 +243,7 @@ let generateTimer: number | null = null
 const config = ref({
   topNEnabled: false,
   topN: 30,
-  rankMetric: 'current_points',
+  rankMetric: 'custom_month_points',
   speechStyle: 'professional',
   includeWeekMonth: true,
   skipEmptyGroups: true,

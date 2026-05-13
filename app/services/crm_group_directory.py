@@ -306,6 +306,7 @@ def fetch_crm_group_members_bulk(group_ids: list[int]) -> dict[int, dict[str, An
                 f'''
                 SELECT g.id AS group_id,
                        g.name AS group_name,
+                       g.start_time,
                        c.id AS customer_id,
                        c.name AS customer_name,
                        c.points,
@@ -330,6 +331,7 @@ def fetch_crm_group_members_bulk(group_ids: list[int]) -> dict[int, dict[str, An
                     'available': True,
                     'group_id': group_id,
                     'group_name': row.get('group_name') or f'未命名群组#{group_id}',
+                    'start_time': row.get('start_time'),
                     'members': [],
                 }
             customer_id = row.get('customer_id')

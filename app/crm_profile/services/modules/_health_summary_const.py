@@ -1,16 +1,9 @@
-"""Constants and thresholds for the health summary module."""
+"""Constants for the health summary module."""
 from __future__ import annotations
 
 MODULE_KEY = "health_summary_7d"  # kept for backward compat; real window read from payload.window_days
 
 VALID_WINDOWS = (7, 14, 30)
-
-# Blood glucose thresholds (mmol/L)
-GLUCOSE_HIGH_THRESHOLD = 10.0
-GLUCOSE_LOW_THRESHOLD = 3.9
-
-# Daily water target (ml)
-WATER_TARGET_ML = 2000
 
 # customer_health.weight is stored x100 (6500 → 65.0 kg)
 WEIGHT_DIVISOR = 100

@@ -7,9 +7,7 @@ from typing import Any
 
 _log = logging.getLogger(__name__)
 
-# Thresholds
-HR_HIGH_THRESHOLD = 100  # bpm
-HR_LOW_THRESHOLD = 50    # bpm
+from ._registry import HR_HIGH as HR_HIGH_THRESHOLD, HR_LOW as HR_LOW_THRESHOLD
 
 
 def build_heartrate_summary(rows: list[dict]) -> dict | None:
