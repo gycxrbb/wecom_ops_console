@@ -130,11 +130,16 @@ def _generate_group_ranking_message_from_members(
     lines.append('')
     lines.append(speech)
 
+    content_str = '\n'.join(lines)
+    content_bytes = len(content_str.encode('utf-8'))
+    if content_bytes > 4096:
+        _log.warning('群 %s 排行消息 %d 字节，将自动拆分', crm_group_name, content_bytes)
+
     return {
         'crm_group_id': crm_group_id,
         'crm_group_name': crm_group_name,
         'msg_type': 'markdown',
-        'content_json': {'content': '\n'.join(lines)},
+        'content_json': {'content': content_str},
         'member_count': len(ranked_members),
         'group_current_points': group_current,
         'group_week_points': group_week,

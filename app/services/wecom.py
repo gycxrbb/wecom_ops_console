@@ -254,6 +254,36 @@ class WeComService:
             )
             rendered_content['media_id'] = media_id
             rendered_content['_upload_response'] = upload_resp
+
+        # markdown 超长自动拆分
+        from .markdown_split import split_markdown_content
+        if msg_type == 'markdown':
+            content_str = rendered_content.get('content', '')
+            parts = split_markdown_content(content_str)
+            if len(parts) > 1:
+                logger.warning('markdown 消息 %d 字节，拆分为 %d 条发送 (group=%s)',
+                               len(content_str.encode('utf-8')), len(parts), group_key)
+                all_payloads = []
+                data = None
+                for i, part in enumerate(parts):
+                    payload, data = await cls._do_send(webhook, msg_type, {'content': part})
+                    all_payloads.append(payload)
+                    if i < len(parts) - 1:
+                        await cls._check_rate_limit(group_key)
+                # 返回合并 payload，调用方可记录全部内容
+                combined = {
+                    'msgtype': 'markdown',
+                    'markdown': {'content': content_str},
+                    '_split_count': len(parts),
+                }
+                return combined, data
+
+            return await cls._do_send(webhook, msg_type, rendered_content)
+
+        return await cls._do_send(webhook, msg_type, rendered_content)
+
+    @classmethod
+    async def _do_send(cls, webhook: str, msg_type: str, rendered_content: dict):
         payload = cls.build_payload(msg_type, rendered_content)
         timeout = settings.send_timeout_seconds
         async with httpx.AsyncClient(timeout=timeout) as client:
