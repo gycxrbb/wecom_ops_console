@@ -77,7 +77,7 @@ def build_meal_highlights(
         summary["meal_record_days"] = meal_record_days
         summary["meal_complete_days"] = meal_complete_days
     if water_vals:
-        summary["water_avg_ml"] = round(sum(water_vals) / len(water_vals), 0)
+        summary["water_avg_ml"] = int(round(sum(water_vals) / len(water_vals)))
         summary["water_on_target_days"] = water_on_target
 
     # Highlights: last 3 days with meal data

@@ -35,6 +35,8 @@ class PreparedAiTurn:
     rag_sources: list[dict] = field(default_factory=list)
     rag_recommended_assets: list[dict] = field(default_factory=list)
     quoted_content: str | None = None
+    health_window_days: int = 7
+    cache_key: str | None = None
 
 
 @dataclass

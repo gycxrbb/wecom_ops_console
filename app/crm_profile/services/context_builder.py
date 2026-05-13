@@ -23,7 +23,7 @@ MODULE_LABELS = {
     "basic_profile": "基础档案",
     "safety_profile": "安全档案",
     "goals_preferences": "目标与偏好",
-    "health_summary_7d": "近7天健康摘要",
+    "health_summary_7d": "健康摘要",
     "body_comp_latest_30d": "近30天体成分",
     "points_engagement_14d": "近14天积分与活跃",
     "service_scope": "服务关系",
@@ -84,12 +84,67 @@ FIELD_LABELS = {
         "window_days": "统计窗口(天)",
         "glucose_avg": "血糖均值(mmol/L)",
         "glucose_peak": "血糖峰值(mmol/L)",
+        "glucose_low": "血糖谷值(mmol/L)",
         "glucose_days": "血糖记录天数",
         "glucose_high_days": "血糖偏高天数",
+        "glucose_low_days": "低血糖天数",
         "meal_record_days": "饮食记录天数",
         "meal_complete_days": "三餐完整天数",
         "water_avg_ml": "日均饮水(ml)",
         "water_on_target_days": "饮水达标天数",
+        "blood_pressure_avg_sbp": "收缩压均值(mmHg)",
+        "blood_pressure_avg_dbp": "舒张压均值(mmHg)",
+        "fbs_avg": "空腹血糖均值(mmol/L)",
+        "pbs_avg": "餐后血糖均值(mmol/L)",
+        "kcal_avg": "日均热量(kcal)",
+        "sleep_avg_min": "日均睡眠(分钟)",
+        "step_avg": "日均步数(步)",
+        "trend_flags": "趋势标记",
+        "data_quality": "数据质量",
+        "stale_hint": "数据过时提示",
+        "meal_highlights": "近期餐食",
+        "glucose_highlights": "血糖波动",
+        # P1: Sleep structure
+        "sleep_detail": "睡眠结构详情",
+        "sleep_record_days": "睡眠记录天数",
+        "sleep_avg_min": "日均睡眠(分钟)",
+        "sleep_avg_deep_min": "日均深睡(分钟)",
+        "sleep_avg_rem_min": "日均REM(分钟)",
+        "sleep_avg_score": "睡眠评分",
+        "sleep_avg_rhr": "睡眠静息心率",
+        # P1: Exercise
+        "exercise_detail": "运动详情",
+        "exercise_record_days": "运动记录天数",
+        "exercise_avg_calories": "日均运动消耗(kcal)",
+        "exercise_total_calories": "总运动消耗(kcal)",
+        "exercise_avg_steps": "日均步数",
+        "exercise_types": "运动类型",
+        # P1: Heart rate
+        "heart_rate": "心率详情",
+        "hr_avg": "日均心率(bpm)",
+        "hr_max": "最高心率(bpm)",
+        "hr_min": "最低心率(bpm)",
+        "hr_days": "心率记录天数",
+        "hr_high_days": "心率偏高天数",
+        "hr_low_days": "心率偏低天数",
+        # P2: Nutrition
+        "nutrition": "营养素详情",
+        "cho_avg_g": "日均碳水(g)",
+        "fat_avg_g": "日均脂肪(g)",
+        "protein_avg_g": "日均蛋白质(g)",
+        "fiber_avg_g": "日均膳食纤维(g)",
+        "kcal_out_avg": "日均消耗(kcal)",
+        # P2: Stress & medication
+        "stress_detail": "压力与用药详情",
+        "stress_avg": "压力均值",
+        "stress_days": "压力记录天数",
+        "stress_high_days": "高压天数",
+        "stress_text": "压力描述",
+        "medication": "用药记录",
+        # BMI & hba1c
+        "bmi": "BMI",
+        "hba1c_latest": "最新糖化血红蛋白(%)",
+        "hba1c_avg": "糖化血红蛋白均值(%)",
     },
     "body_comp_latest_30d": {
         "days": "记录天数",
@@ -215,30 +270,39 @@ def build_context_text(
         if card.status not in ("ok", "partial") or not card.payload:
             continue
         lines = []
-        is_expanded = card.key in expansions or any(
-            e in expansions and e.startswith(card.key.split("_")[0])
-            for e in expansions
-        )
+        is_expanded = (card.key in expansions
+            or any(e in expansions and e.startswith(card.key.split("_")[0]) for e in expansions)
+            or any(e in expansions and e in card.payload for e in expansions))
         for k, v in card.payload.items():
             if v is None:
                 continue
             if isinstance(v, (list, dict)):
                 # Include expanded details for selected modules
-                if is_expanded and isinstance(v, list):
-                    for idx, item in enumerate(v[:5]):
-                        if isinstance(item, dict):
-                            detail_lines = [f"{sk}: {sv}" for sk, sv in item.items()
-                                            if sv is not None and not isinstance(sv, (list, dict))]
-                            if detail_lines:
-                                lines.append(f"  [{idx + 1}] " + " | ".join(detail_lines))
-                        else:
-                            lines.append(f"  [{idx + 1}] {item}")
+                if is_expanded:
+                    if isinstance(v, list):
+                        for idx, item in enumerate(v[:5]):
+                            if isinstance(item, dict):
+                                detail_lines = [f"{sk}: {sv}" for sk, sv in item.items()
+                                                if sv is not None and not isinstance(sv, (list, dict))]
+                                if detail_lines:
+                                    lines.append(f"  [{idx + 1}] " + " | ".join(detail_lines))
+                            else:
+                                lines.append(f"  [{idx + 1}] {item}")
+                    elif isinstance(v, dict):
+                        for dk, dv in v.items():
+                            if dv is not None and not isinstance(dv, (list, dict)):
+                                label = get_field_label(card.key, dk)
+                                lines.append(f"  {label}: {dv}")
                 continue
             lines.append(f"{get_field_label(card.key, k)}: {v}")
         if not lines:
             continue
         header_prefix = " [展开详情]" if is_expanded else ""
-        header = get_module_label(card.key) + header_prefix
+        if card.key == "health_summary_7d" and card.payload.get("window_days"):
+            window = card.payload["window_days"]
+            header = f"健康摘要（统计窗口：近{window}天）" + header_prefix
+        else:
+            header = get_module_label(card.key) + header_prefix
         section = f"### {header}\n" + "\n".join(lines)
         est = len(section) // 4
         if total_est + est > token_budget:

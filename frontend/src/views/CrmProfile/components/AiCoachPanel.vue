@@ -679,7 +679,7 @@ const moduleLabelMap: Record<string, string> = {
   basic_profile: '基础档案',
   safety_profile: '安全档案',
   goals_preferences: '目标与偏好',
-  health_summary_7d: '近7天健康摘要',
+  health_summary_7d: '健康摘要',
   body_comp_latest_30d: '近30天体成分',
   points_engagement_14d: '近14天积分与活跃',
   service_scope: '服务关系',

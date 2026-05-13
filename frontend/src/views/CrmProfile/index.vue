@@ -350,11 +350,20 @@
                     <strong>{{ payload.weight }} kg</strong>
                     <span v-if="payload.weight_trend" class="crm-health-trend">{{ payload.weight_trend }}</span>
                   </div>
+                  <div class="crm-health-item" v-if="payload.bmi">
+                    <span>BMI</span><strong>{{ payload.bmi }}</strong>
+                  </div>
                   <div class="crm-health-item" v-if="payload.blood_pressure">
                     <span>血压</span><strong>{{ payload.blood_pressure }}</strong>
                   </div>
                   <div class="crm-health-item" v-if="payload.glucose">
                     <span>血糖</span><strong>{{ payload.glucose }}</strong>
+                  </div>
+                  <div class="crm-health-item" v-if="payload.hba1c_latest">
+                    <span>糖化血红蛋白</span><strong>{{ payload.hba1c_latest }}%</strong>
+                  </div>
+                  <div class="crm-health-item" v-if="payload.heart_rate">
+                    <span>心率</span><strong>日均 {{ payload.heart_rate.hr_avg }} bpm</strong>
                   </div>
                   <div class="crm-health-item" v-if="payload.sleep">
                     <span>睡眠</span><strong>{{ payload.sleep }}</strong>
@@ -362,8 +371,8 @@
                   <div class="crm-health-item" v-if="payload.activity">
                     <span>运动</span><strong>{{ payload.activity }}</strong>
                   </div>
-                  <div class="crm-health-item" v-if="payload.diet">
-                    <span>饮食</span><strong>{{ payload.diet }}</strong>
+                  <div class="crm-health-item" v-if="payload.diet || payload.kcal_avg">
+                    <span>饮食</span><strong>{{ payload.kcal_avg ? `日均 ${payload.kcal_avg} kcal` : payload.diet }}</strong>
                   </div>
                 </div>
                 <div v-if="payload.symptoms" style="margin-top: 10px;">
@@ -376,10 +385,112 @@
                           style="margin: 2px 4px 2px 0;">{{ flag }}</el-tag>
                 </div>
 
+                <!-- Low glucose warning -->
+                <div v-if="payload.glucose_low_days > 0" style="margin-top: 10px;">
+                  <el-tag type="danger" size="small" round>
+                    低血糖天数 {{ payload.glucose_low_days }} 天（谷值 {{ payload.glucose_low }} mmol/L）
+                  </el-tag>
+                </div>
+
+                <!-- Heart rate detail -->
+                <div v-if="payload.heart_rate?.hr_max" class="crm-health-grid" style="margin-top: 10px;">
+                  <div class="crm-health-item">
+                    <span>最高心率</span><strong>{{ payload.heart_rate.hr_max }} bpm</strong>
+                  </div>
+                  <div class="crm-health-item">
+                    <span>最低心率</span><strong>{{ payload.heart_rate.hr_min }} bpm</strong>
+                  </div>
+                  <div class="crm-health-item" v-if="payload.heart_rate.hr_high_days > 0">
+                    <span>偏高天数</span><strong>{{ payload.heart_rate.hr_high_days }} 天</strong>
+                  </div>
+                  <div class="crm-health-item" v-if="payload.heart_rate.hr_low_days > 0">
+                    <span>偏低天数</span><strong>{{ payload.heart_rate.hr_low_days }} 天</strong>
+                  </div>
+                </div>
+
+                <!-- Sleep structure -->
+                <div v-if="payload.sleep_detail" style="margin-top: 10px;">
+                  <div class="crm-health-subtitle">睡眠结构</div>
+                  <div class="crm-health-grid">
+                    <div class="crm-health-item" v-if="payload.sleep_detail.sleep_avg_deep_min">
+                      <span>深睡</span><strong>{{ payload.sleep_detail.sleep_avg_deep_min }} 分钟/天</strong>
+                    </div>
+                    <div class="crm-health-item" v-if="payload.sleep_detail.sleep_avg_rem_min">
+                      <span>REM</span><strong>{{ payload.sleep_detail.sleep_avg_rem_min }} 分钟/天</strong>
+                    </div>
+                    <div class="crm-health-item" v-if="payload.sleep_detail.sleep_avg_score">
+                      <span>评分</span><strong>{{ payload.sleep_detail.sleep_avg_score }} 分</strong>
+                    </div>
+                    <div class="crm-health-item" v-if="payload.sleep_detail.sleep_avg_rhr">
+                      <span>静息心率</span><strong>{{ payload.sleep_detail.sleep_avg_rhr }} bpm</strong>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Exercise -->
+                <div v-if="payload.exercise_detail" style="margin-top: 10px;">
+                  <div class="crm-health-subtitle">运动</div>
+                  <div class="crm-health-grid">
+                    <div class="crm-health-item" v-if="payload.exercise_detail.exercise_avg_calories">
+                      <span>日均消耗</span><strong>{{ payload.exercise_detail.exercise_avg_calories }} kcal</strong>
+                    </div>
+                    <div class="crm-health-item" v-if="payload.exercise_detail.exercise_avg_steps">
+                      <span>日均步数</span><strong>{{ payload.exercise_detail.exercise_avg_steps }}</strong>
+                    </div>
+                    <div class="crm-health-item" v-if="payload.exercise_detail.exercise_record_days">
+                      <span>记录天数</span><strong>{{ payload.exercise_detail.exercise_record_days }} 天</strong>
+                    </div>
+                  </div>
+                  <div v-if="payload.exercise_detail.exercise_types?.length" style="margin-top: 4px;">
+                    <el-tag v-for="t in payload.exercise_detail.exercise_types" :key="t" size="small" type="info" round style="margin: 2px;">{{ t }}</el-tag>
+                  </div>
+                </div>
+
+                <!-- Nutrition -->
+                <div v-if="payload.nutrition" style="margin-top: 10px;">
+                  <div class="crm-health-subtitle">营养摄入</div>
+                  <div class="crm-health-grid">
+                    <div class="crm-health-item" v-if="payload.nutrition.kcal_avg">
+                      <span>热量</span><strong>{{ payload.nutrition.kcal_avg }} kcal/天</strong>
+                    </div>
+                    <div class="crm-health-item" v-if="payload.nutrition.cho_avg_g">
+                      <span>碳水</span><strong>{{ payload.nutrition.cho_avg_g }} g/天</strong>
+                    </div>
+                    <div class="crm-health-item" v-if="payload.nutrition.protein_avg_g">
+                      <span>蛋白质</span><strong>{{ payload.nutrition.protein_avg_g }} g/天</strong>
+                    </div>
+                    <div class="crm-health-item" v-if="payload.nutrition.fat_avg_g">
+                      <span>脂肪</span><strong>{{ payload.nutrition.fat_avg_g }} g/天</strong>
+                    </div>
+                    <div class="crm-health-item" v-if="payload.nutrition.fiber_avg_g">
+                      <span>膳食纤维</span><strong>{{ payload.nutrition.fiber_avg_g }} g/天</strong>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Stress & Medication -->
+                <div v-if="payload.stress_detail" style="margin-top: 10px;">
+                  <div class="crm-health-subtitle">压力与用药</div>
+                  <div class="crm-health-grid" v-if="payload.stress_detail.stress_avg != null">
+                    <div class="crm-health-item">
+                      <span>压力均值</span><strong>{{ payload.stress_detail.stress_avg }}</strong>
+                    </div>
+                    <div class="crm-health-item" v-if="payload.stress_detail.stress_high_days > 0">
+                      <span>高压天数</span><strong>{{ payload.stress_detail.stress_high_days }} 天</strong>
+                    </div>
+                  </div>
+                  <div v-if="payload.stress_detail.stress_text" style="margin-top: 4px;">
+                    <el-tag type="warning" size="small" round>{{ payload.stress_detail.stress_text }}</el-tag>
+                  </div>
+                  <div v-if="payload.stress_detail.medication" style="margin-top: 4px;">
+                    <el-tag type="info" size="small" round>有用药记录</el-tag>
+                  </div>
+                </div>
+
                 <!-- Water & meal summary -->
                 <div v-if="payload.water_avg_ml || payload.meal_record_days" class="crm-health-grid" style="margin-top: 10px;">
                   <div class="crm-health-item" v-if="payload.water_avg_ml">
-                    <span>日均饮水</span><strong>{{ Math.round(payload.water_avg_ml) }} ml</strong>
+                    <span>日均饮水</span><strong>{{ payload.water_avg_ml }} ml</strong>
                   </div>
                   <div class="crm-health-item" v-if="payload.meal_record_days">
                     <span>饮食记录</span><strong>{{ payload.meal_record_days }} 天（完整 {{ payload.meal_complete_days || 0 }} 天）</strong>

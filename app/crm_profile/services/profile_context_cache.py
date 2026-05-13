@@ -23,6 +23,7 @@ _log = logging.getLogger(__name__)
 _sse = get_sse_logger()
 
 VALID_HEALTH_WINDOWS = {7, 14, 30}
+PROFILE_CONTEXT_SCHEMA_VERSION = "customer_profile_context.v2"
 _singleflight_guard = threading.Lock()
 _singleflight_locks: dict[str, threading.Lock] = {}
 
@@ -111,6 +112,10 @@ def _read_l2(cache_key: str, *, allow_stale: bool = True) -> ProfileCacheResult 
             return None
         if not _has_required_context_fields(ctx):
             _sse.info("[PROFILE-CACHE] stale schema key=%s missing=service_issues.issue_detail_summary", cache_key)
+            return None
+        if getattr(ctx, 'schema_version', None) != PROFILE_CONTEXT_SCHEMA_VERSION:
+            _sse.info("[PROFILE-CACHE] schema version mismatch key=%s expected=%s got=%s",
+                      cache_key, PROFILE_CONTEXT_SCHEMA_VERSION, getattr(ctx, 'schema_version', None))
             return None
 
         row.last_hit_at = now

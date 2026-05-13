@@ -44,6 +44,7 @@ MANIFEST
 htmlcov/
 .pytest_cache/
 .hypothesis/
+tests/
 
 # --- 环境变量/配置 ---
 .env
@@ -109,3 +110,5 @@ node_modules/
 # 忽略 Qdrant 向量库数据目录
 data/qdrant/
 *.lock
+
+

@@ -529,6 +529,24 @@ npm run dev
    - 修复后需重新执行启动测试
    - 不能把启动报错留给用户或留给下一个线程
 
+4. **Windows 环境执行工具选择（重要）**：
+
+   **本项目运行在 Windows 环境，执行测试/启动命令时必须使用 PowerShell 工具，禁止使用 Bash 工具。**
+
+   原因：
+   - Bash 工具底层运行在 Git Bash，无法正确解析 Windows 反斜杠路径。例如 `.venv\Scripts\python.exe` 中的 `\` 被当作转义符吞掉，变成 `..venvScriptspython.exe` 导致 command not found
+   - Windows 用户目录的 `.bashrc` 文件可能包含 UTF-16 BOM 编码头（`\377\376`），导致 Bash 工具每次执行都先报 `$'\377\376export': command not found`
+
+   工具选择规则：
+   | 命令类型 | 正确工具 | 错误工具 |
+   |---------|---------|---------|
+   | `python -m pytest` | PowerShell | Bash |
+   | `pip install` | PowerShell | Bash |
+   | `uvicorn` 启动 | PowerShell | Bash |
+   | `npm run dev/build` | PowerShell | Bash |
+   | `git` 操作 | Bash 或 PowerShell 均可 | - |
+   | 纯 POSIX 脚本（grep/sed/awk） | Bash | PowerShell |
+
 ### 适用于所有角色
 
 - **执行线程 Agent**：完成任务后，必须先跑启动测试，通过后再回写状态和输出
@@ -541,6 +559,7 @@ npm run dev
 2. 禁止只检查语法不实际运行启动
 3. 禁止以"我本地没法运行"为由跳过启动验证
 4. 启动测试通过是开发完成的最低标准，不是可选步骤
+5. 禁止用 Bash 工具执行 Python/Node/uvicorn 命令（Windows 路径兼容性问题，见第 4 点）
 
 --------------------------------------------------
 十五、最终目标

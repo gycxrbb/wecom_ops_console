@@ -98,6 +98,8 @@ async def ask_ai_coach(
         scene_key=prepared.assembly.scene_key,
         output_style=output_style,
         selected_expansions=selected_expansions,
+        health_window_days=prepared.health_window_days,
+        cache_key=prepared.cache_key,
     )
 
     if prepared.shortcut_answer:
@@ -288,6 +290,8 @@ async def stream_ai_coach_answer(
                     scene_key=prepared.assembly.scene_key,
                     output_style=output_style,
                     selected_expansions=selected_expansions,
+                    health_window_days=prepared.health_window_days,
+                    cache_key=prepared.cache_key,
                 ),
             ),
         )

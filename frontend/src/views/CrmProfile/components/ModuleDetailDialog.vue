@@ -125,6 +125,144 @@
           <el-tag v-for="flag in payload.trend_flags" :key="flag" size="small" type="info" round>{{ flag }}</el-tag>
         </div>
       </template>
+      <!-- Health: heart rate -->
+      <template v-if="payload.heart_rate">
+        <div class="mod-detail__section">心率</div>
+        <div class="mod-detail__grid">
+          <div class="mod-detail__grid-item">
+            <span class="mod-detail__grid-label">日均心率</span>
+            <span class="mod-detail__grid-value">{{ payload.heart_rate.hr_avg }} bpm</span>
+          </div>
+          <div class="mod-detail__grid-item" v-if="payload.heart_rate.hr_max">
+            <span class="mod-detail__grid-label">最高心率</span>
+            <span class="mod-detail__grid-value">{{ payload.heart_rate.hr_max }} bpm</span>
+          </div>
+          <div class="mod-detail__grid-item" v-if="payload.heart_rate.hr_min">
+            <span class="mod-detail__grid-label">最低心率</span>
+            <span class="mod-detail__grid-value">{{ payload.heart_rate.hr_min }} bpm</span>
+          </div>
+          <div class="mod-detail__grid-item">
+            <span class="mod-detail__grid-label">记录天数</span>
+            <span class="mod-detail__grid-value">{{ payload.heart_rate.hr_days }} 天</span>
+          </div>
+          <div class="mod-detail__grid-item" v-if="payload.heart_rate.hr_high_days > 0">
+            <span class="mod-detail__grid-label">偏高天数</span>
+            <span class="mod-detail__grid-value" style="color: #ef4444;">{{ payload.heart_rate.hr_high_days }} 天</span>
+          </div>
+          <div class="mod-detail__grid-item" v-if="payload.heart_rate.hr_low_days > 0">
+            <span class="mod-detail__grid-label">偏低天数</span>
+            <span class="mod-detail__grid-value" style="color: #3b82f6;">{{ payload.heart_rate.hr_low_days }} 天</span>
+          </div>
+        </div>
+      </template>
+      <!-- Health: sleep structure -->
+      <template v-if="payload.sleep_detail">
+        <div class="mod-detail__section">睡眠结构</div>
+        <div class="mod-detail__grid">
+          <div class="mod-detail__grid-item" v-if="payload.sleep_detail.sleep_avg_min">
+            <span class="mod-detail__grid-label">日均睡眠</span>
+            <span class="mod-detail__grid-value">{{ payload.sleep_detail.sleep_avg_min }} 分钟</span>
+          </div>
+          <div class="mod-detail__grid-item" v-if="payload.sleep_detail.sleep_avg_deep_min">
+            <span class="mod-detail__grid-label">日均深睡</span>
+            <span class="mod-detail__grid-value">{{ payload.sleep_detail.sleep_avg_deep_min }} 分钟</span>
+          </div>
+          <div class="mod-detail__grid-item" v-if="payload.sleep_detail.sleep_avg_rem_min">
+            <span class="mod-detail__grid-label">日均REM</span>
+            <span class="mod-detail__grid-value">{{ payload.sleep_detail.sleep_avg_rem_min }} 分钟</span>
+          </div>
+          <div class="mod-detail__grid-item" v-if="payload.sleep_detail.sleep_avg_score">
+            <span class="mod-detail__grid-label">睡眠评分</span>
+            <span class="mod-detail__grid-value">{{ payload.sleep_detail.sleep_avg_score }} 分</span>
+          </div>
+          <div class="mod-detail__grid-item" v-if="payload.sleep_detail.sleep_avg_rhr">
+            <span class="mod-detail__grid-label">静息心率</span>
+            <span class="mod-detail__grid-value">{{ payload.sleep_detail.sleep_avg_rhr }} bpm</span>
+          </div>
+          <div class="mod-detail__grid-item" v-if="payload.sleep_detail.sleep_record_days">
+            <span class="mod-detail__grid-label">记录天数</span>
+            <span class="mod-detail__grid-value">{{ payload.sleep_detail.sleep_record_days }} 天</span>
+          </div>
+        </div>
+      </template>
+      <!-- Health: exercise -->
+      <template v-if="payload.exercise_detail">
+        <div class="mod-detail__section">运动</div>
+        <div class="mod-detail__grid">
+          <div class="mod-detail__grid-item" v-if="payload.exercise_detail.exercise_avg_calories">
+            <span class="mod-detail__grid-label">日均消耗</span>
+            <span class="mod-detail__grid-value">{{ payload.exercise_detail.exercise_avg_calories }} kcal</span>
+          </div>
+          <div class="mod-detail__grid-item" v-if="payload.exercise_detail.exercise_avg_steps">
+            <span class="mod-detail__grid-label">日均步数</span>
+            <span class="mod-detail__grid-value">{{ payload.exercise_detail.exercise_avg_steps }} 步</span>
+          </div>
+          <div class="mod-detail__grid-item" v-if="payload.exercise_detail.exercise_record_days">
+            <span class="mod-detail__grid-label">记录天数</span>
+            <span class="mod-detail__grid-value">{{ payload.exercise_detail.exercise_record_days }} 天</span>
+          </div>
+        </div>
+        <div v-if="payload.exercise_detail.exercise_types?.length" style="margin-top: 6px;" class="mod-detail__tags">
+          <el-tag v-for="t in payload.exercise_detail.exercise_types" :key="t" size="small" type="info" round>{{ t }}</el-tag>
+        </div>
+      </template>
+      <!-- Health: nutrition -->
+      <template v-if="payload.nutrition">
+        <div class="mod-detail__section">营养摄入</div>
+        <div class="mod-detail__grid">
+          <div class="mod-detail__grid-item" v-if="payload.nutrition.kcal_avg">
+            <span class="mod-detail__grid-label">日均摄入热量</span>
+            <span class="mod-detail__grid-value">{{ payload.nutrition.kcal_avg }} kcal</span>
+          </div>
+          <div class="mod-detail__grid-item" v-if="payload.nutrition.cho_avg_g">
+            <span class="mod-detail__grid-label">日均碳水</span>
+            <span class="mod-detail__grid-value">{{ payload.nutrition.cho_avg_g }} g</span>
+          </div>
+          <div class="mod-detail__grid-item" v-if="payload.nutrition.protein_avg_g">
+            <span class="mod-detail__grid-label">日均蛋白质</span>
+            <span class="mod-detail__grid-value">{{ payload.nutrition.protein_avg_g }} g</span>
+          </div>
+          <div class="mod-detail__grid-item" v-if="payload.nutrition.fat_avg_g">
+            <span class="mod-detail__grid-label">日均脂肪</span>
+            <span class="mod-detail__grid-value">{{ payload.nutrition.fat_avg_g }} g</span>
+          </div>
+          <div class="mod-detail__grid-item" v-if="payload.nutrition.fiber_avg_g">
+            <span class="mod-detail__grid-label">日均膳食纤维</span>
+            <span class="mod-detail__grid-value">{{ payload.nutrition.fiber_avg_g }} g</span>
+          </div>
+          <div class="mod-detail__grid-item" v-if="payload.nutrition.kcal_out_avg">
+            <span class="mod-detail__grid-label">日均消耗</span>
+            <span class="mod-detail__grid-value">{{ payload.nutrition.kcal_out_avg }} kcal</span>
+          </div>
+        </div>
+      </template>
+      <!-- Health: stress & medication -->
+      <template v-if="payload.stress_detail">
+        <div class="mod-detail__section">压力与用药</div>
+        <div class="mod-detail__grid">
+          <div class="mod-detail__grid-item" v-if="payload.stress_detail.stress_avg != null">
+            <span class="mod-detail__grid-label">压力均值</span>
+            <span class="mod-detail__grid-value">{{ payload.stress_detail.stress_avg }}</span>
+          </div>
+          <div class="mod-detail__grid-item" v-if="payload.stress_detail.stress_days">
+            <span class="mod-detail__grid-label">记录天数</span>
+            <span class="mod-detail__grid-value">{{ payload.stress_detail.stress_days }} 天</span>
+          </div>
+          <div class="mod-detail__grid-item" v-if="payload.stress_detail.stress_high_days > 0">
+            <span class="mod-detail__grid-label">高压天数</span>
+            <span class="mod-detail__grid-value" style="color: #ef4444;">{{ payload.stress_detail.stress_high_days }} 天</span>
+          </div>
+        </div>
+        <div v-if="payload.stress_detail.stress_text" style="margin-top: 6px;" class="mod-detail__tags">
+          <el-tag type="warning" size="small" round>{{ payload.stress_detail.stress_text }}</el-tag>
+        </div>
+        <div v-if="payload.stress_detail.medication" style="margin-top: 6px;">
+          <div class="mod-detail__row">
+            <span class="mod-detail__label">用药</span>
+            <span class="mod-detail__value">{{ payload.stress_detail.medication.name || '有记录' }}{{ payload.stress_detail.medication.dose ? ' ' + payload.stress_detail.medication.dose : '' }}</span>
+          </div>
+        </div>
+      </template>
       <!-- Health: glucose highlights -->
       <template v-if="payload.glucose_highlights?.length">
         <div class="mod-detail__section">血糖波动</div>
@@ -176,8 +314,14 @@ const FIELD_LABELS: Record<string, string> = {
   days: '记录天数', window_days: '统计窗口', weight: '体重',
   weight_trend: '体重趋势', blood_pressure: '血压', glucose: '血糖',
   activity: '运动', symptoms: '症状',
-  glucose_avg: '平均血糖', glucose_peak: '最高血糖', glucose_days: '血糖记录天数',
-  glucose_high_days: '血糖偏高天数',
+  bmi: 'BMI',
+  blood_pressure_avg_sbp: '收缩压均值', blood_pressure_avg_dbp: '舒张压均值',
+  fbs_avg: '空腹血糖均值', pbs_avg: '餐后血糖均值',
+  glucose_avg: '平均血糖', glucose_peak: '最高血糖', glucose_low: '最低血糖',
+  glucose_days: '血糖记录天数',
+  glucose_high_days: '血糖偏高天数', glucose_low_days: '低血糖天数',
+  hba1c_latest: '最新糖化血红蛋白', hba1c_avg: '糖化血红蛋白均值',
+  kcal_avg: '日均热量', sleep_avg_min: '日均睡眠', step_avg: '日均步数',
   meal_record_days: '饮食记录天数', meal_complete_days: '完整饮食天数',
   water_avg_ml: '日均饮水', water_on_target_days: '饮水达标天数',
   // Points
@@ -217,8 +361,13 @@ const SUFFIX_MAP: Record<string, string> = {
   trigger_count_total: ' 次', course_total_assigned: ' 门', course_in_progress: ' 门',
   course_completed: ' 门', study_minutes_30d: ' 分钟', label_count: ' 个',
   window_days: ' 天', weight: ' kg', water_avg_ml: ' ml', glucose_days: ' 天',
-  glucose_high_days: ' 天', meal_record_days: ' 天', meal_complete_days: ' 天',
-  water_on_target_days: ' 天',
+  glucose_high_days: ' 天', glucose_low_days: ' 天', meal_record_days: ' 天',
+  meal_complete_days: ' 天', water_on_target_days: ' 天',
+  blood_pressure_avg_sbp: ' mmHg', blood_pressure_avg_dbp: ' mmHg',
+  fbs_avg: ' mmol/L', pbs_avg: ' mmol/L', glucose_avg: ' mmol/L',
+  glucose_peak: ' mmol/L', glucose_low: ' mmol/L',
+  hba1c_latest: '%', hba1c_avg: '%',
+  kcal_avg: ' kcal', sleep_avg_min: ' 分钟', step_avg: ' 步',
 }
 
 const SKIP_KEYS = new Set([
@@ -232,7 +381,7 @@ const SKIP_KEYS = new Set([
   'medical_history', 'genetic_history',
   // Health - rendered in dedicated sections
   'weight_trend', 'stale_hint', 'trend_flags', 'glucose_highlights', 'meal_highlights',
-  'data_quality',
+  'data_quality', 'heart_rate', 'sleep_detail', 'exercise_detail', 'nutrition', 'stress_detail',
 ])
 
 const parseList = (text: string): string[] => {

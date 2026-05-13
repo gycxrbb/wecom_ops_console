@@ -123,6 +123,8 @@ def _prepare_ai_turn(
         rag_sources=rag_sources or [],
         rag_recommended_assets=rag_recommended_assets or [],
         quoted_content=quoted_content,
+        health_window_days=window_days,
+        cache_key=profile_result.cache_key,
     )
 
 

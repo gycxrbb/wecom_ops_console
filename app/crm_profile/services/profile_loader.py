@@ -32,7 +32,7 @@ _LOADERS = [
 ]
 
 # P0 modules are required for AI chat to function; P1 are supplementary.
-_P0_KEYS = {"basic_profile", "safety_profile", "service_scope", "health_summary"}
+_P0_KEYS = {"basic_profile", "safety_profile", "service_scope", "health_summary_7d"}
 
 
 def load_profile(customer_id: int, *, health_window_days: int = 7) -> CustomerProfileContextV1:

@@ -59,6 +59,8 @@ class CrmAiContextSnapshot(Base):
     scene_key: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     output_style: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     selected_expansions: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    health_window_days: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    cache_key: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now())
 
 

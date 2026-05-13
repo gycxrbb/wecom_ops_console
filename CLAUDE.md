@@ -166,11 +166,25 @@ frontend/src/
 2. **前端启动测试**（如涉及前端改动）：执行 `cd frontend && npm run dev`，确认编译通过、无报错
 3. **启动失败处理**：如果启动失败，必须先修复问题直到启动成功，不能把启动报错留给用户
 
+### Windows 环境执行工具选择规则
+
+**本项目运行在 Windows 环境，执行命令时必须用 PowerShell 工具，禁止用 Bash 工具。**
+
+原因：
+- Bash 工具底层运行在 Git Bash，无法正确解析 Windows 反斜杠路径（`.venv\Scripts\python.exe` 被吞掉 `\` 变成不可识别的路径）
+- Windows 用户目录的 `.bashrc` 文件可能包含 UTF-16 BOM，导致 Bash 工具每次执行都报 `$'\377\376export': command not found`
+
+适用场景：
+- `python -m pytest`、`pip install`、`uvicorn` 等 Python 命令 → **必须用 PowerShell 工具**
+- `npm run dev`、`npm install` 等 Node 命令 → **必须用 PowerShell 工具**
+- 纯 POSIX 脚本或需要 `grep`/`sed`/`awk` 时才用 Bash 工具
+
 ### 强规则
 
 - 禁止在项目无法启动的情况下反馈"开发完成"
 - 禁止只检查语法不实际运行启动
 - 启动测试通过是开发完成的最低标准，不是可选步骤
+- 禁止用 Bash 工具执行 Python/Node 命令（Windows 路径兼容性问题）
 
 
 

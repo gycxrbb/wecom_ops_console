@@ -76,7 +76,9 @@ def write_context_snapshot(session_id: str, context_json: str,
                            prompt_hash: str = "",
                            scene_key: str = "",
                            output_style: str = "",
-                           selected_expansions: list[str] | None = None):
+                           selected_expansions: list[str] | None = None,
+                           health_window_days: int | None = None,
+                           cache_key: str | None = None):
     context_hash = hashlib.sha256(context_json.encode()).hexdigest()
     db = SessionLocal()
     try:
@@ -90,6 +92,8 @@ def write_context_snapshot(session_id: str, context_json: str,
             scene_key=scene_key or None,
             output_style=output_style or None,
             selected_expansions=",".join(selected_expansions) if selected_expansions else None,
+            health_window_days=health_window_days,
+            cache_key=cache_key or None,
         ))
         db.commit()
     except Exception:

@@ -50,7 +50,7 @@ EXPANSION_MODULE_OPTIONS: dict[str, str] = {
 
 class CustomerProfileContextV1(BaseModel):
     """Top-level profile envelope returned to the frontend."""
-    schema_version: str = "customer_profile_context.v1"
+    schema_version: str = "customer_profile_context.v2"
     customer_id: int
     generated_at: datetime | None = None
     cards: list[ModulePayload] = []

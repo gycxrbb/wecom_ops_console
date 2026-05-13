@@ -2155,6 +2155,14 @@
           "relation": null
         },
         {
+          "name": "start_time",
+          "type": "datetime",
+          "nullable": true,
+          "default": "NULL",
+          "comment": "群管理开启时间",
+          "relation": null
+        },
+        {
           "name": "created_at",
           "type": "datetime",
           "nullable": true,

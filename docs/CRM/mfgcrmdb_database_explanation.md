@@ -727,6 +727,7 @@ JSON 字段广泛存在于健康、课程、消息、提醒、任务等表中。
 | `name` | `varchar(32)` | Y | NULL | 名称 |  |
 | `webhook_key` | `varchar(255)` | Y | NULL |  |  |
 | `batch` | `int` | Y | NULL | 批次 |  |
+| `start_time` | `datetime` | Y | NULL  | 群运营开启时间 
 | `created_at` | `datetime` | Y | CURRENT_TIMESTAMP |  |  |
 | `updated_at` | `datetime` | Y | NULL |  |  |
 
