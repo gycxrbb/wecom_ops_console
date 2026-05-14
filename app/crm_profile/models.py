@@ -103,7 +103,7 @@ class CrmAiAttachment(Base):
     crm_customer_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     uploaded_by: Mapped[int] = mapped_column(Integer, nullable=False)
     original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
-    mime_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    mime_type: Mapped[str] = mapped_column(String(128), nullable=False)
     file_size: Mapped[int] = mapped_column(Integer, nullable=False)
     content_hash: Mapped[str] = mapped_column(String(64), default="", index=True)
     storage_provider: Mapped[str] = mapped_column(String(16), nullable=False)
@@ -115,6 +115,7 @@ class CrmAiAttachment(Base):
     vision_model: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     vision_tokens: Mapped[int] = mapped_column(Integer, default=0)
     processing_status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
+    analysis_retry_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now())
 
 

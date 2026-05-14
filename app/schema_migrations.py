@@ -438,6 +438,9 @@ def ensure_crm_ai_attachment_indexes(engine: Engine) -> None:
     if "content_hash" not in existing_cols:
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE crm_ai_attachments ADD COLUMN content_hash VARCHAR(64) DEFAULT ''"))
+    if "analysis_retry_count" not in existing_cols:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE crm_ai_attachments ADD COLUMN analysis_retry_count INTEGER DEFAULT 0"))
 
     idx_checks = [
         ("crm_ai_attachments", "ix_crm_ai_att_att_id", ("attachment_id",), True),
@@ -449,6 +452,23 @@ def ensure_crm_ai_attachment_indexes(engine: Engine) -> None:
     with engine.begin() as conn:
         for table_name, idx_name, columns, unique in idx_checks:
             _ensure_named_index(conn, table_name, idx_name, columns, unique=unique)
+
+        # Widen mime_type column for long MIME types (e.g. application/vnd.openxmlformats-...)
+        cols = {c["name"]: c for c in inspect(conn).get_columns("crm_ai_attachments")}
+        mime_col = cols.get("mime_type")
+        if mime_col:
+            col_type = str(mime_col.get("type", "")).upper()
+            # Extract length from VARCHAR(n) or String(n)
+            import re
+            m = re.search(r'\((\d+)\)', col_type)
+            if m and int(m.group(1)) < 128:
+                dialect = conn.dialect.name
+                if dialect == "mysql":
+                    conn.execute(text("ALTER TABLE crm_ai_attachments MODIFY COLUMN mime_type VARCHAR(128) NOT NULL"))
+                elif dialect == "sqlite":
+                    pass  # SQLite doesn't enforce VARCHAR length
+                else:
+                    conn.execute(text("ALTER TABLE crm_ai_attachments ALTER COLUMN mime_type TYPE VARCHAR(128)"))
 
 
 _CRM_AI_PHASE2_COLUMNS = {

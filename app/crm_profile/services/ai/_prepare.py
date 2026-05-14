@@ -256,10 +256,10 @@ async def _resolve_attachment_descriptions(
     attachment_ids: list[str],
     original_message: str,
 ) -> str:
-    """Load attachments, run Vision analysis if needed, build enhanced user message."""
-    import asyncio as _asyncio
-    from ..ai_attachment import load_attachments
+    """Load attachments, wait briefly for background analysis, fall back to sync if needed."""
+    from ..ai_attachment import load_attachments, _get_analysis_lock
     from ..vision_analyzer import analyze_attachment, build_user_message_with_attachments
+    from ...models import CrmAiAttachment
 
     with SessionLocal() as db:
         attachments = load_attachments(db, attachment_ids, customer_id)
@@ -267,8 +267,26 @@ async def _resolve_attachment_descriptions(
     if not attachments:
         return original_message
 
-    # Analyze all attachments in parallel
-    results = await _asyncio.gather(*[analyze_attachment(att) for att in attachments])
-    descriptions = [(att.original_filename, desc) for att, desc in zip(attachments, results)]
+    async def _resolve_one(att: CrmAiAttachment) -> str:
+        if att.processing_status == "analyzed" and att.vision_description:
+            return att.vision_description
 
+        lock = _get_analysis_lock(att.attachment_id)
+        try:
+            await asyncio.wait_for(lock.acquire(), timeout=8.0)
+        except asyncio.TimeoutError:
+            return await analyze_attachment(att)
+
+        try:
+            with SessionLocal() as db:
+                fresh = db.query(CrmAiAttachment).filter_by(
+                    attachment_id=att.attachment_id).first()
+                if fresh and fresh.processing_status == "analyzed" and fresh.vision_description:
+                    return fresh.vision_description
+            return await analyze_attachment(att)
+        finally:
+            lock.release()
+
+    results = await asyncio.gather(*[_resolve_one(att) for att in attachments])
+    descriptions = [(att.original_filename, desc) for att, desc in zip(attachments, results)]
     return build_user_message_with_attachments(original_message, descriptions)

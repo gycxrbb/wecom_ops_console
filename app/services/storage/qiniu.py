@@ -13,7 +13,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
+import logging
+import time
+
 import httpx
+
+_log = logging.getLogger(__name__)
 
 from ...config import settings
 from .base import StorageProvider, StorageResult, UploadPayload
@@ -243,9 +248,26 @@ class QiniuStorageProvider(StorageProvider):
 
     def download_bytes(self, handle: StorageResult) -> bytes:
         url = self.build_public_url(handle)
-        resp = httpx.get(url, timeout=60)
-        resp.raise_for_status()
-        return resp.content
+        max_retries = 3
+        delays = [0.5, 1.5, 3.0]
+        last_exc = None
+        for attempt in range(max_retries + 1):
+            try:
+                resp = httpx.get(url, timeout=90)
+                resp.raise_for_status()
+                return resp.content
+            except httpx.HTTPStatusError as e:
+                # 4xx client errors are not retryable
+                if e.response.status_code < 500:
+                    raise
+                last_exc = e
+            except (httpx.ConnectError, httpx.ReadTimeout, httpx.RemoteProtocolError) as e:
+                last_exc = e
+            if attempt < max_retries:
+                delay = delays[attempt]
+                _log.warning("Qiniu download retry %d/%d after %.1fs: %s", attempt + 1, max_retries, delay, last_exc)
+                time.sleep(delay)
+        raise last_exc  # type: ignore[misc]
 
     def build_public_url(self, handle: StorageResult) -> str:
         if handle.public_url and not self.config.private_bucket:

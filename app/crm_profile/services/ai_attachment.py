@@ -18,8 +18,26 @@ from ..models import CrmAiAttachment
 
 _log = logging.getLogger(__name__)
 
+# Per-attachment lock to prevent concurrent Vision analysis
+import threading
+_analysis_locks: dict[str, asyncio.Lock] = {}
+_analysis_locks_mutex = threading.Lock()
+# Strong references to background tasks — prevent GC mid-execution
+_background_tasks: set[asyncio.Task] = set()
+
+
+def _get_analysis_lock(attachment_id: str) -> asyncio.Lock:
+    with _analysis_locks_mutex:
+        if attachment_id not in _analysis_locks:
+            _analysis_locks[attachment_id] = asyncio.Lock()
+        return _analysis_locks[attachment_id]
+
+
 ALLOWED_MIME_TYPES = {
     "image/jpeg", "image/png", "image/webp", "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.document",
+    "text/plain", "text/markdown",
 }
 
 MAX_IMAGE_DIMENSION = 2048
@@ -27,7 +45,7 @@ MAX_IMAGE_DIMENSION = 2048
 
 def _validate_upload(file: UploadFile) -> None:
     if not file.content_type or file.content_type not in ALLOWED_MIME_TYPES:
-        raise ValueError(f"不支持的文件类型: {file.content_type}，仅支持 jpg/png/webp/pdf")
+        raise ValueError(f"不支持的文件类型: {file.content_type}，仅支持 jpg/png/webp/pdf/docx/xlsx/txt/md")
 
 
 def normalize_content_hash(content_hash: str | None) -> str:
@@ -74,10 +92,7 @@ async def upload_attachment(
     content_type = file.content_type
     filename = file.filename or "unknown"
 
-    if content_type == "application/pdf":
-        max_size = settings.vision_max_pdf_size_mb * 1024 * 1024
-    else:
-        max_size = settings.vision_max_image_size_mb * 1024 * 1024
+    max_size = settings.vision_max_pdf_size_mb * 1024 * 1024
 
     if len(raw) > max_size:
         raise ValueError(f"文件大小超出限制 ({len(raw) // (1024*1024)}MB)")
@@ -150,22 +165,29 @@ def _create_attachment_record(
 
 
 def _start_background_analysis(attachment: CrmAiAttachment) -> None:
-    """Trigger Vision analysis in background so it's ready when the user sends a message."""
+    """Trigger analysis in background so it's ready when the user sends a message."""
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         return
 
     async def _analyze():
-        await asyncio.sleep(1)
+        await asyncio.sleep(3)  # Wait for CDN propagation (client-side upload)
         from .vision_analyzer import analyze_attachment
+        lock = _get_analysis_lock(attachment.attachment_id)
         try:
-            desc = await analyze_attachment(attachment)
-            _log.info("Background Vision analysis done: id=%s, %d chars", attachment.attachment_id, len(desc))
-        except Exception:
-            _log.warning("Background Vision analysis failed: id=%s", attachment.attachment_id, exc_info=True)
+            async with lock:
+                try:
+                    desc = await analyze_attachment(attachment)
+                    _log.info("Background analysis done: id=%s, %d chars", attachment.attachment_id, len(desc))
+                except Exception:
+                    _log.warning("Background analysis failed: id=%s", attachment.attachment_id, exc_info=True)
+        finally:
+            _analysis_locks.pop(attachment.attachment_id, None)
 
-    loop.create_task(_analyze())
+    task = loop.create_task(_analyze())
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
 
 def _maybe_compress_image(raw: bytes, content_type: str) -> bytes:

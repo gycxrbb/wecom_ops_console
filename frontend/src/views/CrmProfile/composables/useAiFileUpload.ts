@@ -10,7 +10,12 @@ interface UseAiFileUploadDeps {
   getCustomerId: () => number | null
 }
 
-const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
+const ACCEPTED_TYPES = [
+  'image/jpeg', 'image/png', 'image/webp', 'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.document',
+  'text/plain', 'text/markdown',
+]
 
 async function hashFile(file: File): Promise<string> {
   try {
@@ -88,7 +93,7 @@ export function useAiFileUpload(deps: UseAiFileUploadDeps) {
       return
     }
     if (!ACCEPTED_TYPES.includes(file.type)) {
-      ElMessage.warning('仅支持 JPG/PNG/WebP 图片和 PDF 文件')
+      ElMessage.warning('仅支持 JPG/PNG/WebP 图片、PDF、Word、Excel、文本文件')
       return
     }
 

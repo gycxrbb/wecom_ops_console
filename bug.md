@@ -773,3 +773,12 @@
 - **复现条件**: 同一客户 AI 对话中，重复上传字节内容完全相同的图片或 PDF 文件。
 - **解决方案**: 前端使用原始文件字节计算 SHA-256，当前待发送列表内命中相同哈希时直接移除临时项，不发起上传；后端新增 `content_hash` 字段和客户级哈希索引，`prepare-upload` 命中已存在附件时返回 `mode=existing`，`confirm-upload` 和服务端中转上传再次复查并复用已有记录。
 - **关联文件**: app/crm_profile/models.py, app/schema_migrations.py, app/crm_profile/schemas/api.py, app/crm_profile/router.py, app/crm_profile/services/ai_attachment.py, frontend/src/views/CrmProfile/composables/useAiCoach.ts, frontend/src/views/CrmProfile/components/AiCoachPanel.vue
+
+## Bug #77: 图片型/扫描版 PDF 上传后 AI 永远无法识别（七牛下载 SSL 异常 + 失败永久缓存）
+
+- **日期**: 2026-05-14
+- **现象**: 用户上传扫描版/图片版 PDF 到 AI 对话后，AI 始终提示"附件无法识别"。图片和文字版 PDF 正常。后端日志显示 `httpcore.ConnectError: [SSL: UNEXPECTED_EOF_WHILE_READING]`，之后每次提问都重复同样的 SSL 失败。
+- **根因**: 三重叠加：①七牛 `download_bytes` 没有重试机制，单次 SSL 握手异常直接抛错；②客户端直传链路不落本地副本，Vision 分析必须每次从七牛下载；③失败结果被写入 `vision_description` 并标记 `processing_status=failed`，形成永久缓存，没有重试机制。
+- **复现条件**: 上传 5-30MB 扫描版 PDF（客户端直传到七牛），紧接着提问。首次下载遇到 CDN 节点 SSL 波动即永久失败。
+- **解决方案**: ①七牛下载增加指数退避重试（3 次，0.5s/1.5s/3s），超时 60s→90s，仅对网络层异常重试，4xx 不重试；②给 `CrmAiAttachment` 增加 `analysis_retry_count` 字段，失败时 retry_count<3 不写 fallback、不改状态为 failed，只 +1 计数；超过 3 次才永久标记失败；③背景分析延迟从 0s 改为 3s，给 CDN 传播留时间。
+- **关联文件**: app/services/storage/qiniu.py, app/crm_profile/services/vision_analyzer.py, app/crm_profile/services/ai_attachment.py, app/crm_profile/models.py, app/schema_migrations.py

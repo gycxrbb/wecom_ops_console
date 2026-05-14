@@ -173,7 +173,16 @@
         </transition>
 
         <!-- Main chat area -->
-        <div class="ai-main">
+        <div class="ai-main" @dragenter.prevent="onDragEnter" @dragover.prevent @dragleave="onDragLeave" @drop.prevent="onDrop">
+          <!-- Drop zone overlay -->
+          <transition name="ai-drop-fade">
+            <div v-if="isDragging" class="ai-drop-zone">
+              <div class="ai-drop-zone-inner">
+                <el-icon :size="40" class="ai-drop-zone-icon"><Upload /></el-icon>
+                <span class="ai-drop-zone-text">松开即可上传附件</span>
+              </div>
+            </div>
+          </transition>
           <!-- Floating top bar (ChatGPT style) -->
           <div class="ai-floating-top">
             <div v-if="isMobile" class="ai-floating-left">
@@ -262,25 +271,35 @@
             </div>
             <!-- Attachment preview strip -->
             <div v-if="pendingAttachments.length" class="ai-attachment-strip">
-              <div v-for="(att, idx) in pendingAttachments" :key="att.attachment_id" class="ai-att-card" :class="{ 'is-uploading': att.uploading }">
+              <div v-for="(att, idx) in pendingAttachments" :key="att.attachment_id" class="ai-att-card" :class="{ 'is-uploading': att.uploading, 'is-file': !att.mime_type.startsWith('image/') }">
+                <!-- Image Attachment -->
                 <div
+                  v-if="att.mime_type.startsWith('image/')"
                   class="ai-att-card-thumb"
-                  :class="{ 'is-clickable': att.mime_type.startsWith('image/') && !!att.url }"
-                  :title="att.mime_type.startsWith('image/') ? '查看大图' : att.filename"
+                  :class="{ 'is-clickable': !!att.url }"
+                  title="查看大图"
                   @click="openAttachmentPreview(att)"
                 >
-                  <img v-if="att.mime_type.startsWith('image/')" :src="att.url" class="ai-att-card-img" />
-                  <div v-else class="ai-att-card-file">
-                    <el-icon :size="24"><Document /></el-icon>
+                  <img :src="att.url" class="ai-att-card-img" />
+                </div>
+                <!-- File Attachment -->
+                <div v-else class="ai-att-card-file-body" :title="att.filename">
+                  <div class="ai-att-card-file-icon" :class="getFileIconClass(att.filename)">
+                    <el-icon :size="20"><Document /></el-icon>
+                  </div>
+                  <div class="ai-att-card-file-info">
+                    <div class="ai-att-card-filename">{{ att.filename }}</div>
+                    <div class="ai-att-card-fileformat">{{ getFileTypeLabel(att.filename) }}</div>
                   </div>
                 </div>
+
                 <div v-if="att.uploading" class="ai-att-card-status">
                   {{ (att.progress || 0) >= 90 ? '处理中' : `上传 ${Math.max(1, Math.round(att.progress || 1))}%` }}
                 </div>
                 <el-icon class="ai-att-card-remove" @click.stop="removeAttachment(idx)"><Close /></el-icon>
               </div>
             </div>
-            <input ref="fileInputRef" type="file" accept="image/jpeg,image/png,image/webp,application/pdf"
+            <input ref="fileInputRef" type="file" accept="image/jpeg,image/png,image/webp,application/pdf,.docx,.xlsx,.txt,.md"
               style="display:none" @change="onFileSelected" />
             <!-- Quote bar for follow-up questions -->
             <div v-if="quotedMessage" class="ai-quote-bar">
@@ -372,6 +391,7 @@ import {
   Paperclip,
   Loading,
   Check,
+  Upload,
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '#/stores/user'
@@ -506,7 +526,7 @@ const modelGroups = computed(() => {
 
 const {
   pendingAttachments, uploadingAttachment, fileInputRef, previewDialog,
-  triggerFileInput, onFileSelected, onPaste, removeAttachment, openAttachmentPreview,
+  triggerFileInput, addAndUploadFile, onFileSelected, onPaste, removeAttachment, openAttachmentPreview,
 } = useAiFileUpload({
   loading,
   uploadAttachmentDirect,
@@ -528,6 +548,29 @@ const onSidebarLeave = () => {
 
 const mobileMenuOpen = ref(false)
 const selectMode = ref(false)
+const isDragging = ref(false)
+let dragEnterCount = 0
+
+const onDragEnter = () => {
+  dragEnterCount++
+  isDragging.value = true
+}
+const onDragLeave = (e: DragEvent) => {
+  dragEnterCount--
+  if (dragEnterCount <= 0) {
+    dragEnterCount = 0
+    isDragging.value = false
+  }
+}
+const onDrop = async (e: DragEvent) => {
+  dragEnterCount = 0
+  isDragging.value = false
+  const files = e.dataTransfer?.files
+  if (!files?.length) return
+  for (let i = 0; i < files.length; i++) {
+    await addAndUploadFile(files[i])
+  }
+}
 const selectedIndices = ref<Set<number>>(new Set())
 
 const setMobileTab = (tab: 'history' | 'context' | 'notes') => {
@@ -547,6 +590,24 @@ const onToggleSelect = (index: number) => {
   const s = new Set(selectedIndices.value)
   if (s.has(index)) s.delete(index); else s.add(index)
   selectedIndices.value = s
+}
+
+const getFileIconClass = (filename?: string) => {
+  if (!filename) return 'is-unknown'
+  const ext = filename.split('.').pop()?.toLowerCase() || ''
+  if (['doc', 'docx'].includes(ext)) return 'is-doc'
+  if (['xls', 'xlsx', 'csv'].includes(ext)) return 'is-excel'
+  if (ext === 'pdf') return 'is-pdf'
+  return 'is-unknown'
+}
+
+const getFileTypeLabel = (filename?: string) => {
+  if (!filename) return '文件'
+  const ext = filename.split('.').pop()?.toLowerCase() || ''
+  if (['doc', 'docx'].includes(ext)) return '文档'
+  if (['xls', 'xlsx'].includes(ext)) return '表格'
+  if (ext === 'pdf') return 'PDF'
+  return ext.toUpperCase() || '文件'
 }
 
 const msgTypeMap: Record<string, string> = { image: 'image', video: 'file', meme: 'emotion', file: 'file' }

@@ -40,6 +40,9 @@ def _check_prepare_rate_limit(user_id: int) -> None:
     if len(window) >= 10:
         raise HTTPException(status_code=429, detail="上传请求过于频繁，请稍后再试")
     window.append(now)
+    # Prune empty entries to prevent unbounded dict growth
+    if not window:
+        _prepare_rate_limit.pop(user_id, None)
 
 
 @router.post("/{customer_id}/ai/upload-attachment")
@@ -82,10 +85,7 @@ async def ai_prepare_upload(
         raise HTTPException(status_code=400, detail=f"不支持的文件类型: {body.mime_type}")
 
     # Validate file size
-    if body.mime_type == "application/pdf":
-        max_size = settings.vision_max_pdf_size_mb * 1024 * 1024
-    else:
-        max_size = settings.vision_max_image_size_mb * 1024 * 1024
+    max_size = settings.vision_max_pdf_size_mb * 1024 * 1024
     if body.file_size > max_size:
         raise HTTPException(status_code=400, detail=f"文件大小超出限制 ({body.file_size // (1024*1024)}MB)")
 
@@ -122,10 +122,7 @@ async def ai_confirm_upload(
     # Validate again on confirm
     if body.mime_type not in ALLOWED_MIME_TYPES:
         raise HTTPException(status_code=400, detail="不支持的文件类型")
-    if body.mime_type == "application/pdf":
-        max_size = settings.vision_max_pdf_size_mb * 1024 * 1024
-    else:
-        max_size = settings.vision_max_image_size_mb * 1024 * 1024
+    max_size = settings.vision_max_pdf_size_mb * 1024 * 1024
     if body.file_size > max_size:
         raise HTTPException(status_code=400, detail="文件大小超出限制")
 

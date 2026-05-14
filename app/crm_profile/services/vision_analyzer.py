@@ -15,13 +15,18 @@ from ...clients.ai_chat_client import chat_completion
 from ...config import settings
 from ...database import SessionLocal
 from ..models import CrmAiAttachment
+from .document_extractor import DOCUMENT_MIME_TYPES as _DOC_MIME_TYPES
+from .document_extractor import extract_document_text as _extract_doc_text
 
 _log = logging.getLogger(__name__)
 
 # Vision API works well at lower resolution — 1024px is enough for text/chart extraction
 VISION_MAX_DIMENSION = 1024
 VISION_JPEG_QUALITY = 70
-VISION_PDF_DPI = 100
+# PDF pages get higher quality to preserve text clarity (scanned docs)
+VISION_PDF_DPI = 150
+VISION_PDF_MAX_DIMENSION = 1800
+VISION_PDF_JPEG_QUALITY = 85
 
 VISION_PROMPT = """你是一个专业的医学图表分析助手。请仔细观察这张图片，提取以下信息：
 
@@ -37,11 +42,14 @@ VISION_PROMPT_PDF_PAGE = """这是一份 PDF 文档的其中一页。请识别�
 保持原始结构和层级，确保数据准确完整。"""
 
 
+MAX_ANALYSIS_RETRIES = 3
+
+
 async def analyze_attachment(attachment: CrmAiAttachment) -> str:
     """Analyze an attachment via Vision API. Returns description text.
 
     Uses cached result if processing_status == 'analyzed'.
-    Updates DB record with result or failure status.
+    Retries up to MAX_ANALYSIS_RETRIES times before permanently failing.
     """
     if attachment.processing_status == "analyzed" and attachment.vision_description:
         return attachment.vision_description
@@ -49,41 +57,56 @@ async def analyze_attachment(attachment: CrmAiAttachment) -> str:
     try:
         if attachment.mime_type == "application/pdf":
             description = await _analyze_pdf(attachment)
+        elif attachment.mime_type in _DOC_MIME_TYPES:
+            description = await _analyze_document(attachment)
         else:
             description = await _analyze_image(attachment)
 
-        _update_attachment(attachment, description, "analyzed")
+        _update_attachment(attachment, description=description, status="analyzed")
         return description
 
     except Exception as e:
-        _log.error("Vision analysis failed for %s: %s", attachment.attachment_id, e, exc_info=True)
-        fallback = f"[附件无法识别：{attachment.original_filename}]"
-        _update_attachment(attachment, fallback, "failed")
-        return fallback
+        retry_count = (attachment.analysis_retry_count or 0) + 1
+        if retry_count < MAX_ANALYSIS_RETRIES:
+            _log.warning("Vision analysis failed for %s (attempt %d/%d): %s",
+                         attachment.attachment_id, retry_count, MAX_ANALYSIS_RETRIES, e)
+            _update_attachment(attachment, retry_count=retry_count)
+            return f"[附件解析中，请稍后再试（第{retry_count}次失败）]"
+        else:
+            _log.error("Vision analysis permanently failed for %s after %d attempts: %s",
+                       attachment.attachment_id, MAX_ANALYSIS_RETRIES, e, exc_info=True)
+            fallback = f"[附件无法识别：{attachment.original_filename}]"
+            _update_attachment(attachment, description=fallback, status="failed")
+            return fallback
 
 
-def _downscale_for_vision(raw: bytes) -> bytes:
-    """Downscale image to max 1024px JPEG quality 70 for faster Vision API calls."""
+def _downscale_for_vision(raw: bytes, max_dim: int = VISION_MAX_DIMENSION,
+                          quality: int = VISION_JPEG_QUALITY) -> bytes:
+    """Downscale image and re-encode as JPEG."""
     from PIL import Image
 
     img = Image.open(BytesIO(raw))
-    w, h = img.size
-    if w <= VISION_MAX_DIMENSION and h <= VISION_MAX_DIMENSION:
-        # Already small enough, just re-encode as JPEG for consistent size
-        buf = BytesIO()
-        if img.mode in ("RGBA", "P"):
-            img = img.convert("RGB")
-        img.save(buf, format="JPEG", quality=VISION_JPEG_QUALITY)
-        return buf.getvalue()
-
-    ratio = min(VISION_MAX_DIMENSION / w, VISION_MAX_DIMENSION / h)
-    new_w, new_h = int(w * ratio), int(h * ratio)
-    img = img.resize((new_w, new_h), Image.LANCZOS)
-    if img.mode in ("RGBA", "P"):
+    if img.mode != "RGB":
         img = img.convert("RGB")
+    w, h = img.size
+    if w > max_dim or h > max_dim:
+        ratio = min(max_dim / w, max_dim / h)
+        img = img.resize((int(w * ratio), int(h * ratio)), Image.LANCZOS)
     buf = BytesIO()
-    img.save(buf, format="JPEG", quality=VISION_JPEG_QUALITY)
+    img.save(buf, format="JPEG", quality=quality)
     return buf.getvalue()
+
+
+async def _analyze_document(attachment: CrmAiAttachment) -> str:
+    """Extract text from document files (docx, xlsx, txt, md) — no Vision needed."""
+    raw = _read_attachment_file(attachment)
+    if not raw:
+        raise RuntimeError(f"Cannot read document file: {attachment.attachment_id}")
+    description = await asyncio.to_thread(
+        _extract_doc_text, raw, attachment.mime_type, attachment.original_filename
+    )
+    _log.info("Document text extracted: %s, %d chars", attachment.attachment_id, len(description))
+    return description
 
 
 async def _analyze_image(attachment: CrmAiAttachment) -> str:
@@ -131,51 +154,79 @@ async def _analyze_pdf(attachment: CrmAiAttachment) -> str:
         raise RuntimeError("pymupdf not installed — PDF analysis unavailable")
 
     doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
-    max_pages = min(len(doc), settings.vision_max_pdf_pages)
+    try:
+        total_pages = len(doc)
+        max_pages = min(total_pages, settings.vision_max_pdf_pages)
+        attachment.page_count = total_pages
 
-    async def _analyze_page(page_idx: int) -> tuple[int, str]:
-        page = doc[page_idx]
-        # Lower DPI + compress to JPEG for faster API calls
-        pix = page.get_pixmap(dpi=VISION_PDF_DPI)
-        png_bytes = pix.tobytes("png")
-        # Compress page image for Vision
-        jpeg_bytes = await asyncio.to_thread(_downscale_for_vision, png_bytes)
+        # Path 1: Native text extraction for text-based PDFs (no Vision needed)
+        native_text = await asyncio.to_thread(_extract_pdf_text, doc)
+        if native_text:
+            header = f"PDF文档共{total_pages}页（文本提取模式）"
+            if len(native_text) > 12000:
+                native_text = native_text[:12000] + "\n...[内容过长已截断]"
+            return f"{header}\n\n{native_text}"
 
-        b64 = base64.b64encode(jpeg_bytes).decode()
-        data_url = f"data:image/jpeg;base64,{b64}"
+        # Path 2: Rasterize scanned pages with higher quality
+        async def _analyze_page(page_idx: int) -> tuple[int, str]:
+            page = doc[page_idx]
+            page_bytes: bytes | None = None
+            images = page.get_images(full=True)
+            if len(images) == 1:
+                try:
+                    xref = images[0][0]
+                    base_image = doc.extract_image(xref)
+                    if base_image and base_image.get("image") and base_image["width"] >= 800:
+                        page_bytes = base_image["image"]
+                except Exception:
+                    pass
 
-        messages = [
-            {
+            if not page_bytes:
+                pix = page.get_pixmap(dpi=VISION_PDF_DPI)
+                page_bytes = pix.tobytes("png")
+
+            jpeg_bytes = await asyncio.to_thread(
+                _downscale_for_vision, page_bytes, VISION_PDF_MAX_DIMENSION, VISION_PDF_JPEG_QUALITY
+            )
+            b64 = base64.b64encode(jpeg_bytes).decode()
+            data_url = f"data:image/jpeg;base64,{b64}"
+            messages = [{
                 "role": "user",
                 "content": [
                     {"type": "text", "text": VISION_PROMPT_PDF_PAGE},
                     {"type": "image_url", "image_url": {"url": data_url}},
                 ],
-            }
-        ]
+            }]
+            try:
+                content, usage = await chat_completion(
+                    messages, temperature=0.3, max_tokens=2048,
+                    provider="aihubmix", model=settings.vision_model,
+                )
+                _record_usage(attachment, usage)
+                return page_idx, content
+            except Exception as e:
+                _log.warning("Vision failed on PDF page %d: %s", page_idx + 1, e)
+                return page_idx, f"[第{page_idx + 1}页 — 识别失败]"
 
-        try:
-            content, usage = await chat_completion(
-                messages, temperature=0.3, max_tokens=2048,
-                provider="aihubmix", model=settings.vision_model,
-            )
-            _record_usage(attachment, usage)
-            return page_idx, content
-        except Exception as e:
-            _log.warning("Vision failed on PDF page %d: %s", page_idx + 1, e)
-            return page_idx, f"[第{page_idx + 1}页 — 识别失败]"
+        results = await asyncio.gather(*[_analyze_page(i) for i in range(max_pages)])
+        results.sort(key=lambda r: r[0])
+        page_descriptions = [f"[第{idx + 1}页]\n{text}" for idx, text in results]
+        header = f"PDF文档共{total_pages}页（扫描件模式，已分析{max_pages}页）"
+        return f"{header}\n\n" + "\n\n".join(page_descriptions)
+    finally:
+        doc.close()
 
-    # Analyze all pages in parallel
-    results = await asyncio.gather(*[_analyze_page(i) for i in range(max_pages)])
-    results.sort(key=lambda r: r[0])
-    page_descriptions = [f"[第{idx + 1}页]\n{text}" for idx, text in results]
 
-    total_pages = len(doc)
-    attachment.page_count = total_pages
-    doc.close()
-
-    header = f"PDF文档共{total_pages}页，已分析{max_pages}页"
-    return f"{header}\n\n" + "\n\n".join(page_descriptions)
+def _extract_pdf_text(doc) -> str | None:
+    """Try native text extraction. Returns text if pages are text-based, None if scanned."""
+    text_parts: list[str] = []
+    for page in doc:
+        text = page.get_text("text").strip()
+        text_parts.append(text)
+    full_text = "\n\n".join(text_parts).strip()
+    if len(full_text) < 100 * len(doc):
+        return None
+    return full_text
 
 
 def _read_attachment_file(attachment: CrmAiAttachment) -> bytes | None:
@@ -206,15 +257,22 @@ def _record_usage(attachment: CrmAiAttachment, usage: dict) -> None:
     attachment.vision_tokens = (attachment.vision_tokens or 0) + usage.get("total_tokens", 0)
 
 
-def _update_attachment(attachment: CrmAiAttachment, description: str, status: str) -> None:
+def _update_attachment(attachment: CrmAiAttachment, description: str | None = None,
+                      status: str | None = None, retry_count: int | None = None) -> None:
+    if retry_count is not None:
+        attachment.analysis_retry_count = retry_count
     try:
         with SessionLocal() as db:
             record = db.query(CrmAiAttachment).filter_by(id=attachment.id).first()
             if record:
-                record.vision_description = description
+                if description is not None:
+                    record.vision_description = description
+                if status is not None:
+                    record.processing_status = status
+                if retry_count is not None:
+                    record.analysis_retry_count = retry_count
                 record.vision_model = attachment.vision_model
                 record.vision_tokens = attachment.vision_tokens
-                record.processing_status = status
                 db.commit()
     except Exception:
         _log.warning("Failed to update attachment record", exc_info=True)
