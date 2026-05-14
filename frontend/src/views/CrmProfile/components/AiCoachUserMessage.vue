@@ -12,10 +12,14 @@
             <img :src="att.url" :alt="att.filename" class="ai-msg-att-img" />
           </div>
           <!-- File chip -->
-          <a v-else :href="att.url" target="_blank" class="ai-msg-att-file">
-            <el-icon :size="16"><Document /></el-icon>
-            <span class="ai-msg-att-label">{{ att.filename }}</span>
-            <span class="ai-msg-att-size">{{ formatSize(att.file_size) }}</span>
+          <a v-else :href="att.url" target="_blank" class="ai-msg-att-file-card">
+            <div class="ai-att-card-file-icon" :class="getFileIconClass(att.filename)">
+              <el-icon :size="20"><Document /></el-icon>
+            </div>
+            <div class="ai-att-card-file-info">
+              <span class="ai-msg-att-label">{{ att.filename }}</span>
+              <span class="ai-msg-att-size">{{ formatSize(att.file_size) }}</span>
+            </div>
           </a>
         </template>
       </div>
@@ -69,6 +73,15 @@ const formatSize = (bytes: number) => {
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + 'KB'
   return (bytes / (1024 * 1024)).toFixed(1) + 'MB'
 }
+
+const getFileIconClass = (filename?: string) => {
+  if (!filename) return 'is-unknown'
+  const ext = filename.split('.').pop()?.toLowerCase() || ''
+  if (['doc', 'docx'].includes(ext)) return 'is-doc'
+  if (['xls', 'xlsx', 'csv'].includes(ext)) return 'is-excel'
+  if (ext === 'pdf') return 'is-pdf'
+  return 'is-unknown'
+}
 </script>
 
 <style scoped>
@@ -89,15 +102,32 @@ const formatSize = (bytes: number) => {
 }
 .ai-msg-att-image:hover { border-color: #6366f1; box-shadow: 0 4px 12px rgba(99,102,241,0.15); }
 .ai-msg-att-img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.ai-msg-att-file {
-  display: inline-flex; align-items: center; gap: 6px;
-  background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 8px;
-  padding: 6px 12px; font-size: 13px; color: #475569; text-decoration: none;
-  transition: all 0.15s;
+.ai-msg-att-file-card {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: #fff; border: 1px solid #e2e8f0; border-radius: 8px;
+  padding: 8px; min-width: 160px; max-width: 200px;
+  text-decoration: none; transition: all 0.15s;
+  height: 56px; box-sizing: border-box;
 }
-.ai-msg-att-file:hover { border-color: #6366f1; color: #312e81; background: #eef2ff; }
-.ai-msg-att-label { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ai-msg-att-size { font-size: 11px; color: #94a3b8; }
+.ai-msg-att-file-card:hover { border-color: #6366f1; box-shadow: 0 2px 8px rgba(99,102,241,0.08); }
+.ai-att-card-file-icon {
+  width: 38px; height: 38px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; flex-shrink: 0;
+}
+.ai-att-card-file-icon.is-doc { background: #2b70f0; }
+.ai-att-card-file-icon.is-pdf { background: #f53f3f; }
+.ai-att-card-file-icon.is-excel { background: #00b42a; }
+.ai-att-card-file-icon.is-unknown { background: #8b5cf6; }
+.ai-att-card-file-info {
+  display: flex; flex-direction: column; justify-content: center;
+  overflow: hidden; min-width: 0; align-self: stretch;
+}
+.ai-msg-att-label { 
+  font-size: 13px; font-weight: 500; color: #1f2937;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.4;
+}
+.ai-msg-att-size { font-size: 11px; color: #94a3b8; margin-top: 2px; line-height: 1; }
 @media (max-width: 768px) {
   .ai-msg-att-image { width: 100px; height: 75px; }
 }
