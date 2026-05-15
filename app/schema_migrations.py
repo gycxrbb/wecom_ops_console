@@ -400,6 +400,33 @@ def ensure_plan_schema(engine: Engine) -> None:
     # CRM AI message feedback table
     ensure_crm_ai_feedback_schema(engine)
 
+    # CRM AI session admin columns (rename/pin/delete/last_active)
+    ensure_crm_ai_session_admin_columns(engine)
+
+
+_CRM_AI_SESSION_ADMIN_COLUMNS = {
+    "title": "VARCHAR(128)",
+    "auto_title": "VARCHAR(128)",
+    "is_pinned": "BOOLEAN DEFAULT 0",
+    "pinned_at": "DATETIME",
+    "is_deleted": "BOOLEAN DEFAULT 0",
+    "deleted_at": "DATETIME",
+    "last_active_at": "DATETIME",
+}
+
+
+def ensure_crm_ai_session_admin_columns(engine: Engine) -> None:
+    """Add session admin columns (title, pin, delete, last_active) to crm_ai_sessions."""
+    inspector = inspect(engine)
+    if "crm_ai_sessions" not in inspector.get_table_names():
+        return
+    existing = {c["name"] for c in inspector.get_columns("crm_ai_sessions")}
+    missing = {col: spec for col, spec in _CRM_AI_SESSION_ADMIN_COLUMNS.items() if col not in existing}
+    if missing:
+        with engine.begin() as conn:
+            for col_name, col_spec in missing.items():
+                conn.execute(text(f"ALTER TABLE crm_ai_sessions ADD COLUMN {col_name} {col_spec}"))
+
 
 def ensure_crm_ai_indexes(engine: Engine) -> None:
     """Ensure indexes exist on CRM AI audit tables (tables created by ORM create_all)."""

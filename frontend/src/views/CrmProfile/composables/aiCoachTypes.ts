@@ -51,6 +51,8 @@ export type AiChatMessage =
       thinkingVisible?: boolean
       thinkingDone?: boolean
       streaming?: boolean
+      progressText?: string
+      progressStep?: string
       errorCode?: string
       errorMessage?: string
       feedback?: { rating: 'like' | 'dislike'; feedbackId: string } | null
@@ -83,6 +85,10 @@ export type AiSessionSummary = {
   session_id: string
   entry_scene?: string | null
   scene_key?: string | null
+  title?: string | null
+  auto_title?: string | null
+  is_pinned?: boolean
+  display_title?: string
   started_at?: string | null
   last_message_at?: string | null
   message_count: number
@@ -115,4 +121,6 @@ export type StreamPayload = {
   sources?: RagSource[]
   recommended_assets?: RagRecommendedAsset[]
   rag_status?: string
+  text?: string
+  step?: string
 }

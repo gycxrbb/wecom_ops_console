@@ -192,8 +192,11 @@ async def stream_ai_coach_answer(
     original_message = message
     effective_message = message
     att_tuple = tuple(attachment_ids) if attachment_ids else None
+    user_preview = original_message[:30] + ('...' if len(original_message) > 30 else '')
+    yield AiStreamEvent(event="progress", data={"text": f"收到提问：{user_preview}", "step": "received"})
     if attachment_ids:
         yield AiStreamEvent(event="analyzing", data={"status": "analyzing_attachments"})
+        yield AiStreamEvent(event="progress", data={"text": "正在分析附件", "step": "analyzing"})
         effective_message = await _resolve_attachment_descriptions(customer_id, attachment_ids, message)
 
     # Resolve quoted content for follow-up
@@ -210,8 +213,15 @@ async def stream_ai_coach_answer(
     pre_assistant_message_id = str(uuid.uuid4())
 
     _sse.info("[SSE-TIMING] prepare start at %.3fs", time.time() - t_start)
-    try:
-        prepared = await _prepare_ai_turn_cached(
+
+    # Run prepare in background with progress queue so we can yield events
+    progress_queue: asyncio.Queue[dict | None] = asyncio.Queue()
+
+    async def _on_progress(text: str, step: str):
+        await progress_queue.put({"text": text, "step": step})
+
+    prepare_task = asyncio.create_task(
+        _prepare_ai_turn_cached(
             customer_id,
             effective_message,
             session_id=session_id,
@@ -225,11 +235,28 @@ async def stream_ai_coach_answer(
             rag_session_id=session_id,
             rag_message_id=pre_user_message_id,
             original_message=original_message,
+            on_progress=_on_progress,
         )
+    )
+
+    try:
+        while not prepare_task.done():
+            try:
+                evt = await asyncio.wait_for(progress_queue.get(), timeout=0.15)
+                yield AiStreamEvent(event="progress", data=evt)
+            except asyncio.TimeoutError:
+                continue
+        # Drain remaining progress events
+        while not progress_queue.empty():
+            evt = progress_queue.get_nowait()
+            if evt:
+                yield AiStreamEvent(event="progress", data=evt)
+        prepared = prepare_task.result()
     except ProfileCacheNotReady as exc:
         _sse.info("[SSE-TIMING] answer profile cache unready key=%s", exc.result.cache_key)
         yield AiStreamEvent(event="error", data=_profile_cache_unready_payload(exc))
         return
+
     _sse.info("[SSE-TIMING] prepare done at %.3fs", time.time() - t_start)
     t_prepare_done = time.time()
 
@@ -249,6 +276,7 @@ async def stream_ai_coach_answer(
     )
     _sse.info("[SSE-TIMING] meta yielded, firing background audit writes at %.3fs", time.time() - t_start)
 
+    yield AiStreamEvent(event="progress", data={"text": "模型整合回复中", "step": "model_call"})
     yield AiStreamEvent(event="loading", data={"stage": "model_call"})
 
     _req_params = {
@@ -291,6 +319,16 @@ async def stream_ai_coach_answer(
         )
 
     _audit_task = asyncio.create_task(_background_audit())
+
+    # Fire-and-forget auto-title generation after user message is persisted
+    async def _fire_auto_title():
+        await _audit_task  # ensure user message is written first
+        try:
+            from ._auto_title import generate_auto_title
+            await generate_auto_title(prepared.session_id)
+        except Exception:
+            pass  # non-critical background task
+    _ = asyncio.create_task(_fire_auto_title())
 
     if prepared.shortcut_answer:
         await _audit_task

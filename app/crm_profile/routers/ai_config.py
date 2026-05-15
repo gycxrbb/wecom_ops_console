@@ -1,7 +1,7 @@
-"""AI config, profile notes, context preview, and session history endpoints."""
+"""AI config, profile notes, and context preview endpoints."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
 from ...config import settings
@@ -11,9 +11,7 @@ from ...security import get_current_user, require_permission
 from ..models import CustomerAiProfileNote
 from ..schemas.api import (
     AiProfileNoteRequest, AiProfileNoteResponse, AiConfigResponse, SceneOption,
-    AiSessionListResponse, AiSessionDetailResponse,
 )
-from ..services import audit as audit_service
 from ..services.permission import assert_can_view
 from ..services.profile_context_cache import ensure_profile_context, normalize_window_days
 from ..services.context_builder import build_context_text as _build_context_text
@@ -146,57 +144,4 @@ def get_ai_context_preview(
         "selected_expansions": expansions or [],
         "estimated_chars": len(context_text),
         "estimated_tokens": len(context_text) // 4,
-    }
-
-
-@router.get("/{customer_id}/ai/sessions", response_model=AiSessionListResponse)
-def list_ai_sessions(
-    customer_id: int,
-    request: Request,
-    limit: int = Query(20, ge=1, le=100),
-    db: Session = Depends(get_db),
-):
-    """Return recent AI conversation sessions for the customer."""
-    user = get_current_user(request, db)
-    require_permission(user, 'crm_profile')
-    assert_can_view(user, customer_id)
-    return {
-        "customer_id": customer_id,
-        "items": audit_service.load_customer_sessions(customer_id, limit=limit),
-    }
-
-
-@router.get("/{customer_id}/ai/sessions/{session_id}", response_model=AiSessionDetailResponse)
-def get_ai_session_detail(
-    customer_id: int,
-    session_id: str,
-    request: Request,
-    db: Session = Depends(get_db),
-):
-    """Return one stored AI conversation with chronological messages."""
-    user = get_current_user(request, db)
-    require_permission(user, 'crm_profile')
-    assert_can_view(user, customer_id)
-    detail = audit_service.load_session_detail(customer_id, session_id)
-    if not detail:
-        raise HTTPException(404, "未找到对应的历史对话")
-
-    # Attach feedback for assistant messages
-    from ..services.feedback import load_feedbacks_for_messages
-    assistant_ids = [m["message_id"] for m in detail["messages"] if m["role"] == "assistant"]
-    feedbacks = load_feedbacks_for_messages(db, assistant_ids, user.id)
-    for m in detail["messages"]:
-        if m["role"] == "assistant":
-            fb = feedbacks.get(m["message_id"])
-            m["feedback"] = {"rating": fb.rating, "feedback_id": fb.feedback_id} if fb else None
-        else:
-            m["feedback"] = None
-
-    return {
-        "customer_id": customer_id,
-        "session": detail["session"],
-        "messages": detail["messages"],
-        "scene_key": detail["session"].get("scene_key"),
-        "output_style": detail["session"].get("output_style"),
-        "prompt_version": detail["session"].get("prompt_version"),
     }

@@ -5,7 +5,7 @@ import asyncio
 import hashlib
 import time
 import uuid
-from typing import Any, Literal
+from typing import Any, Awaitable, Callable, Literal
 
 from ._types import _log, _sse, _PREPARE_CACHE, _PREPARE_TTL, PreparedAiTurn
 from ._helpers import (
@@ -143,6 +143,7 @@ async def _prepare_ai_turn_async(
     rag_session_id: str | None = None,
     rag_message_id: str | None = None,
     original_message: str | None = None,
+    on_progress: Callable[[str, str], Awaitable] | None = None,
 ) -> PreparedAiTurn:
     """Async wrapper: runs RAG retrieval (async) then _prepare_ai_turn (sync via executor)."""
     rag_context_text = ""
@@ -150,6 +151,8 @@ async def _prepare_ai_turn_async(
     rag_recommended_assets: list[dict] = []
     if settings.rag_enabled:
         try:
+            if on_progress:
+                await on_progress("正在查询知识库...", "rag_search")
             from ....rag.retriever import retrieve_rag_context as _rag_retrieve
             window_days = normalize_window_days(health_window_days)
             profile_signals = _extract_rag_profile_signals(customer_id, window_days)
@@ -166,6 +169,11 @@ async def _prepare_ai_turn_async(
                 rag_context_text = rag_bundle.context_text
                 rag_sources = [s.model_dump() for s in rag_bundle.sources]
                 rag_recommended_assets = [a.model_dump() for a in rag_bundle.recommended_assets]
+            if on_progress:
+                if rag_sources:
+                    await on_progress(f"召回 {len(rag_sources)} 条相关知识", "rag_done")
+                else:
+                    await on_progress("知识库未找到相关内容，直接回复", "rag_done")
         except Exception:
             _log.exception("RAG retrieval failed for customer %s", customer_id)
 
@@ -201,6 +209,7 @@ async def _prepare_ai_turn_cached(
     rag_session_id: str | None = None,
     rag_message_id: str | None = None,
     original_message: str | None = None,
+    on_progress: Callable[[str, str], Awaitable] | None = None,
 ) -> PreparedAiTurn:
     """Prepare with turn-level cache. First call writes, second call reads within TTL."""
     window_days = normalize_window_days(health_window_days)
@@ -254,6 +263,7 @@ async def _prepare_ai_turn_cached(
         rag_session_id=rag_session_id,
         rag_message_id=rag_message_id,
         original_message=original_message,
+        on_progress=on_progress,
     )
     _PREPARE_CACHE[key] = (now, prepared)
     return prepared

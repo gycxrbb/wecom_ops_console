@@ -33,7 +33,10 @@
           :thinking-done="msg.thinkingDone"
         />
         <MarkdownRenderer v-if="msg.content" :content="msg.content" :streaming="msg.streaming" />
-        <div v-else-if="msg.streaming" class="ai-msg-placeholder">正在生成正式回复...</div>
+        <div v-else-if="msg.streaming" class="ai-msg-progress">
+          <el-icon class="ai-progress-icon is-loading"><Loading /></el-icon>
+          <span class="ai-progress-text">{{ msg.progressText || '正在思考...' }}</span>
+        </div>
         <div v-if="msg.safetyNotes?.length || msg.requiresMedicalReview" class="ai-msg-safety-hint">
           <el-icon><Warning /></el-icon>
           <span v-if="msg.requiresMedicalReview">涉及医疗相关内容，需医生确认后方可发送给客户</span>
@@ -86,7 +89,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { CopyDocument, Warning, WarningFilled, RefreshRight, ChatLineRound } from '@element-plus/icons-vue'
+import { CopyDocument, Loading, Warning, WarningFilled, RefreshRight, ChatLineRound } from '@element-plus/icons-vue'
 import MarkdownRenderer from '#/components/markdown/MarkdownRenderer.vue'
 import AiCoachThinkingPanel from './AiCoachThinkingPanel.vue'
 import type { AiChatMessage } from '../composables/useAiCoach'
@@ -174,6 +177,10 @@ const safetyCodeLabel = (code: string) => {
 .ai-msg--assistant .ai-msg-bubble { background: #ffffff; color: #374151; border-radius: 4px 18px 18px 18px; box-shadow: 0 4px 16px rgba(0,0,0,0.04); border: 1px solid #f0f2f5; }
 :global(html.dark) .ai-msg--assistant .ai-msg-bubble { background: rgba(255,255,255,0.06); }
 .ai-msg-placeholder { font-size: 13px; color: #9ca3af; }
+.ai-msg-progress { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+.ai-progress-icon { font-size: 16px; color: var(--el-color-primary); }
+.ai-progress-text { font-size: 13px; color: #6b7280; animation: ai-progress-fade 0.3s ease; }
+@keyframes ai-progress-fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 .ai-msg-safety-hint { margin-top: 8px; padding: 6px 10px; border-radius: 8px; background: color-mix(in srgb, var(--el-color-warning-light-9) 60%, transparent); color: #92400e; font-size: 12px; line-height: 1.5; display: flex; align-items: flex-start; gap: 6px; }
 .ai-msg-safety-hint .el-icon { margin-top: 2px; font-size: 14px; flex-shrink: 0; }
 :global(html.dark) .ai-msg-safety-hint { background: color-mix(in srgb, var(--el-color-warning-dark-2) 20%, transparent); color: #fbbf24; }

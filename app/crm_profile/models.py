@@ -23,6 +23,13 @@ class CrmAiSession(Base):
     output_style: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     prompt_version: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     prompt_hash: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    title: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    auto_title: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    is_pinned: Mapped[bool] = mapped_column(Boolean, default=False)
+    pinned_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    last_active_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now())
 
 

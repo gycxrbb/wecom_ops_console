@@ -103,16 +103,18 @@ export function useAiCoach() {
 
   // --- Session History ---
 
+  const sessionSearchKeyword = ref('')
+
   const loadSessionHistory = async (
     customerId: number,
-    options?: { limit?: number; silent?: boolean },
+    options?: { limit?: number; silent?: boolean; keyword?: string },
   ) => {
     if (!options?.silent) {
       sessionHistoryLoading.value = true
     }
     try {
       const res: any = await request.get(`/v1/crm-customers/${customerId}/ai/sessions`, {
-        params: { limit: options?.limit || 20 },
+        params: { limit: options?.limit || 20, keyword: options?.keyword || undefined },
       })
       sessionHistory.value = res.items || []
       return sessionHistory.value
@@ -256,6 +258,12 @@ export function useAiCoach() {
           return
         }
 
+        if (event === 'progress') {
+          assistantMessage.progressText = payload.text
+          assistantMessage.progressStep = payload.step
+          return
+        }
+
         if (event === 'analyzing') {
           assistantMessage.loadingStage = 'prepare'
           return
@@ -298,6 +306,8 @@ export function useAiCoach() {
           answerCompleted = true
           assistantMessage.streaming = false
           assistantMessage.loadingStage = undefined
+          assistantMessage.progressText = undefined
+          assistantMessage.progressStep = undefined
           assistantMessage.tokenUsage = payload.token_usage
           assistantMessage.safetyNotes = payload.safety_notes || []
           assistantMessage.safetyResult = payload.safety_result || undefined
@@ -501,6 +511,11 @@ export function useAiCoach() {
             assistantMessage.loadingStage = payload.stage as 'prepare' | 'model_call'
             return
           }
+          if (event === 'progress') {
+            assistantMessage.progressText = payload.text
+            assistantMessage.progressStep = payload.step
+            return
+          }
           if (event === 'delta' && payload.delta) {
             assistantMessage.content += payload.delta
             return
@@ -508,6 +523,8 @@ export function useAiCoach() {
           if (event === 'done') {
             assistantMessage.streaming = false
             assistantMessage.loadingStage = undefined
+            assistantMessage.progressText = undefined
+            assistantMessage.progressStep = undefined
             assistantMessage.tokenUsage = payload.token_usage
             assistantMessage.safetyNotes = payload.safety_notes || []
             assistantMessage.safetyResult = payload.safety_result || undefined
@@ -619,7 +636,7 @@ export function useAiCoach() {
     submitFeedback, getMessageFeedback,
     regenerate, quotedMessage, setQuote, clearQuote,
     scenes, styles, currentScene, outputStyle, profileNote, profileNoteSaving, configLoaded,
-    sessionHistory, sessionHistoryLoading, loadSessionHistory, openHistorySession,
+    sessionHistory, sessionHistoryLoading, sessionSearchKeyword, loadSessionHistory, openHistorySession,
     loadAiConfig, saveProfileNote, restoredSessionMeta,
     expansionOptions, selectedExpansions,
     availableModels, selectedModel,

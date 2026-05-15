@@ -63,6 +63,12 @@ def write_message(session_id: str, message_id: str, role: str,
             request_params_json=json.dumps(request_params, ensure_ascii=False) if request_params else None,
         ))
         db.commit()
+        # Update session metadata after writing message
+        if role == "user":
+            from .ai._session_admin import set_auto_title
+            set_auto_title(session_id, content)
+        from .ai._session_admin import touch_last_active
+        touch_last_active(session_id)
     except Exception:
         _log.exception("Failed to write audit message")
         db.rollback()
@@ -155,14 +161,37 @@ def _serialize_token_usage(row: CrmAiMessage) -> dict[str, int]:
     }
 
 
-def load_customer_sessions(customer_id: int, limit: int = 20) -> list[dict]:
+def load_customer_sessions(customer_id: int, limit: int = 20,
+                            keyword: str | None = None) -> list[dict]:
     """Return recent AI sessions for a customer with lightweight summary info."""
+    from sqlalchemy import func as sa_func
     db = SessionLocal()
     try:
+        query = db.query(CrmAiSession).filter(
+            CrmAiSession.crm_customer_id == customer_id,
+            CrmAiSession.is_deleted == False,  # noqa: E712
+        )
+
+        # Keyword search: match title/auto_title or message content
+        if keyword:
+            kw = f"%{keyword}%"
+            matching_session_ids = (
+                db.query(CrmAiMessage.session_id)
+                .filter(CrmAiMessage.content.ilike(kw))
+                .subquery()
+            )
+            query = query.filter(
+                (CrmAiSession.title.ilike(kw))
+                | (CrmAiSession.auto_title.ilike(kw))
+                | (CrmAiSession.session_id.in_(matching_session_ids))
+            )
+
         sessions = (
-            db.query(CrmAiSession)
-            .filter(CrmAiSession.crm_customer_id == customer_id)
-            .order_by(CrmAiSession.created_at.desc(), CrmAiSession.id.desc())
+            query.order_by(
+                CrmAiSession.is_pinned.desc(),
+                sa_func.coalesce(CrmAiSession.last_active_at, CrmAiSession.created_at).desc(),
+                CrmAiSession.id.desc(),
+            )
             .limit(limit)
             .all()
         )
@@ -187,14 +216,19 @@ def load_customer_sessions(customer_id: int, limit: int = 20) -> list[dict]:
         items: list[dict] = []
         for session in sessions:
             latest = latest_by_session.get(session.session_id)
+            preview = _preview_text(latest.content if latest else "")
             items.append({
                 "session_id": session.session_id,
                 "entry_scene": session.entry_scene,
                 "scene_key": session.scene_key,
+                "title": session.title,
+                "auto_title": session.auto_title,
+                "is_pinned": bool(session.is_pinned),
+                "display_title": session.title or session.auto_title or preview,
                 "started_at": str(session.created_at) if session.created_at else None,
                 "last_message_at": str(latest.created_at) if latest and latest.created_at else (str(session.created_at) if session.created_at else None),
                 "message_count": counts.get(session.session_id, 0),
-                "last_message_preview": _preview_text(latest.content if latest else ""),
+                "last_message_preview": preview,
             })
         return items
     except Exception:
@@ -239,6 +273,7 @@ def load_session_detail(customer_id: int, session_id: str) -> dict | None:
         } for row in rows]
 
         latest = rows[-1] if rows else None
+        preview = _preview_text(latest.content if latest else "")
         return {
             "session": {
                 "session_id": session.session_id,
@@ -246,10 +281,14 @@ def load_session_detail(customer_id: int, session_id: str) -> dict | None:
                 "scene_key": session.scene_key,
                 "output_style": session.output_style,
                 "prompt_version": session.prompt_version,
+                "title": session.title,
+                "auto_title": session.auto_title,
+                "is_pinned": bool(session.is_pinned),
+                "display_title": session.title or session.auto_title or preview,
                 "started_at": str(session.created_at) if session.created_at else None,
                 "last_message_at": str(latest.created_at) if latest and latest.created_at else (str(session.created_at) if session.created_at else None),
                 "message_count": len(rows),
-                "last_message_preview": _preview_text(latest.content if latest else ""),
+                "last_message_preview": preview,
             },
             "messages": messages,
         }

@@ -67,6 +67,10 @@
                   :active-session-id="sessionId"
                   @select="onSelectHistorySession"
                   @new-session="onCreateNewSession"
+                  @search="onSearchSessions"
+                  @rename="onRenameSession"
+                  @toggle-pin="onTogglePinSession"
+                  @delete="onDeleteSession"
                 />
               </template>
               <!-- Context tab -->
@@ -400,6 +404,7 @@ import { useAiCoach } from '../composables/useAiCoach'
 import type { AiChatMessage, AiAttachment } from '../composables/useAiCoach'
 import type { AiProfileCacheStatus } from '../composables/useCrmProfile'
 import { useAiFileUpload } from '../composables/useAiFileUpload'
+import { useAiSessionAdmin } from '../composables/useAiSessionAdmin'
 import AiSessionHistoryList from './AiSessionHistoryList.vue'
 import AiCoachMessageList from './AiCoachMessageList.vue'
 import AiCoachFeedbackDialog from './AiCoachFeedbackDialog.vue'
@@ -492,7 +497,7 @@ const {
   regenerate: regenerateApi,
   quotedMessage, setQuote, clearQuote,
   scenes, styles, currentScene, outputStyle, profileNote, profileNoteSaving, configLoaded,
-  sessionHistory, sessionHistoryLoading, loadSessionHistory, openHistorySession,
+  sessionHistory, sessionHistoryLoading, sessionSearchKeyword, loadSessionHistory, openHistorySession,
   loadAiConfig, saveProfileNote, restoredSessionMeta,
   expansionOptions, selectedExpansions,
   availableModels, selectedModel,
@@ -527,11 +532,14 @@ const modelGroups = computed(() => {
 const {
   pendingAttachments, uploadingAttachment, fileInputRef, previewDialog,
   triggerFileInput, addAndUploadFile, onFileSelected, onPaste, removeAttachment, openAttachmentPreview,
+  waitForUploads,
 } = useAiFileUpload({
   loading,
   uploadAttachmentDirect,
   getCustomerId: () => props.customerId,
 })
+
+const { renameSession, togglePin, deleteSession } = useAiSessionAdmin()
 
 const messageListRef = ref<InstanceType<typeof AiCoachMessageList>>()
 const sidebarTab = ref<'history' | 'context' | 'notes' | null>(null)
@@ -881,15 +889,21 @@ const send = async () => {
     ElMessage.warning('客户档案正在准备，稍后再问')
     return
   }
-  // Wait for any in-progress uploads
+  // 等待附件上传完成（最多 3s），超时则只用已完成的附件
   if (uploadingAttachment.value) {
-    ElMessage.warning('附件上传中，请稍候...')
-    return
+    const ok = await waitForUploads(3000)
+    if (!ok) {
+      const uploading = pendingAttachments.value.filter(a => a.uploading)
+      if (uploading.length === pendingAttachments.value.length && !msg) return
+      pendingAttachments.value = pendingAttachments.value.filter(a => !a.uploading)
+      ElMessage.info('部分附件尚未上传完成，已跳过')
+    }
   }
   input.value = ''
   visibleDataGaps.value = []
-  const attachmentIds = pendingAttachments.value.map(a => a.attachment_id)
-  const attachments = [...pendingAttachments.value]
+  const readyAttachments = pendingAttachments.value.filter(a => !a.uploading)
+  const attachmentIds = readyAttachments.map(a => a.attachment_id).filter((id): id is string => typeof id === 'string' && !id.startsWith('temp_'))
+  const attachments = [...readyAttachments]
   pendingAttachments.value = []
   await sendChat(props.customerId, msg || '请分析上传的附件', {
     healthWindowDays: props.healthWindowDays,
@@ -1046,6 +1060,41 @@ const onCreateNewSession = () => {
   clearSession()
   sidebarTab.value = null
   ElMessage.success('已切换到新对话')
+}
+
+const onSearchSessions = (keyword: string) => {
+  if (!props.customerId) return
+  sessionSearchKeyword.value = keyword
+  loadSessionHistory(props.customerId, { keyword, silent: true })
+}
+
+const onRenameSession = async (sessionId: string, title: string) => {
+  if (!props.customerId) return
+  const ok = await renameSession(props.customerId, sessionId, title)
+  if (ok) {
+    ElMessage.success('已重命名')
+    loadSessionHistory(props.customerId, { silent: true })
+  }
+}
+
+const onTogglePinSession = async (sessionId: string) => {
+  if (!props.customerId) return
+  const session = sessionHistory.value.find(s => s.session_id === sessionId)
+  if (!session) return
+  const ok = await togglePin(props.customerId, sessionId, !session.is_pinned)
+  if (ok) {
+    loadSessionHistory(props.customerId, { silent: true })
+  }
+}
+
+const onDeleteSession = async (targetSessionId: string) => {
+  if (!props.customerId) return
+  const ok = await deleteSession(props.customerId, targetSessionId)
+  if (ok) {
+    ElMessage.success('对话已删除')
+    if (targetSessionId === sessionId.value) clearSession()
+    loadSessionHistory(props.customerId, { silent: true })
+  }
 }
 </script>
 

@@ -21,7 +21,8 @@ router.include_router(ai_config.router)
 _ai_coach_enabled = settings.ai_coach_enabled or (bool(settings.ai_api_key) and settings.crm_profile_enabled)
 
 if _ai_coach_enabled:
-    from .routers import ai_coach, ai_attachment, ai_feedback_admin
+    from .routers import ai_coach, ai_attachment, ai_feedback_admin, ai_session
     router.include_router(ai_coach.router)
     router.include_router(ai_attachment.router)
     router.include_router(ai_feedback_admin.router)
+    router.include_router(ai_session.router)

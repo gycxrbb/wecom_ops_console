@@ -11,15 +11,14 @@ cryptography==44.0.2
 pydantic-settings==2.8.1
 itsdangerous==2.2.0
 pyjwt>=2.8.0
-pyjwt
 redis
 pymysql
 celery
 openpyxl==3.1.5
+python-docx>=1.1.0
 qiniu>=7.14.0
 Pillow>=10.0.0
 pymupdf>=1.25.0
 qdrant-client==1.17.1
 bcrypt==5.0.0
-cryptography==44.0.2
 pycryptodome==3.23.0

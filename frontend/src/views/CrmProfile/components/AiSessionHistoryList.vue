@@ -1,70 +1,102 @@
 <template>
   <div class="ai-history-panel">
     <div class="ai-history-panel__actions">
+      <el-input
+        v-model="searchKeyword"
+        size="small"
+        placeholder="搜索对话"
+        clearable
+        class="ai-history-panel__search"
+        @input="onSearchInput"
+      >
+        <template #prefix><el-icon><Search /></el-icon></template>
+      </el-input>
       <el-button class="ai-history-panel__new-btn" size="small" @click="$emit('new-session')">开始新对话</el-button>
     </div>
 
     <div v-if="loading" class="ai-history-panel__empty">正在加载历史对话...</div>
     <div v-else-if="!sessions.length" class="ai-history-panel__empty">当前客户还没有历史对话</div>
     <div v-else class="ai-history-panel__list">
-      <button
-        v-for="session in sessions"
-        :key="session.session_id"
-        type="button"
-        class="ai-history-item"
-        :class="{ 'is-active': session.session_id === activeSessionId }"
-        @click="$emit('select', session.session_id)"
-      >
-        <div class="ai-history-item__top">
-          <span class="ai-history-item__time">{{ formatTime(session.last_message_at || session.started_at) }}</span>
-          <span class="ai-history-item__count">{{ session.message_count }} 条消息</span>
-        </div>
-        <div class="ai-history-item__preview">{{ session.last_message_preview || '该会话暂无可展示内容' }}</div>
-        <div class="ai-history-item__meta">
-          <span>{{ sceneLabelMap[session.entry_scene || ''] || '客户档案问答' }}</span>
-          <span class="ai-history-item__id">{{ formatSessionId(session.session_id) }}</span>
-        </div>
-      </button>
+      <!-- Pinned group -->
+      <template v-if="pinnedSessions.length">
+        <div class="ai-history-group-label">置顶对话</div>
+        <SessionCard
+          v-for="session in pinnedSessions" :key="session.session_id"
+          :session="session" :active-session-id="activeSessionId"
+          :search-keyword="searchKeyword"
+          :renaming-session-id="renamingSessionId"
+          @select="$emit('select', $event)"
+          @start-rename="startRename"
+          @confirm-rename="confirmRename"
+          @cancel-rename="cancelRename"
+          @toggle-pin="$emit('toggle-pin', $event)"
+          @delete="$emit('delete', $event)"
+        />
+      </template>
+      <!-- Other sessions -->
+      <template v-if="otherSessions.length">
+        <div v-if="pinnedSessions.length" class="ai-history-group-label">其他对话</div>
+        <SessionCard
+          v-for="session in otherSessions" :key="session.session_id"
+          :session="session" :active-session-id="activeSessionId"
+          :search-keyword="searchKeyword"
+          :renaming-session-id="renamingSessionId"
+          @select="$emit('select', $event)"
+          @start-rename="startRename"
+          @confirm-rename="confirmRename"
+          @cancel-rename="cancelRename"
+          @toggle-pin="$emit('toggle-pin', $event)"
+          @delete="$emit('delete', $event)"
+        />
+      </template>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { computed, ref } from 'vue'
+import { Search } from '@element-plus/icons-vue'
 import type { AiSessionSummary } from '../composables/useAiCoach'
+import SessionCard from './AiSessionCard.vue'
 
-defineProps<{
+const props = defineProps<{
   sessions: AiSessionSummary[]
   loading: boolean
   activeSessionId?: string | null
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   select: [sessionId: string]
   'new-session': []
+  search: [keyword: string]
+  rename: [sessionId: string, title: string]
+  'toggle-pin': [sessionId: string]
+  delete: [sessionId: string]
 }>()
 
-const sceneLabelMap: Record<string, string> = {
-  customer_profile: '客户档案进入',
-  quick_prompt: '快捷提问',
-  customer_list: '客户列表进入',
+const searchKeyword = ref('')
+let searchTimer: ReturnType<typeof setTimeout> | null = null
+
+const onSearchInput = () => {
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => emit('search', searchKeyword.value), 300)
 }
 
-const formatSessionId = (sessionId: string) => {
-  if (!sessionId) return ''
-  return `会话 ${sessionId.slice(0, 8)}`
-}
+const pinnedSessions = computed(() => props.sessions.filter(s => s.is_pinned))
+const otherSessions = computed(() => props.sessions.filter(s => !s.is_pinned))
 
-const formatTime = (value?: string | null) => {
-  if (!value) return '未知时间'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) {
-    return value
-  }
-  const month = `${date.getMonth() + 1}`.padStart(2, '0')
-  const day = `${date.getDate()}`.padStart(2, '0')
-  const hour = `${date.getHours()}`.padStart(2, '0')
-  const minute = `${date.getMinutes()}`.padStart(2, '0')
-  return `${month}-${day} ${hour}:${minute}`
+// Inline rename state
+const renamingSessionId = ref<string | null>(null)
+
+const startRename = ({ sessionId }: { sessionId: string }) => {
+  renamingSessionId.value = sessionId
+}
+const confirmRename = (sessionId: string, newTitle: string) => {
+  emit('rename', sessionId, newTitle)
+  renamingSessionId.value = null
+}
+const cancelRename = () => {
+  renamingSessionId.value = null
 }
 </script>
 
@@ -77,10 +109,16 @@ const formatTime = (value?: string | null) => {
 
 .ai-history-panel__actions {
   display: flex;
-  justify-content: flex-end;
+  gap: 8px;
+  align-items: center;
+}
+
+.ai-history-panel__search {
+  flex: 1;
 }
 
 .ai-history-panel__new-btn {
+  flex-shrink: 0;
   border-color: #d7dce5;
   background: #fff;
   color: #475569;
@@ -109,60 +147,12 @@ const formatTime = (value?: string | null) => {
   gap: 10px;
 }
 
-.ai-history-item {
-  width: 100%;
-  border: 1px solid #e5e7eb;
-  border-radius: 16px;
-  background: #fff;
-  padding: 12px 14px;
-  text-align: left;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.ai-history-item:hover {
-  border-color: #c7d2fe;
-  box-shadow: 0 8px 20px rgba(99, 102, 241, 0.08);
-}
-
-.ai-history-item.is-active {
-  border-color: #6366f1;
-  background: linear-gradient(180deg, #ffffff 0%, #f5f3ff 100%);
-  box-shadow: 0 10px 24px rgba(99, 102, 241, 0.12);
-}
-
-.ai-history-item__top,
-.ai-history-item__meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.ai-history-item__time {
-  color: #111827;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.ai-history-item__count,
-.ai-history-item__meta {
+.ai-history-group-label {
+  font-size: 11px;
   color: #94a3b8;
-  font-size: 12px;
-}
-
-.ai-history-item__preview {
-  margin: 8px 0;
-  color: #334155;
-  font-size: 13px;
-  line-height: 1.55;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.ai-history-item__id {
-  color: #cbd5e1;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 4px 2px;
 }
 </style>

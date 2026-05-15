@@ -137,6 +137,7 @@ export function useAiFileUpload(deps: UseAiFileUploadDeps) {
     }
     pendingAttachments.value.push(localAtt)
 
+    // 校验和压缩是同步快速操作，在前面完成
     await new Promise<void>(r => setTimeout(r, 0))
     const contentHash = await hashFile(file)
     if (contentHash) {
@@ -155,10 +156,19 @@ export function useAiFileUpload(deps: UseAiFileUploadDeps) {
       if (idx >= 0) pendingAttachments.value[idx].content_hash = contentHash
     }
 
+    // 压缩 + 上传在后台执行，不阻塞用户操作
     const uploadFile = isImage ? await compressImage(file) : file
     uploadingCount.value++
+    _doUpload(customerId, tempId, localUrl, uploadFile, contentHash)
+  }
+
+  /** 后台上传附件，完成后自动更新 pendingAttachments 中的条目。 */
+  const _doUpload = async (
+    customerId: number, tempId: string, localUrl: string | undefined,
+    file: File, contentHash: string,
+  ) => {
     try {
-      const att = await uploadAttachmentDirect(customerId, uploadFile, (pct: number) => {
+      const att = await uploadAttachmentDirect(customerId, file, (pct: number) => {
         const idx = pendingAttachments.value.findIndex(a => a.attachment_id === tempId)
         if (idx >= 0) pendingAttachments.value[idx].progress = pct
       }, contentHash)
@@ -181,6 +191,20 @@ export function useAiFileUpload(deps: UseAiFileUploadDeps) {
     } finally {
       uploadingCount.value--
     }
+  }
+
+  /** 等待所有附件上传完成，超时返回 false。 */
+  const waitForUploads = (timeoutMs: number): Promise<boolean> => {
+    return new Promise((resolve) => {
+      if (!uploadingAttachment.value) { resolve(true); return }
+      const start = Date.now()
+      const check = () => {
+        if (!uploadingAttachment.value) { resolve(true); return }
+        if (Date.now() - start > timeoutMs) { resolve(false); return }
+        setTimeout(check, 80)
+      }
+      check()
+    })
   }
 
   const onFileSelected = async (e: Event) => {
@@ -231,5 +255,6 @@ export function useAiFileUpload(deps: UseAiFileUploadDeps) {
     onPaste,
     removeAttachment,
     openAttachmentPreview,
+    waitForUploads,
   }
 }

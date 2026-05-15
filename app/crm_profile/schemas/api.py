@@ -185,6 +185,10 @@ class AiSessionSummaryItem(BaseModel):
     session_id: str
     entry_scene: str | None = None
     scene_key: str | None = None
+    title: str | None = None
+    auto_title: str | None = None
+    is_pinned: bool = False
+    display_title: str = ""
     started_at: str | None = None
     last_message_at: str | None = None
     message_count: int = 0
@@ -213,6 +217,29 @@ class AiSessionDetailResponse(BaseModel):
     scene_key: str | None = None
     output_style: str | None = None
     prompt_version: str | None = None
+
+
+class AiSessionUpdateRequest(BaseModel):
+    title: str | None = None
+    is_pinned: bool | None = None
+
+
+class AiSessionUpdateResponse(BaseModel):
+    session_id: str
+    title: str | None = None
+    auto_title: str | None = None
+    is_pinned: bool = False
+    display_title: str = ""
+
+
+class AiSessionDeleteResponse(BaseModel):
+    session_id: str
+    deleted: bool = True
+
+
+class AiAutoTitleResponse(BaseModel):
+    session_id: str
+    auto_title: str | None = None
 
 
 # ---------- AI Preload ----------
