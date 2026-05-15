@@ -444,6 +444,9 @@ async def stream_ai_coach_answer(
                 },
             },
         )
+    except asyncio.CancelledError:
+        _log.info("Answer stream cancelled by client")
+        return
     except Exception as exc:
         _log.error("Answer stream failed: %s", exc, exc_info=True)
         yield AiStreamEvent(event="error", data={
@@ -547,6 +550,9 @@ async def stream_ai_coach_thinking(
         _sse.info("[SSE-TIMING] thinking AI done, %d chunks, %.3fs", chunk_count, time.time() - t_start)
 
         yield AiStreamEvent(event="done", data={"session_id": session_id})
+    except asyncio.CancelledError:
+        _log.info("Thinking stream cancelled by client")
+        return
     except Exception as exc:
         _log.error("Thinking stream failed: %s", exc, exc_info=True)
         yield AiStreamEvent(event="error", data={

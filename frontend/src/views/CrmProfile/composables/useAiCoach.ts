@@ -630,8 +630,28 @@ export function useAiCoach() {
     return uploadAttachment(customerId, file, onProgress)
   }
 
+  const abortAiResponse = () => {
+    if (answerAbortController.value) {
+      answerAbortController.value.abort()
+      answerAbortController.value = null
+    }
+    if (thinkingAbortController.value) {
+      thinkingAbortController.value.abort()
+      thinkingAbortController.value = null
+    }
+    
+    // reset loading states nicely
+    loading.value = false
+    const lastMsg = chatHistory.value[chatHistory.value.length - 1]
+    if (lastMsg && lastMsg.role === 'assistant' && lastMsg.streaming) {
+      lastMsg.streaming = false
+      lastMsg.thinkingVisible = false
+    }
+  }
+
   return {
     loading, chatHistory, error, tokenDisplay, sessionId, sendChat, clearSession, retryLast,
+    abortAiResponse,
     markMedicalReview, uploadAttachment, uploadAttachmentDirect,
     submitFeedback, getMessageFeedback,
     regenerate, quotedMessage, setQuote, clearQuote,

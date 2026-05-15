@@ -1081,3 +1081,13 @@
     gap: 8px;
   }
 }
+.ai-send-btn.el-button.is-circle.ai-stop-btn {
+  background: #fff1f0;
+  color: #f56c6c;
+  border: 1px solid #fab6b6;
+}
+.ai-send-btn.el-button.is-circle.ai-stop-btn:hover {
+  background: #f56c6c;
+  color: #fff;
+  border-color: #f56c6c;
+}

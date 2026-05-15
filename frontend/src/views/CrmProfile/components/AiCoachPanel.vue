@@ -346,7 +346,10 @@
                       </div>
                     </div>
                   </el-popover>
-                  <el-button type="primary" class="ai-send-btn" :class="{ 'is-active': input.trim() }" :loading="loading" circle size="small" @click="send" :disabled="(!input.trim() && !pendingAttachments.length) || !!disabledReason || cacheSendBlocked">
+                  <el-button v-if="loading" type="danger" class="ai-send-btn ai-stop-btn" circle size="small" @click="abortAiResponse" title="停止生成">
+                    <el-icon :size="16"><VideoPause /></el-icon>
+                  </el-button>
+                  <el-button v-else type="primary" class="ai-send-btn" :class="{ 'is-active': input.trim() }" circle size="small" @click="send" :disabled="(!input.trim() && !pendingAttachments.length) || !!disabledReason || cacheSendBlocked">
                     <el-icon :size="16"><Promotion /></el-icon>
                   </el-button>
                 </div>
@@ -396,6 +399,7 @@ import {
   Loading,
   Check,
   Upload,
+  VideoPause,
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '#/stores/user'
@@ -491,7 +495,7 @@ const onResizeStart = (e: MouseEvent) => {
 onBeforeUnmount(() => { resizing = false })
 
 const {
-  loading, chatHistory, tokenDisplay, sessionId, sendChat, clearSession, retryLast,
+  loading, chatHistory, tokenDisplay, sessionId, sendChat, clearSession, retryLast, abortAiResponse,
   markMedicalReview: markReviewApi,
   submitFeedback: submitFeedbackApi,
   regenerate: regenerateApi,
