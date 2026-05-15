@@ -40,12 +40,33 @@ ALLOWED_MIME_TYPES = {
     "text/plain", "text/markdown",
 }
 
+_EXTENSION_MIME_MAP = {
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.document",
+    ".txt": "text/plain",
+    ".md": "text/markdown",
+}
+
 MAX_IMAGE_DIMENSION = 2048
 
 
+def _guess_mime_from_filename(filename: str) -> str:
+    for ext, mime in _EXTENSION_MIME_MAP.items():
+        if filename.lower().endswith(ext):
+            return mime
+    return ""
+
+
 def _validate_upload(file: UploadFile) -> None:
-    if not file.content_type or file.content_type not in ALLOWED_MIME_TYPES:
-        raise ValueError(f"不支持的文件类型: {file.content_type}，仅支持 jpg/png/webp/pdf/docx/xlsx/txt/md")
+    ct = file.content_type or ""
+    if ct in ALLOWED_MIME_TYPES:
+        return
+    filename = file.filename or ""
+    guessed = _guess_mime_from_filename(filename)
+    if guessed:
+        file.content_type = guessed
+        return
+    raise ValueError(f"不支持的文件类型: {ct or filename}，仅支持 jpg/png/webp/pdf/docx/xlsx/txt/md")
 
 
 def normalize_content_hash(content_hash: str | None) -> str:

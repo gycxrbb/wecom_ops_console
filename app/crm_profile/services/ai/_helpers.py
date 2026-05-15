@@ -57,6 +57,8 @@ def _try_answer_profile_fact_question(message: str, ctx) -> str | None:
     q = _normalize_text(message)
     if not q:
         return None
+    if len(q) > 30 or "附件分析结果" in message:
+        return None
 
     basic_card = next((c for c in ctx.cards if c.key == "basic_profile"), None)
     service_card = next((c for c in ctx.cards if c.key == "service_scope"), None)
@@ -94,6 +96,8 @@ def _try_answer_profile_fact_question(message: str, ctx) -> str | None:
 def _build_shortcut_thinking_text(message: str, ctx) -> str | None:
     q = _normalize_text(message)
     if not q:
+        return None
+    if len(q) > 30 or "附件分析结果" in message:
         return None
 
     if any(k in q for k in ("叫什么", "名字", "姓名")):

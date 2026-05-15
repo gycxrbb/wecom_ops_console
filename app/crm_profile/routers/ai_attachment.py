@@ -78,11 +78,13 @@ async def ai_prepare_upload(
     require_permission(user, 'crm_profile')
     assert_can_view(user, customer_id)
 
-    from ..services.ai_attachment import ALLOWED_MIME_TYPES, find_existing_attachment
+    from ..services.ai_attachment import ALLOWED_MIME_TYPES, find_existing_attachment, _guess_mime_from_filename
 
-    # Validate MIME type
-    if body.mime_type not in ALLOWED_MIME_TYPES:
-        raise HTTPException(status_code=400, detail=f"不支持的文件类型: {body.mime_type}")
+    # Validate MIME type (fallback to filename extension if browser sent empty type)
+    mime = body.mime_type or _guess_mime_from_filename(body.filename)
+    if mime not in ALLOWED_MIME_TYPES:
+        raise HTTPException(status_code=400, detail=f"不支持的文件类型: {body.mime_type or body.filename}")
+    body.mime_type = mime
 
     # Validate file size
     max_size = settings.vision_max_pdf_size_mb * 1024 * 1024
@@ -116,12 +118,14 @@ async def ai_confirm_upload(
 
     from ..services.ai_attachment import (
         ALLOWED_MIME_TYPES, find_existing_attachment, normalize_content_hash,
-        _create_attachment_record, _start_background_analysis,
+        _create_attachment_record, _start_background_analysis, _guess_mime_from_filename,
     )
 
-    # Validate again on confirm
-    if body.mime_type not in ALLOWED_MIME_TYPES:
+    # Validate again on confirm (fallback to filename extension)
+    mime = body.mime_type or _guess_mime_from_filename(body.filename)
+    if mime not in ALLOWED_MIME_TYPES:
         raise HTTPException(status_code=400, detail="不支持的文件类型")
+    body.mime_type = mime
     max_size = settings.vision_max_pdf_size_mb * 1024 * 1024
     if body.file_size > max_size:
         raise HTTPException(status_code=400, detail="文件大小超出限制")

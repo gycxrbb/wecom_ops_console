@@ -73,6 +73,7 @@ class Settings(BaseSettings):
     ai_coach_enabled: bool = False
     # Vision analysis (GPT-4o-mini on aihubmix)
     vision_model: str = 'gpt-4o-mini'
+    vision_fallback_model: str = 'gpt-5.4'
     vision_max_image_size_mb: int = 10
     vision_max_pdf_size_mb: int = 20
     vision_max_pdf_pages: int = 10

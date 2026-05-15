@@ -28,15 +28,18 @@ VISION_PDF_DPI = 150
 VISION_PDF_MAX_DIMENSION = 1800
 VISION_PDF_JPEG_QUALITY = 85
 
-VISION_PROMPT = """你是一个专业的医学图表分析助手。请仔细观察这张图片，提取以下信息：
+VISION_PROMPT = """请仔细观察这张图片，按以下格式提取信息：
 
-1. 图表类型（血糖曲线、体检报告、饮食照片、其他）
-2. 关键数据点和数值
-3. 如果是曲线图：波动趋势、峰值/谷值时间、异常区间
-4. 如果是报告：所有指标及其正常/异常状态
-5. 如果是照片：可见的食物/物品及其特征
+1. 图片类型（曲线图、数据报告、照片、其他）
+2. 所有可见的文字、数字、标签及其含义
+3. 如果是图表：横纵坐标含义、数据趋势、峰值谷值、关键数值
+4. 如果是报告：逐行列出所有指标名称、数值、参考范围（如有）
+5. 如果是照片：描述可见的物品、食物、文字标签
 
-请用结构化文本输出，确保信息完整准确。不要做医学诊断，只做客观描述。"""
+要求：
+- 原样提取文字和数字，不要编造数据
+- 保持原始结构和层级
+- 用结构化文本输出"""
 
 VISION_PROMPT_PDF_PAGE = """这是一份 PDF 文档的其中一页。请识别并提取该页面中的所有文字、表格、图表信息。
 保持原始结构和层级，确保数据准确完整。"""
@@ -109,37 +112,83 @@ async def _analyze_document(attachment: CrmAiAttachment) -> str:
     return description
 
 
+_REFUSAL_SIGNALS = ("无法查看", "无法分析", "无法处理", "无法识别", "不能分析", "不能查看",
+                   "I can't", "I cannot", "I'm unable", "I am unable", "not able to")
+
+
+def _is_model_refusal(text: str) -> bool:
+    t = text.strip()
+    return len(t) < 80 and any(s in t for s in _REFUSAL_SIGNALS)
+
+
+_RETRY_PROMPT = "请详细描述这张图片中的所有内容，包括文字、数字、图表、颜色、布局。原样提取所有可见文字，不要遗漏。"
+
+
 async def _analyze_image(attachment: CrmAiAttachment) -> str:
     image_bytes = _read_attachment_file(attachment)
     if not image_bytes:
         raise RuntimeError(f"Cannot read attachment file: {attachment.attachment_id}")
 
-    # Downscale for Vision API — reduces payload ~4x, speeds up upload + model processing
     image_bytes = await asyncio.to_thread(_downscale_for_vision, image_bytes)
-    _log.info("Vision image prepared: %s, %dKB → %dKB",
+    _log.info("Vision image prepared: %s, %dKB -> %dKB",
               attachment.attachment_id, attachment.file_size // 1024, len(image_bytes) // 1024)
 
     b64 = base64.b64encode(image_bytes).decode()
     data_url = f"data:image/jpeg;base64,{b64}"
 
-    messages = [
-        {
+    def _build_messages(prompt: str) -> list[dict]:
+        return [{
             "role": "user",
             "content": [
-                {"type": "text", "text": VISION_PROMPT},
+                {"type": "text", "text": prompt},
                 {"type": "image_url", "image_url": {"url": data_url}},
             ],
-        }
-    ]
+        }]
 
+    # Attempt 1: primary prompt + primary model
     content, usage = await chat_completion(
-        messages, temperature=0.3, max_tokens=2048,
+        _build_messages(VISION_PROMPT), temperature=0.3, max_tokens=2048,
         provider="aihubmix", model=settings.vision_model,
     )
-
-    _log.info("Vision analyzed image %s: %d chars, %d tokens",
-              attachment.attachment_id, len(content), usage.get("total_tokens", 0))
     _record_usage(attachment, usage)
+
+    if not _is_model_refusal(content):
+        _log.info("Vision analyzed image %s: %d chars, %d tokens",
+                  attachment.attachment_id, len(content), usage.get("total_tokens", 0))
+        return content
+
+    # Attempt 2: neutral prompt + primary model
+    _log.warning("Vision model %s refused for %s: %s — retrying neutral prompt",
+                 settings.vision_model, attachment.attachment_id, content[:60])
+    content, usage = await chat_completion(
+        _build_messages(_RETRY_PROMPT), temperature=0.3, max_tokens=2048,
+        provider="aihubmix", model=settings.vision_model,
+    )
+    _record_usage(attachment, usage)
+
+    if not _is_model_refusal(content):
+        _log.info("Vision analyzed image %s (neutral prompt): %d chars",
+                  attachment.attachment_id, len(content))
+        return content
+
+    # Attempt 3: neutral prompt + fallback model
+    fallback = settings.vision_fallback_model
+    if fallback and fallback != settings.vision_model:
+        _log.warning("Vision primary model refused twice for %s — retrying with fallback model %s",
+                     attachment.attachment_id, fallback)
+        content, usage = await chat_completion(
+            _build_messages(_RETRY_PROMPT), temperature=0.3, max_tokens=2048,
+            provider="aihubmix", model=fallback,
+        )
+        _record_usage(attachment, usage)
+        if _is_model_refusal(content):
+            _log.error("Vision fallback model %s also refused for %s: %s",
+                       fallback, attachment.attachment_id, content[:60])
+        else:
+            _log.info("Vision analyzed image %s (fallback %s): %d chars",
+                      attachment.attachment_id, fallback, len(content))
+
+    _log.info("Vision final result for %s: %d chars", attachment.attachment_id, len(content))
     return content
 
 

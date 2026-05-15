@@ -43,6 +43,7 @@ def _prepare_ai_turn(
     rag_sources: list[dict] | None = None,
     rag_recommended_assets: list[dict] | None = None,
     quoted_content: str | None = None,
+    original_message: str | None = None,
 ) -> PreparedAiTurn:
     reuse_session = bool(session_id) and audit.session_exists(session_id)
     if not session_id:
@@ -117,8 +118,8 @@ def _prepare_ai_turn(
         missing_notes=missing_notes,
         assembly=assembly,
         ai_messages=_compose_ai_messages(assembly, session_id, reuse_session, quoted_content=quoted_content),
-        shortcut_answer=_try_answer_profile_fact_question(message, ctx),
-        shortcut_thinking=_build_shortcut_thinking_text(message, ctx),
+        shortcut_answer=_try_answer_profile_fact_question(original_message or message, ctx),
+        shortcut_thinking=_build_shortcut_thinking_text(original_message or message, ctx),
         rag_context_text=rag_context_text,
         rag_sources=rag_sources or [],
         rag_recommended_assets=rag_recommended_assets or [],
@@ -141,6 +142,7 @@ async def _prepare_ai_turn_async(
     quoted_content: str | None = None,
     rag_session_id: str | None = None,
     rag_message_id: str | None = None,
+    original_message: str | None = None,
 ) -> PreparedAiTurn:
     """Async wrapper: runs RAG retrieval (async) then _prepare_ai_turn (sync via executor)."""
     rag_context_text = ""
@@ -151,8 +153,10 @@ async def _prepare_ai_turn_async(
             from ....rag.retriever import retrieve_rag_context as _rag_retrieve
             window_days = normalize_window_days(health_window_days)
             profile_signals = _extract_rag_profile_signals(customer_id, window_days)
+            # RAG 用原始用户问题检索，不用拼接了附件的 effective_message
+            rag_query = original_message or message
             rag_bundle = await _rag_retrieve(
-                customer_id=customer_id, message=message,
+                customer_id=customer_id, message=rag_query,
                 scene_key=scene_key, output_style=output_style,
                 profile_context=profile_signals if profile_signals else None,
                 session_id=rag_session_id,
@@ -177,6 +181,7 @@ async def _prepare_ai_turn_async(
             rag_sources=rag_sources,
             rag_recommended_assets=rag_recommended_assets,
             quoted_content=quoted_content,
+            original_message=original_message,
         ),
     )
 
@@ -195,6 +200,7 @@ async def _prepare_ai_turn_cached(
     quoted_content: str | None = None,
     rag_session_id: str | None = None,
     rag_message_id: str | None = None,
+    original_message: str | None = None,
 ) -> PreparedAiTurn:
     """Prepare with turn-level cache. First call writes, second call reads within TTL."""
     window_days = normalize_window_days(health_window_days)
@@ -224,6 +230,7 @@ async def _prepare_ai_turn_cached(
                 output_style=output_style,
             )
         ai_messages = _compose_ai_messages(assembly, cached.session_id, cached.reuse_session, quoted_content=quoted_content)
+        _shortcut_msg = original_message or message
         return PreparedAiTurn(
             session_id=cached.session_id,
             reuse_session=cached.reuse_session,
@@ -233,8 +240,8 @@ async def _prepare_ai_turn_cached(
             missing_notes=cached.missing_notes,
             assembly=assembly,
             ai_messages=ai_messages,
-            shortcut_answer=cached.shortcut_answer,
-            shortcut_thinking=cached.shortcut_thinking,
+            shortcut_answer=_try_answer_profile_fact_question(_shortcut_msg, cached.ctx),
+            shortcut_thinking=_build_shortcut_thinking_text(_shortcut_msg, cached.ctx),
             quoted_content=quoted_content,
         )
 
@@ -246,6 +253,7 @@ async def _prepare_ai_turn_cached(
         quoted_content=quoted_content,
         rag_session_id=rag_session_id,
         rag_message_id=rag_message_id,
+        original_message=original_message,
     )
     _PREPARE_CACHE[key] = (now, prepared)
     return prepared

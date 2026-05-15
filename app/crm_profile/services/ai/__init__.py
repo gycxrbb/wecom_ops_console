@@ -189,6 +189,7 @@ async def stream_ai_coach_answer(
     _sse.info("[SSE-TIMING] === answer-stream request arrived ===")
 
     # --- Stage 1: Vision analysis for attachments ---
+    original_message = message
     effective_message = message
     att_tuple = tuple(attachment_ids) if attachment_ids else None
     if attachment_ids:
@@ -223,6 +224,7 @@ async def stream_ai_coach_answer(
             quoted_content=quoted_content,
             rag_session_id=session_id,
             rag_message_id=pre_user_message_id,
+            original_message=original_message,
         )
     except ProfileCacheNotReady as exc:
         _sse.info("[SSE-TIMING] answer profile cache unready key=%s", exc.result.cache_key)
@@ -246,14 +248,6 @@ async def stream_ai_coach_answer(
         },
     )
     _sse.info("[SSE-TIMING] meta yielded, firing background audit writes at %.3fs", time.time() - t_start)
-
-    # RAG sources event (optional)
-    if prepared.rag_sources or prepared.rag_recommended_assets:
-        yield AiStreamEvent(event="rag", data={
-            "rag_status": "ok",
-            "sources": prepared.rag_sources,
-            "recommended_assets": prepared.rag_recommended_assets,
-        })
 
     yield AiStreamEvent(event="loading", data={"stage": "model_call"})
 
@@ -328,6 +322,14 @@ async def stream_ai_coach_answer(
             },
         )
         return
+
+    # RAG sources event (only when not shortcut)
+    if prepared.rag_sources or prepared.rag_recommended_assets:
+        yield AiStreamEvent(event="rag", data={
+            "rag_status": "ok",
+            "sources": prepared.rag_sources,
+            "recommended_assets": prepared.rag_recommended_assets,
+        })
 
     collected_chunks: list[str] = []
     usage: dict[str, int] = {}
@@ -458,7 +460,7 @@ async def stream_ai_coach_thinking(
     yield AiStreamEvent(event="loading", data={"stage": "prepare"})
 
     # Shortcut: for trivial fact-reading questions, skip LLM entirely
-    shortcut_text = _build_shortcut_thinking_text(effective_message, None)
+    shortcut_text = _build_shortcut_thinking_text(message, None)
 
     if shortcut_text:
         yield AiStreamEvent(event="meta", data={

@@ -17,6 +17,30 @@ const ACCEPTED_TYPES = [
   'text/plain', 'text/markdown',
 ]
 
+const ACCEPTED_EXTENSIONS: Record<string, string> = {
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.document',
+  '.txt': 'text/plain',
+  '.md': 'text/markdown',
+}
+
+function isAcceptedFile(file: File): boolean {
+  if (ACCEPTED_TYPES.includes(file.type)) return true
+  const name = file.name.toLowerCase()
+  return Object.keys(ACCEPTED_EXTENSIONS).some(ext => name.endsWith(ext))
+}
+
+function fixFileMimeType(file: File): File {
+  if (ACCEPTED_TYPES.includes(file.type)) return file
+  const name = file.name.toLowerCase()
+  for (const [ext, mime] of Object.entries(ACCEPTED_EXTENSIONS)) {
+    if (name.endsWith(ext)) {
+      return new File([file], file.name, { type: mime })
+    }
+  }
+  return file
+}
+
 async function hashFile(file: File): Promise<string> {
   try {
     if (!window.crypto?.subtle) return ''
@@ -92,10 +116,12 @@ export function useAiFileUpload(deps: UseAiFileUploadDeps) {
       ElMessage.warning('最多同时上传 3 个附件')
       return
     }
-    if (!ACCEPTED_TYPES.includes(file.type)) {
+    if (!isAcceptedFile(file)) {
       ElMessage.warning('仅支持 JPG/PNG/WebP 图片、PDF、Word、Excel、文本文件')
       return
     }
+
+    file = fixFileMimeType(file)
 
     const isImage = file.type.startsWith('image/')
     const localUrl = isImage ? URL.createObjectURL(file) : undefined
