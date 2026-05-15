@@ -145,49 +145,29 @@ async def _analyze_image(attachment: CrmAiAttachment) -> str:
             ],
         }]
 
-    # Attempt 1: primary prompt + primary model
-    content, usage = await chat_completion(
-        _build_messages(VISION_PROMPT), temperature=0.3, max_tokens=2048,
-        provider="aihubmix", model=settings.vision_model,
-    )
-    _record_usage(attachment, usage)
+    # Three models to try in order: fast → medium → strong
+    models = [m for m in [settings.vision_model, settings.vision_fallback_model,
+                           settings.vision_fallback_model_2] if m]
 
-    if not _is_model_refusal(content):
-        _log.info("Vision analyzed image %s: %d chars, %d tokens",
-                  attachment.attachment_id, len(content), usage.get("total_tokens", 0))
-        return content
-
-    # Attempt 2: neutral prompt + primary model
-    _log.warning("Vision model %s refused for %s: %s — retrying neutral prompt",
-                 settings.vision_model, attachment.attachment_id, content[:60])
-    content, usage = await chat_completion(
-        _build_messages(_RETRY_PROMPT), temperature=0.3, max_tokens=2048,
-        provider="aihubmix", model=settings.vision_model,
-    )
-    _record_usage(attachment, usage)
-
-    if not _is_model_refusal(content):
-        _log.info("Vision analyzed image %s (neutral prompt): %d chars",
-                  attachment.attachment_id, len(content))
-        return content
-
-    # Attempt 3: neutral prompt + fallback model
-    fallback = settings.vision_fallback_model
-    if fallback and fallback != settings.vision_model:
-        _log.warning("Vision primary model refused twice for %s — retrying with fallback model %s",
-                     attachment.attachment_id, fallback)
-        content, usage = await chat_completion(
-            _build_messages(_RETRY_PROMPT), temperature=0.3, max_tokens=2048,
-            provider="aihubmix", model=fallback,
-        )
+    content = ""
+    for i, model in enumerate(models):
+        prompt = VISION_PROMPT if i == 0 else _RETRY_PROMPT
+        try:
+            raw, usage = await chat_completion(
+                _build_messages(prompt), temperature=0.3, max_tokens=2048,
+                provider="aihubmix", model=model,
+            )
+        except Exception as e:
+            _log.warning("Vision model %s error for %s: %s", model, attachment.attachment_id, e)
+            continue
         _record_usage(attachment, usage)
-        if _is_model_refusal(content):
-            _log.error("Vision fallback model %s also refused for %s: %s",
-                       fallback, attachment.attachment_id, content[:60])
-        else:
-            _log.info("Vision analyzed image %s (fallback %s): %d chars",
-                      attachment.attachment_id, fallback, len(content))
+        if not _is_model_refusal(raw):
+            _log.info("Vision analyzed image %s (model=%s): %d chars",
+                      attachment.attachment_id, model, len(raw))
+            return raw
+        _log.warning("Vision model %s refused for %s: %s", model, attachment.attachment_id, raw[:60])
 
+    _log.error("All vision models refused for %s", attachment.attachment_id)
     _log.info("Vision final result for %s: %d chars", attachment.attachment_id, len(content))
     return content
 

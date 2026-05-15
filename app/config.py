@@ -72,8 +72,9 @@ class Settings(BaseSettings):
     crm_profile_enabled: bool = False
     ai_coach_enabled: bool = False
     # Vision analysis (GPT-4o-mini on aihubmix)
-    vision_model: str = 'gpt-5.4'
-    vision_fallback_model: str = 'gpt-4o-mini'
+    vision_model: str = 'gemini-2.0-flash'
+    vision_fallback_model: str = 'gpt-4o'
+    vision_fallback_model_2: str = 'claude-sonnet-4-6'
     vision_max_image_size_mb: int = 10
     vision_max_pdf_size_mb: int = 20
     vision_max_pdf_pages: int = 10
