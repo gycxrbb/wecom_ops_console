@@ -61,7 +61,7 @@
 import {
   DataBoard, Promotion, ChatDotRound, Document, Picture, Timer, Tickets,
   Stamp, User, Lock, CaretBottom, Notebook, ChatLineSquare, Reading,
-  UserFilled, EditPen, Comment, TrendCharts, Coin,
+  UserFilled, EditPen, Comment, TrendCharts, Coin, Monitor,
 } from '@element-plus/icons-vue'
 import { useMenu } from '#/composables/useMenu'
 
@@ -69,7 +69,7 @@ import { useMenu } from '#/composables/useMenu'
 const iconMap: Record<string, any> = {
   DataBoard, Promotion, ChatDotRound, Document, Picture, Timer, Tickets,
   Stamp, User, Lock, Notebook, ChatLineSquare, Reading, UserFilled,
-  EditPen, Comment, TrendCharts, Coin,
+  EditPen, Comment, TrendCharts, Coin, Monitor,
 }
 
 defineProps<{

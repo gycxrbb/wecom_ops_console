@@ -80,6 +80,7 @@ class RagRetrievalLog(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     session_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     message_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    call_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     customer_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     query_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     filter_json: Mapped[str | None] = mapped_column(Text, nullable=True)

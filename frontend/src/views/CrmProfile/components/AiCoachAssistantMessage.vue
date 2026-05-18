@@ -12,6 +12,7 @@
         </div>
         <div class="ai-msg-error-detail">{{ msg.errorMessage }}</div>
         <div class="ai-msg-error-hint">{{ errorHint }}</div>
+        <div v-if="msg.retriable" class="ai-msg-error-retriable">此错误通常可以重试</div>
         <div class="ai-msg-error-actions">
           <el-button size="small" type="primary" @click="$emit('retry')">
             <el-icon><RefreshRight /></el-icon> 重新发送
@@ -21,6 +22,11 @@
         <div v-if="msg.content" class="ai-msg-error-partial">
           <div class="ai-msg-error-partial-label">已接收的部分回复：</div>
           <MarkdownRenderer :content="msg.content" :streaming="false" />
+        </div>
+        <div v-if="msg.callId" class="ai-msg-error-callid" @click="copyCallId">
+          <span class="ai-msg-error-callid-label">追踪 ID：</span>
+          <span class="ai-msg-error-callid-value">{{ msg.callId }}</span>
+          <el-icon :size="12"><CopyDocument /></el-icon>
         </div>
       </div>
       <!-- Normal message bubble -->
@@ -78,10 +84,15 @@
           </button>
         </el-tooltip>
       </div>
-      <div v-if="msg.tokenUsage" class="ai-msg-tokens">Tokens: {{ msg.tokenUsage.total_tokens || 0 }}
-        <template v-if="msg.tokenUsage.cached_tokens">
-          · 缓存命中 {{ msg.tokenUsage.cached_tokens }}
-        </template>
+      <div v-if="msg.tokenUsage || msg.callId" class="ai-msg-meta">
+        <span v-if="msg.tokenUsage" class="ai-msg-tokens">Tokens: {{ msg.tokenUsage.total_tokens || 0 }}
+          <template v-if="msg.tokenUsage.cached_tokens">
+            · 缓存命中 {{ msg.tokenUsage.cached_tokens }}
+          </template>
+        </span>
+        <span v-if="msg.callId" class="ai-msg-callid" @click="copyCallId" title="点击复制追踪 ID">
+          {{ msg.callId.substring(0, 8) }}
+        </span>
       </div>
     </div>
   </div>
@@ -148,6 +159,50 @@ const ERROR_META: Record<string, { title: string; hint: string }> = {
     title: 'AI 服务未配置',
     hint: '系统尚未正确配置 AI 服务密钥，请联系管理员检查 API Key 设置。',
   },
+  model_timeout: {
+    title: '模型响应超时',
+    hint: 'AI 模型未能在规定时间内返回结果，请缩短问题后重试。',
+  },
+  model_connection_failed: {
+    title: '模型连接失败',
+    hint: '无法连接到 AI 模型服务，通常是网络波动或服务商临时不可用。',
+  },
+  model_upstream_error: {
+    title: '模型上游错误',
+    hint: 'AI 模型服务商返回了错误，可能是限流或临时故障，请稍后重试。',
+  },
+  model_not_configured: {
+    title: '模型未配置',
+    hint: '系统未配置该模型，请联系管理员检查 AI 服务配置。',
+  },
+  prepare_profile_cache_unready: {
+    title: '客户画像未就绪',
+    hint: '客户数据正在加载中，请稍后再试。如持续出现请联系管理员。',
+  },
+  prepare_profile_load_failed: {
+    title: '客户画像加载失败',
+    hint: '无法加载客户数据，请刷新页面后重试。',
+  },
+  rag_retrieval_failed: {
+    title: '知识库检索失败',
+    hint: '健康知识库检索出现异常，请稍后重试。',
+  },
+  rag_retrieval_timeout: {
+    title: '知识库检索超时',
+    hint: '知识库检索耗时过长，请缩短问题后重试。',
+  },
+  stream_cancelled: {
+    title: '响应已取消',
+    hint: 'AI 响应已被手动取消。',
+  },
+  stream_interrupted: {
+    title: '响应中断',
+    hint: 'AI 响应过程中连接中断，可能是网络波动，请重试。',
+  },
+  auth_permission_denied: {
+    title: '权限不足',
+    hint: '当前用户无权使用 AI 教练功能，请联系管理员。',
+  },
   unknown: {
     title: 'AI 服务异常',
     hint: '发生了未预期的错误，请重试。如反复出现请联系管理员。',
@@ -156,6 +211,12 @@ const ERROR_META: Record<string, { title: string; hint: string }> = {
 
 const errorTitle = computed(() => ERROR_META[props.msg.errorCode || 'unknown']?.title || 'AI 服务异常')
 const errorHint = computed(() => ERROR_META[props.msg.errorCode || 'unknown']?.hint || '请重试或联系管理员。')
+
+const copyCallId = () => {
+  if (props.msg.callId) {
+    navigator.clipboard.writeText(props.msg.callId).catch(() => {})
+  }
+}
 
 const safetyCodeLabel = (code: string) => {
   const map: Record<string, string> = {
@@ -202,7 +263,10 @@ const safetyCodeLabel = (code: string) => {
 :global(html.dark) .ai-action-btn:hover { background: rgba(255,255,255,0.08); color: #e5e7eb; }
 :global(html.dark) .ai-action-btn.is-like { color: #4ade80; background: rgba(74, 222, 128, 0.12); }
 :global(html.dark) .ai-action-btn.is-dislike { color: #f87171; background: rgba(248, 113, 113, 0.12); }
-.ai-msg-tokens { margin-top: 6px; text-align: right; font-size: 11px; color: #d1d5db; font-variant-numeric: tabular-nums; }
+.ai-msg-meta { margin-top: 6px; display: flex; justify-content: space-between; align-items: center; }
+.ai-msg-tokens { font-size: 11px; color: #d1d5db; font-variant-numeric: tabular-nums; }
+.ai-msg-callid { font-size: 10px; color: #c0c4cc; font-family: monospace; cursor: pointer; padding: 2px 6px; border-radius: 4px; background: rgba(0,0,0,0.03); transition: background 0.15s; }
+.ai-msg-callid:hover { background: rgba(0,0,0,0.08); color: #909399; }
 
 /* Error card */
 .ai-msg-error-card { padding: 16px 18px; border-radius: 4px 18px 18px 18px; background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
@@ -216,6 +280,11 @@ const safetyCodeLabel = (code: string) => {
 .ai-msg-error-hint { font-size: 12.5px; color: #92400e; line-height: 1.6; margin-bottom: 12px; }
 :global(html.dark) .ai-msg-error-hint { color: #d4d4d8; }
 .ai-msg-error-actions { display: flex; gap: 8px; }
+.ai-msg-error-retriable { font-size: 12px; color: #059669; margin-bottom: 8px; padding: 4px 8px; background: rgba(5, 150, 105, 0.08); border-radius: 4px; }
+.ai-msg-error-callid { display: flex; align-items: center; gap: 4px; margin-top: 10px; padding: 4px 8px; background: rgba(0,0,0,0.04); border-radius: 4px; cursor: pointer; font-size: 11px; color: #6b7280; transition: background 0.15s; }
+.ai-msg-error-callid:hover { background: rgba(0,0,0,0.08); }
+.ai-msg-error-callid-label { flex-shrink: 0; }
+.ai-msg-error-callid-value { font-family: monospace; word-break: break-all; opacity: 0.7; }
 .ai-msg-error-partial { margin-top: 12px; padding-top: 12px; border-top: 1px dashed #fecaca; }
 .ai-msg-error-partial-label { font-size: 11px; color: #9ca3af; margin-bottom: 4px; }
 @media (max-width: 768px) {

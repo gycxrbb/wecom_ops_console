@@ -76,6 +76,7 @@ class CrmAiGuardrailEvent(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     session_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    call_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     event_type: Mapped[str] = mapped_column(String(64), nullable=False)
     detail: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now())
@@ -174,3 +175,89 @@ class CrmAiProfileCache(Base):
     last_hit_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
     created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now())
+
+
+class CrmAiInvocation(Base):
+    """Call-level trace ledger — one row per user query (official truth)."""
+    __tablename__ = "crm_ai_invocations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    call_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    session_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    user_message_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    assistant_message_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    context_snapshot_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    execution_mode: Mapped[str] = mapped_column(String(32), default="single_turn")
+
+    local_user_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    crm_admin_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    crm_customer_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    entry_scene: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    scene_key: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    output_style: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    prompt_version: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    prompt_hash: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    health_window_days: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    cache_key: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+
+    status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    error_stage: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    error_code: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    error_message: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    error_detail: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    rag_status: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    rag_hit_count: Mapped[int] = mapped_column(Integer, default=0)
+
+    total_prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    total_completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    total_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cached_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    primary_model: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    primary_provider: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
+    step_count: Mapped[int] = mapped_column(Integer, default=1)
+    tool_call_count: Mapped[int] = mapped_column(Integer, default=0)
+
+    latency_ms: Mapped[int] = mapped_column(Integer, default=0)
+    first_token_ms: Mapped[int] = mapped_column(Integer, default=0)
+    prepare_ms: Mapped[int] = mapped_column(Integer, default=0)
+
+    diagnostics_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now())
+
+
+class CrmAiTraceStep(Base):
+    """Execution step detail under an invocation trace (1:N, ordered by step_index)."""
+    __tablename__ = "crm_ai_trace_steps"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    call_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    step_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    parent_step_index: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+
+    status: Mapped[str] = mapped_column(String(32), default="success")
+    error_code: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+
+    input_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    output_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    latency_ms: Mapped[int] = mapped_column(Integer, default=0)
+
+    model: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cached_tokens: Mapped[int] = mapped_column(Integer, default=0)
+
+    tool_name: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    tool_input_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)

@@ -346,3 +346,97 @@ class AiFeedbackStatsResponse(BaseModel):
     by_reason: list[AiFeedbackStatItem] = []
     by_scene: list[AiFeedbackStatItem] = []
     by_prompt_version: list[AiFeedbackStatItem] = []
+
+
+# ── Invocation Audit ──
+
+class InvocationListItem(BaseModel):
+    call_id: str
+    session_id: str | None = None
+    crm_customer_id: int | None = None
+    crm_customer_name: str = ""
+    local_user_id: int | None = None
+    local_user_name: str = ""
+    execution_mode: str = "single_turn"
+    scene_key: str | None = None
+    status: str = "pending"
+    error_stage: str | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+    primary_model: str | None = None
+    total_tokens: int = 0
+    latency_ms: int = 0
+    step_count: int = 1
+    user_message_preview: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+
+
+class InvocationListResponse(BaseModel):
+    items: list[InvocationListItem] = []
+    total: int = 0
+    page: int = 1
+    page_size: int = 20
+
+
+class InvocationStepItem(BaseModel):
+    step_index: int
+    parent_step_index: int | None = None
+    kind: str
+    name: str | None = None
+    status: str = "success"
+    error_code: str | None = None
+    error_message: str | None = None
+    latency_ms: int = 0
+    model: str | None = None
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    cached_tokens: int = 0
+    tool_name: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+
+
+class InvocationDetailResponse(BaseModel):
+    call_id: str
+    session_id: str | None = None
+    user_message_id: str | None = None
+    assistant_message_id: str | None = None
+    execution_mode: str = "single_turn"
+    local_user_id: int | None = None
+    crm_admin_id: int | None = None
+    crm_customer_id: int | None = None
+    scene_key: str | None = None
+    prompt_version: str | None = None
+    status: str = "pending"
+    error_stage: str | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+    error_detail: str | None = None
+    rag_status: str | None = None
+    rag_hit_count: int = 0
+    total_tokens: int = 0
+    primary_model: str | None = None
+    primary_provider: str | None = None
+    step_count: int = 1
+    latency_ms: int = 0
+    first_token_ms: int = 0
+    prepare_ms: int = 0
+    started_at: str | None = None
+    finished_at: str | None = None
+    steps: list[InvocationStepItem] = []
+
+
+class InvocationStatItem(BaseModel):
+    code: str
+    count: int
+
+
+class InvocationStatsResponse(BaseModel):
+    total: int = 0
+    success_count: int = 0
+    error_count: int = 0
+    error_rate: float = 0.0
+    avg_latency_ms: float = 0.0
+    total_tokens: int = 0
+    errors_by_code: list[InvocationStatItem] = []

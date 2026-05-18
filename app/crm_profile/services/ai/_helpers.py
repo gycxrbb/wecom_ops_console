@@ -143,22 +143,47 @@ def _chunk_text(text: str, size: int = 28) -> list[str]:
     return [cleaned[i:i + size] for i in range(0, len(cleaned), size)]
 
 
+def _strip_markdown(text: str) -> str:
+    """Remove markdown formatting symbols from text, keeping only readable content."""
+    text = re.sub(r'\*{1,3}([^*]+)\*{1,3}', r'\1', text)  # bold/italic
+    text = re.sub(r'_{1,3}([^_]+)_{1,3}', r'\1', text)    # bold/italic (underscore)
+    text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)  # headings
+    text = re.sub(r'^[-*+]\s+', '', text, flags=re.MULTILINE)   # unordered list markers
+    text = re.sub(r'^\d+\.\s+', '', text, flags=re.MULTILINE)   # ordered list markers
+    text = re.sub(r'^>\s+', '', text, flags=re.MULTILINE)       # blockquote
+    text = re.sub(r'~~([^~]+)~~', r'\1', text)                  # strikethrough
+    text = re.sub(r'`([^`]+)`', r'\1', text)                    # inline code
+    return text
+
+
 def _ensure_output_contract(answer: str) -> str:
-    """Guarantee the answer contains a ```txt code block for customer reply."""
-    if not answer or _TXT_FENCE_RE.search(answer):
+    """Guarantee the answer contains a ```txt code block for customer reply.
+
+    If the block already exists, strip any markdown formatting inside it
+    so the customer script is guaranteed pure text.
+    """
+    if not answer:
         return answer
+
+    def _clean_txt_block(m: re.Match) -> str:
+        inner = m.group(1)
+        cleaned = _strip_markdown(inner)
+        return f"```txt\n{cleaned}```"
+
+    if _TXT_FENCE_RE.search(answer):
+        return re.sub(r"```txt\n([\s\S]*?)```", _clean_txt_block, answer)
+
     # Fallback: wrap the last substantial paragraph into a txt code block
     paragraphs = [p.strip() for p in re.split(r"\n{2,}", answer) if p.strip()]
-    # Find the best candidate: last paragraph that looks like natural language (not list/code)
     candidate = ""
     for p in reversed(paragraphs):
-        # Skip lines that look like headers, lists, or short fragments
         if len(p) > 20 and not p.startswith("#") and not p.startswith("- ") * 3:
             candidate = p
             break
     if not candidate:
         candidate = paragraphs[-1] if paragraphs else answer
-    return answer.rstrip() + "\n\n```txt\n" + candidate + "\n```"
+    cleaned = _strip_markdown(candidate)
+    return answer.rstrip() + "\n\n```txt\n" + cleaned + "\n```"
 
 
 async def _emit_text_chunks(text: str, *, size: int = 28, delay: float = 0.03) -> AsyncIterator[str]:
@@ -320,6 +345,8 @@ def _ensure_session_written(
 def _profile_cache_unready_payload(exc) -> dict[str, Any]:
     result = exc.result
     return {
-        "message": str(exc), "cache_status": result.status, "cache_key": result.cache_key,
+        "message": str(exc), "code": "prepare_profile_cache_unready",
+        "retriable": True,
+        "cache_status": result.status, "cache_key": result.cache_key,
         "health_window_days": result.health_window_days, "source": result.source,
     }

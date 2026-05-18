@@ -22,6 +22,27 @@ from ..context_builder import build_context_text
 from ..profile_context_cache import normalize_window_days, get_ai_ready_profile_context, ProfileCacheNotReady
 from ..prompt_builder import assemble_lightweight_thinking_prompt
 from .. import audit
+from ..invocation_audit import (
+    start_invocation, write_step, update_stage, finish_invocation, fail_invocation,
+    ErrorCode, is_retriable,
+)
+from ..invocation_audit._writer import _update_diagnostics_json
+
+
+def _trigger_auto_diagnosis(call_id: str) -> None:
+    """Fire-and-forget: run probes and write diagnostics_json on failure."""
+    async def _run():
+        try:
+            from ..ai_diagnostics import diagnose
+            report = await diagnose()
+            _update_diagnostics_json(call_id, report.to_dict())
+        except Exception:
+            pass
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(_run())
+    except RuntimeError:
+        pass
 
 
 async def ask_ai_coach(
@@ -41,6 +62,19 @@ async def ask_ai_coach(
     model: str | None = None,
 ) -> AiChatResult:
     """Non-streaming fallback entry for AI coach."""
+    call_id = uuid.uuid4().hex[:32]
+    start_invocation(
+        call_id,
+        session_id=session_id,
+        execution_mode="single_turn",
+        local_user_id=local_user_id,
+        crm_admin_id=crm_admin_id,
+        crm_customer_id=customer_id,
+        entry_scene=entry_scene,
+        scene_key=scene_key,
+        output_style=output_style,
+        health_window_days=health_window_days,
+    )
     effective_message = message
     if attachment_ids:
         effective_message = await _resolve_attachment_descriptions(customer_id, attachment_ids, message)
@@ -112,6 +146,11 @@ async def ask_ai_coach(
             latency_ms=0,
             requires_medical_review=False,
         )
+        finish_invocation(
+            call_id,
+            assistant_message_id=assistant_message_id,
+            primary_model="profile_fact_shortcut",
+        )
         return AiChatResult(
             session_id=prepared.session_id,
             message_id=assistant_message_id,
@@ -148,6 +187,25 @@ async def ask_ai_coach(
         latency_ms=latency_ms,
         requires_medical_review=requires_review,
         safety_result=safety_result,
+    )
+
+    write_step(
+        call_id, 0, "llm_call",
+        name="answer",
+        model=model or settings.ai_model,
+        prompt_tokens=usage.get("prompt_tokens", 0),
+        completion_tokens=usage.get("completion_tokens", 0),
+        latency_ms=latency_ms,
+    )
+    finish_invocation(
+        call_id,
+        assistant_message_id=assistant_message_id,
+        total_prompt_tokens=usage.get("prompt_tokens", 0),
+        total_completion_tokens=usage.get("completion_tokens", 0),
+        total_tokens=usage.get("total_tokens", 0),
+        primary_model=model or settings.ai_model,
+        primary_provider=settings.ai_provider,
+        latency_ms=latency_ms,
     )
 
     return AiChatResult(
@@ -187,6 +245,19 @@ async def stream_ai_coach_answer(
 ) -> AsyncIterator[AiStreamEvent]:
     t_start = time.time()
     _sse.info("[SSE-TIMING] === answer-stream request arrived ===")
+    call_id = uuid.uuid4().hex[:32]
+    start_invocation(
+        call_id,
+        session_id=session_id,
+        execution_mode="single_turn",
+        local_user_id=local_user_id,
+        crm_admin_id=crm_admin_id,
+        crm_customer_id=customer_id,
+        entry_scene=entry_scene,
+        scene_key=scene_key,
+        output_style=output_style,
+        health_window_days=health_window_days,
+    )
 
     # --- Stage 1: Vision analysis for attachments ---
     original_message = message
@@ -198,6 +269,7 @@ async def stream_ai_coach_answer(
         yield AiStreamEvent(event="analyzing", data={"status": "analyzing_attachments"})
         yield AiStreamEvent(event="progress", data={"text": "正在分析附件", "step": "analyzing"})
         effective_message = await _resolve_attachment_descriptions(customer_id, attachment_ids, message)
+    update_stage(call_id, "attachment_resolution")
 
     # Resolve quoted content for follow-up
     quoted_content: str | None = None
@@ -254,11 +326,34 @@ async def stream_ai_coach_answer(
         prepared = prepare_task.result()
     except ProfileCacheNotReady as exc:
         _sse.info("[SSE-TIMING] answer profile cache unready key=%s", exc.result.cache_key)
+        fail_invocation(call_id, "prepare", ErrorCode.PREPARE_PROFILE_CACHE_UNREADY, str(exc),
+                        latency_ms=int((time.time() - t_start) * 1000))
+        _trigger_auto_diagnosis(call_id)
         yield AiStreamEvent(event="error", data=_profile_cache_unready_payload(exc))
+        return
+    except Exception as exc:
+        _sse.error("[SSE-TIMING] prepare unexpected error: %s", exc)
+        code = _classify_ai_error(exc)
+        fail_invocation(call_id, "prepare", code, str(exc),
+                        latency_ms=int((time.time() - t_start) * 1000))
+        _trigger_auto_diagnosis(call_id)
+        yield AiStreamEvent(event="error", data={
+            "message": str(exc), "code": code, "call_id": call_id,
+            "stage": "prepare", "retriable": is_retriable(code),
+        })
         return
 
     _sse.info("[SSE-TIMING] prepare done at %.3fs", time.time() - t_start)
     t_prepare_done = time.time()
+    update_stage(
+        call_id, "prepare",
+        rag_status="ok" if prepared.rag_sources else (None if not settings.rag_enabled else "no_hit"),
+        rag_hit_count=len(prepared.rag_sources) if prepared.rag_sources else 0,
+        prompt_version=prepared.assembly.prompt_version,
+        prompt_hash=prepared.assembly.prompt_hash,
+        cache_key=prepared.cache_key,
+        prepare_ms=int((t_prepare_done - t_start) * 1000),
+    )
 
     assistant_message_id = pre_assistant_message_id
     user_message_id = pre_user_message_id
@@ -332,6 +427,13 @@ async def stream_ai_coach_answer(
 
     if prepared.shortcut_answer:
         await _audit_task
+        finish_invocation(
+            call_id,
+            assistant_message_id=assistant_message_id,
+            primary_model="profile_fact_shortcut",
+            latency_ms=int((time.time() - t_start) * 1000),
+            prepare_ms=int((t_prepare_done - t_start) * 1000),
+        )
         async for chunk in _emit_text_chunks(prepared.shortcut_answer, size=14, delay=0.035):
             yield AiStreamEvent(event="delta", data={"delta": chunk})
         audit.write_message(
@@ -345,6 +447,7 @@ async def stream_ai_coach_answer(
         yield AiStreamEvent(
             event="done",
             data={
+                "call_id": call_id,
                 "session_id": prepared.session_id,
                 "message_id": assistant_message_id,
                 "model": "profile_fact_shortcut",
@@ -421,9 +524,33 @@ async def stream_ai_coach_answer(
             details = usage.get("prompt_tokens_details") or {}
             cached_tokens = details.get("cached_tokens", 0)
 
+        total_latency = int((time.time() - t_start) * 1000)
+        write_step(
+            call_id, 0, "llm_call",
+            name="answer",
+            model=model or settings.ai_model,
+            prompt_tokens=usage.get("prompt_tokens", 0),
+            completion_tokens=usage.get("completion_tokens", 0),
+            latency_ms=latency_ms,
+        )
+        finish_invocation(
+            call_id,
+            assistant_message_id=assistant_message_id,
+            total_prompt_tokens=usage.get("prompt_tokens", 0),
+            total_completion_tokens=usage.get("completion_tokens", 0),
+            total_tokens=usage.get("total_tokens", 0),
+            cached_tokens=cached_tokens,
+            primary_model=model or settings.ai_model,
+            primary_provider=settings.ai_provider,
+            latency_ms=total_latency,
+            first_token_ms=int((t_first_chunk - t_start) * 1000) if t_first_chunk else 0,
+            prepare_ms=int((t_prepare_done - t_start) * 1000),
+        )
+
         yield AiStreamEvent(
             event="done",
             data={
+                "call_id": call_id,
                 "session_id": prepared.session_id,
                 "message_id": assistant_message_id,
                 "model": model or settings.ai_model,
@@ -440,18 +567,28 @@ async def stream_ai_coach_answer(
                 "timing": {
                     "prepare_ms": int((t_prepare_done - t_start) * 1000),
                     "first_chunk_ms": int((t_first_chunk - t_start) * 1000) if t_first_chunk else None,
-                    "total_ms": int((time.time() - t_start) * 1000),
+                    "total_ms": total_latency,
                 },
             },
         )
     except asyncio.CancelledError:
         _log.info("Answer stream cancelled by client")
+        fail_invocation(call_id, "llm_stream", ErrorCode.STREAM_CANCELLED, "Client cancelled",
+                        latency_ms=int((time.time() - t_start) * 1000))
+        _trigger_auto_diagnosis(call_id)
         return
     except Exception as exc:
         _log.error("Answer stream failed: %s", exc, exc_info=True)
+        error_code = _classify_ai_error(exc)
+        fail_invocation(call_id, "llm_stream", error_code, str(exc),
+                        latency_ms=int((time.time() - t_start) * 1000))
+        _trigger_auto_diagnosis(call_id)
         yield AiStreamEvent(event="error", data={
             "message": str(exc) or "AI 服务异常",
-            "code": _classify_ai_error(exc),
+            "code": error_code,
+            "call_id": call_id,
+            "stage": "llm_stream",
+            "retriable": is_retriable(error_code),
         })
 
 

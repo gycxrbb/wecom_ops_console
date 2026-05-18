@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 from .config import STATIC_DIR, UPLOAD_DIR, FRONTEND_DIR, DATA_DIR, settings
 from .database import Base, engine, SessionLocal
+from sqlalchemy import text
 from .middleware.ip_rate_limit import IPRateLimitMiddleware, cleanup_buckets as _cleanup_ip_buckets
 from .routers.auth import router as auth_router
 from .routers.pages import router as pages_router
@@ -168,6 +169,21 @@ if _cors_origins:
 # === GitHub Webhook 自动部署 ===
 WEBHOOK_SECRET = settings.app_secret_key  # 复用 APP_SECRET_KEY 作为签名密钥
 DEPLOY_TRIGGER = DATA_DIR / 'deploy.trigger'
+
+
+@app.get('/api/v1/health')
+async def health_check():
+    """Lightweight health check for browser-side diagnostics."""
+    db_ok = False
+    try:
+        db = SessionLocal()
+        db.execute(text("SELECT 1"))
+        db.close()
+        db_ok = True
+    except Exception:
+        pass
+    return {"status": "ok" if db_ok else "degraded", "db": db_ok}
+
 
 @app.post('/webhook/deploy')
 async def github_webhook(request: Request):

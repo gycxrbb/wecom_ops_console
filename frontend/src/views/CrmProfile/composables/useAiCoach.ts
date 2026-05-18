@@ -314,6 +314,7 @@ export function useAiCoach() {
           assistantMessage.requiresMedicalReview = payload.requires_medical_review
           assistantMessage.thinkingVisible = false
           assistantMessage.thinkingDone = true
+          assistantMessage.callId = payload.call_id
           if (payload.token_usage) {
             lastTokenUsage.value = payload.token_usage
           }
@@ -324,6 +325,8 @@ export function useAiCoach() {
         if (event === 'error') {
           const err = new Error(payload?.message || payload?.delta || 'AI 服务异常')
           ;(err as any).code = payload?.code || 'unknown'
+          ;(err as any).call_id = payload?.call_id
+          ;(err as any).retriable = payload?.retriable
           throw err
         }
       },
@@ -368,6 +371,16 @@ export function useAiCoach() {
     try {
       void thinkingPromise
       await answerPromise
+      // Detect stream interruption: SSE completed without done/error event
+      if (assistantMessage.streaming) {
+        assistantMessage.streaming = false
+        assistantMessage.thinkingVisible = false
+        if (!assistantMessage.content) {
+          assistantMessage.content = ''
+          assistantMessage.errorCode = 'unknown'
+          assistantMessage.errorMessage = '响应异常中断，未收到完整回复'
+        }
+      }
       clearQuote()
       await loadSessionHistory(customerId, { silent: true })
       return {
@@ -384,6 +397,8 @@ export function useAiCoach() {
       assistantMessage.thinkingVisible = false
       assistantMessage.errorCode = code
       assistantMessage.errorMessage = msg
+      assistantMessage.callId = e?.call_id
+      assistantMessage.retriable = e?.retriable
       if (!assistantMessage.content) {
         assistantMessage.content = ''
       }
@@ -531,6 +546,7 @@ export function useAiCoach() {
             assistantMessage.requiresMedicalReview = payload.requires_medical_review
             assistantMessage.thinkingVisible = false
             assistantMessage.thinkingDone = true
+            assistantMessage.callId = payload.call_id
             if (payload.token_usage) {
               lastTokenUsage.value = payload.token_usage
             }
@@ -539,6 +555,8 @@ export function useAiCoach() {
           if (event === 'error') {
             const err = new Error(payload?.message || '重新生成失败')
             ;(err as any).code = payload?.code || 'unknown'
+            ;(err as any).call_id = payload?.call_id
+            ;(err as any).retriable = payload?.retriable
             throw err
           }
         },
@@ -551,6 +569,8 @@ export function useAiCoach() {
       assistantMessage.thinkingVisible = false
       assistantMessage.errorCode = e?.code || 'unknown'
       assistantMessage.errorMessage = msg
+      assistantMessage.callId = e?.call_id
+      assistantMessage.retriable = e?.retriable
       if (!assistantMessage.content) {
         assistantMessage.content = ''
       }

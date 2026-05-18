@@ -55,6 +55,8 @@ export type AiChatMessage =
       progressStep?: string
       errorCode?: string
       errorMessage?: string
+      callId?: string
+      retriable?: boolean
       feedback?: { rating: 'like' | 'dislike'; feedbackId: string } | null
     }
   | {
@@ -113,6 +115,9 @@ export type StreamPayload = {
   code?: string
   stage?: string
   status?: string
+  call_id?: string
+  retriable?: boolean
+  recommended_action?: string
   token_usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cached_tokens?: number }
   requires_medical_review?: boolean
   safety_notes?: string[]

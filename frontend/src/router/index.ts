@@ -161,6 +161,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('#/views/RagManage/index.vue'),
         meta: { requiresAuth: true, title: '知识库管理', icon: 'Coin', group: '系统设置', order: 80, role: 'admin' },
       },
+      {
+        path: 'ai-audit',
+        name: 'AiAudit',
+        component: () => import('#/views/AiAudit/index.vue'),
+        meta: { requiresAuth: true, title: 'AI 调用审计', icon: 'Monitor', group: '系统设置', order: 85, role: 'admin' },
+      },
 
       {
         path: 'profile',

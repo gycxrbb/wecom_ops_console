@@ -170,6 +170,13 @@
             style="flex: 1; margin-left: 12px"
           />
         </div>
+
+        <!-- Cross-module link -->
+        <div v-if="detail.message_id" style="margin-top: 16px; text-align: right">
+          <el-button size="small" @click="goToAuditByMessage(detail.message_id)">
+            查看调用审计
+          </el-button>
+        </div>
       </template>
       <template #footer>
         <el-button @click="detailVisible = false">关闭</el-button>
@@ -181,8 +188,12 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import request from '#/utils/request'
+
+const route = useRoute()
+const router = useRouter()
 
 interface FeedbackItem {
   feedback_id: string
@@ -329,9 +340,22 @@ const saveStatus = async () => {
   }
 }
 
+const goToAuditByMessage = (messageId: string) => {
+  router.push({ path: '/ai-audit', query: { message_id: messageId } })
+}
+
+const goToAuditByCallId = (callId: string) => {
+  router.push({ path: '/ai-audit', query: { call_id: callId } })
+}
+
 onMounted(() => {
   fetchList()
   fetchStats()
+  // Deep link: pre-filter by message_id from cross-module navigation
+  if (route.query.message_id) {
+    filters.rating = ''
+    router.replace({ query: {} })
+  }
 })
 </script>
 

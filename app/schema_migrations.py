@@ -403,6 +403,9 @@ def ensure_plan_schema(engine: Engine) -> None:
     # CRM AI session admin columns (rename/pin/delete/last_active)
     ensure_crm_ai_session_admin_columns(engine)
 
+    # CRM AI invocation audit (trace + step tables + call_id on related tables)
+    ensure_crm_ai_invocation_schema(engine)
+
 
 _CRM_AI_SESSION_ADMIN_COLUMNS = {
     "title": "VARCHAR(128)",
@@ -870,6 +873,121 @@ def ensure_crm_ai_message_p1_columns(engine: Engine) -> None:
             conn.execute(text("ALTER TABLE crm_ai_messages ADD COLUMN regenerated_from_message_id VARCHAR(64)"))
         if "quoted_message_id" not in existing:
             conn.execute(text("ALTER TABLE crm_ai_messages ADD COLUMN quoted_message_id VARCHAR(64)"))
+
+
+def ensure_crm_ai_invocation_schema(engine: Engine) -> None:
+    """Create crm_ai_invocations + crm_ai_trace_steps tables and add call_id to related tables."""
+    autoincrement_kw = "AUTO_INCREMENT" if engine.dialect.name.lower() == "mysql" else "AUTOINCREMENT"
+    with engine.begin() as conn:
+        conn.execute(text(f"""
+            CREATE TABLE IF NOT EXISTS crm_ai_invocations (
+                id INTEGER PRIMARY KEY {autoincrement_kw},
+                call_id VARCHAR(64) NOT NULL,
+                session_id VARCHAR(64),
+                user_message_id VARCHAR(64),
+                assistant_message_id VARCHAR(64),
+                context_snapshot_id INTEGER,
+                execution_mode VARCHAR(32) DEFAULT 'single_turn',
+                local_user_id INTEGER,
+                crm_admin_id INTEGER,
+                crm_customer_id INTEGER,
+                entry_scene VARCHAR(32),
+                scene_key VARCHAR(32),
+                output_style VARCHAR(32),
+                prompt_version VARCHAR(16),
+                prompt_hash VARCHAR(128),
+                health_window_days INTEGER,
+                cache_key VARCHAR(128),
+                status VARCHAR(32) DEFAULT 'pending',
+                error_stage VARCHAR(64),
+                error_code VARCHAR(64),
+                error_message VARCHAR(512),
+                error_detail TEXT,
+                rag_status VARCHAR(32),
+                rag_hit_count INTEGER DEFAULT 0,
+                total_prompt_tokens INTEGER DEFAULT 0,
+                total_completion_tokens INTEGER DEFAULT 0,
+                total_tokens INTEGER DEFAULT 0,
+                cached_tokens INTEGER DEFAULT 0,
+                primary_model VARCHAR(64),
+                primary_provider VARCHAR(64),
+                step_count INTEGER DEFAULT 1,
+                tool_call_count INTEGER DEFAULT 0,
+                latency_ms INTEGER DEFAULT 0,
+                first_token_ms INTEGER DEFAULT 0,
+                prepare_ms INTEGER DEFAULT 0,
+                diagnostics_json TEXT,
+                started_at DATETIME,
+                finished_at DATETIME,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        conn.execute(text(f"""
+            CREATE TABLE IF NOT EXISTS crm_ai_trace_steps (
+                id INTEGER PRIMARY KEY {autoincrement_kw},
+                call_id VARCHAR(64) NOT NULL,
+                step_index INTEGER NOT NULL,
+                parent_step_index INTEGER,
+                kind VARCHAR(64) NOT NULL,
+                name VARCHAR(128),
+                status VARCHAR(32) DEFAULT 'success',
+                error_code VARCHAR(64),
+                error_message VARCHAR(512),
+                input_json TEXT,
+                output_json TEXT,
+                started_at DATETIME,
+                finished_at DATETIME,
+                latency_ms INTEGER DEFAULT 0,
+                model VARCHAR(64),
+                prompt_tokens INTEGER DEFAULT 0,
+                completion_tokens INTEGER DEFAULT 0,
+                cached_tokens INTEGER DEFAULT 0,
+                tool_name VARCHAR(64),
+                tool_input_hash VARCHAR(64)
+            )
+        """))
+
+    inspector = inspect(engine)
+    existing_tables = inspector.get_table_names()
+
+    # Indexes for new tables
+    idx_specs = [
+        ("ux_crm_ai_invocations_call_id", "crm_ai_invocations", ("call_id",), True),
+        ("ix_crm_ai_invocations_customer", "crm_ai_invocations", ("crm_customer_id",), False),
+        ("ix_crm_ai_invocations_status", "crm_ai_invocations", ("status",), False),
+        ("ix_crm_ai_invocations_error_code", "crm_ai_invocations", ("error_code",), False),
+        ("ix_crm_ai_invocations_started_at", "crm_ai_invocations", ("started_at",), False),
+        ("ix_crm_ai_invocations_scene_key", "crm_ai_invocations", ("scene_key",), False),
+        ("ix_crm_ai_trace_steps_call_id", "crm_ai_trace_steps", ("call_id",), False),
+    ]
+    with engine.begin() as conn:
+        for idx_name, table, columns, unique in idx_specs:
+            if table in existing_tables:
+                _ensure_named_index(conn, table, idx_name, columns, unique=unique)
+
+    # Add call_id to existing tables (idempotent)
+    _add_columns_if_missing(engine, "crm_ai_guardrail_events", {"call_id": "VARCHAR(64)"})
+    _add_columns_if_missing(engine, "rag_retrieval_logs", {"call_id": "VARCHAR(64)"})
+
+    # Indexes on call_id for existing tables
+    with engine.begin() as conn:
+        if "crm_ai_guardrail_events" in existing_tables:
+            _ensure_named_index(conn, "crm_ai_guardrail_events", "ix_crm_ai_guardrails_call_id", ("call_id",))
+        if "rag_retrieval_logs" in existing_tables:
+            _ensure_named_index(conn, "rag_retrieval_logs", "ix_rag_retrieval_logs_call_id", ("call_id",))
+
+
+def _add_columns_if_missing(engine: Engine, table_name: str, column_specs: dict[str, str]) -> None:
+    inspector = inspect(engine)
+    if table_name not in inspector.get_table_names():
+        return
+    existing = {c["name"] for c in inspector.get_columns(table_name)}
+    missing = {col: spec for col, spec in column_specs.items() if col not in existing}
+    if not missing:
+        return
+    with engine.begin() as conn:
+        for col_name, col_spec in missing.items():
+            conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_spec}"))
 
 
 def ensure_prompt_snapshot_is_current(engine: Engine) -> None:
