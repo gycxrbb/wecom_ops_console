@@ -22,6 +22,23 @@ class Settings(BaseSettings):
     coach_username: str = 'coach'
     coach_password: str = 'Coach123456'
     crm_admin_auth_enabled: bool = False
+    # ── CRM 数据库（按环境隔离） ─────────────────────────────────────────
+    # crm_env: '' 表示跟随 app_env（production → prod，其他 → test）；显式 'test'/'production' 可覆盖
+    # 这样可以在开发机用 production CRM 库做一次性排查，或在生产机临时切回测试库
+    crm_env: str = ''
+    # 测试 CRM 库（本地开发 + 旧服务器 gezelling.com 默认走这里）
+    crm_test_db_host: str = ''
+    crm_test_db_port: int = 3306
+    crm_test_db_user: str = ''
+    crm_test_db_password: str = ''
+    crm_test_db_name: str = 'mfgcrmdb'
+    # 生产 CRM 库（新服务器走这里）
+    crm_prod_db_host: str = ''
+    crm_prod_db_port: int = 3306
+    crm_prod_db_user: str = ''
+    crm_prod_db_password: str = ''
+    crm_prod_db_name: str = 'habitilitydb'
+    # 旧字段：单套 CRM 配置。保留是为了向后兼容，crm_test/prod 都为空时会回退到这里
     crm_admin_db_host: str = ''
     crm_admin_db_port: int = 3306
     crm_admin_db_user: str = ''
