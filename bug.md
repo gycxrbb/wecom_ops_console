@@ -782,3 +782,49 @@
 - **复现条件**: 上传 5-30MB 扫描版 PDF（客户端直传到七牛），紧接着提问。首次下载遇到 CDN 节点 SSL 波动即永久失败。
 - **解决方案**: ①七牛下载增加指数退避重试（3 次，0.5s/1.5s/3s），超时 60s→90s，仅对网络层异常重试，4xx 不重试；②给 `CrmAiAttachment` 增加 `analysis_retry_count` 字段，失败时 retry_count<3 不写 fallback、不改状态为 failed，只 +1 计数；超过 3 次才永久标记失败；③背景分析延迟从 0s 改为 3s，给 CDN 传播留时间。
 - **关联文件**: app/services/storage/qiniu.py, app/crm_profile/services/vision_analyzer.py, app/crm_profile/services/ai_attachment.py, app/crm_profile/models.py, app/schema_migrations.py
+
+## Bug #78: AI 视觉生图后台失败但调用审计显示生成成功
+
+- **日期**: 2026-05-20
+- **现象**: AI 对话触发自动生图后，后端日志出现 `Visual job ... failed: api_error (Connection error: Server disconnected without sending a response.)`，但 AI 调用审计详情里 `visual_safety_check` 和 `visual_generation` 均显示 `success`，导致运营侧误以为图片生成已经成功。
+- **根因**: `visual_generation` 审计 step 在 `_maybe_create_visual_job()` 创建队列任务后立即写入 `success`；真实的图片 API 调用发生在后台 `_execute_job_background()` 中，失败时只更新 `ai_visual_jobs.status=failed`，没有回写同一个 `crm_ai_trace_steps` 记录。审计把 candidate/job_created 误当成了 official generation result。
+- **复现条件**: 开启 `AI_VISUAL_ENABLED` 且视觉决策进入 `auto_async_generate`，外部 `/images/generations` 调用在响应头前断开或超时；例如用户提问“用户要出差，推荐下餐食”触发出差餐食知识卡生成。
+- **解决方案**: 生图 job 创建时 `visual_generation` step 先写为 `pending`；将 `audit_call_id` 和 `audit_step_index` 传入后台执行任务，图片真正生成成功后更新同一 step 为 `success`，生成失败或存储失败时更新为 `failed` 并写入 `visual_generation_failed` 与 provider 错误信息；同时补充断连失败路径单测。
+- **关联文件**: app/crm_profile/services/ai/__init__.py, app/crm_profile/services/ai/ai_visual_decision.py, app/crm_profile/services/invocation_audit/_writer.py, app/crm_profile/services/invocation_audit/__init__.py, app/ai_visual/services/job_service.py, app/ai_visual/services/job_executor.py, tests/test_ai_visual_audit.py
+
+## Bug #79: AI 视觉生图上游瞬断时客户端没有重试
+
+- **日期**: 2026-05-20
+- **现象**: 自动生图调用 `/images/generations` 时，上游偶发 `Server disconnected without sending a response`，单次连接异常会直接让 visual job 失败。即使这是首包前断连或临时网关抖动，也没有第二次连接机会。
+- **根因**: `image_client.py` 只有一个全局 `httpx.AsyncClient`，`client.post()` 遇到 `RemoteProtocolError` / `ReadError` / `ConnectError` 等连接级异常时直接包装为 `ImageGenerationError("api_error")`；没有关闭可能已损坏的连接池，没有参考 AI chat 客户端已有的 HTTP/2 -> HTTP/1.1 降级，也没有对 502/503/504 做有限重试。
+- **复现条件**: 开启 AI 视觉自动生图，外部图片生成上游或中间网关在响应头前断开连接，或短时间返回 502/503/504。
+- **解决方案**: `image_client.py` 按 HTTP/2 开关维护连接池；连接级异常时关闭当前协议连接池并有限重试，HTTP/2 开启时先降级 HTTP/1.1；502/503/504 有限重试，4xx 不重试；图片 API 返回 URL 时下载 GET 也加安全重试。新增配置 `ai_visual_generation_max_retries` 和 `ai_visual_generation_retry_delay_seconds`，并补充断连后重试成功/重试耗尽单测。
+- **关联文件**: app/ai_visual/services/image_client.py, app/config.py, tests/test_ai_visual_image_client.py
+
+## Bug #80: aihubmix gpt-image-2 真实生图约 62 秒后断开
+
+- **日期**: 2026-05-20
+- **现象**: `gpt-image-2` 真实调用 `/images/generations` 时，无论使用 current payload（`size=auto`, `quality=auto`）、compat payload（`size=1024x1024`，无 quality），还是极短 prompt `red apple`，HTTP/1.1 都在约 62 秒后返回 `RemoteProtocolError: Server disconnected without sending a response`。
+- **根因**: 分层诊断显示 DNS/TCP/TLS 正常，`/models` HTTP/2/HTTP/1.1 均 200 且列出 `gpt-image-2`，`/images/generations` 无效模型探针也能返回预期 400 JSON；因此不是本机网络、证书、鉴权、base_url 或 endpoint 路径问题。失败集中在 aihubmix 对 `gpt-image-2` 的真实生成上游链路，疑似 provider 网关 60 秒超时、账号实际生成权限/额度异常，或上游 OpenAI 图片生成转发超时。
+- **复现条件**: 使用当前 `.env` 的 aihubmix base_url/API key，执行 `scripts/diagnose_ai_visual_image_api.py --generate --protocol http1 --payload compat --model gpt-image-2`。
+- **解决方案**: 新增 `scripts/diagnose_ai_visual_image_api.py` 分层排查脚本；`image_client.py` 对短连接抖动继续重试，但对接近 60 秒后才断开的真实生成请求归类为 `api_timeout` 并停止无意义重复重试，错误信息明确指向 provider gateway/upstream generation timeout。
+- **关联文件**: scripts/diagnose_ai_visual_image_api.py, app/ai_visual/services/image_client.py, app/config.py, tests/test_ai_visual_image_client.py
+
+## Bug #81: gpt-image-2 60 秒被掐断，根因实为客户端配置不符合官方建议（修正 #80 的误判）
+
+- **日期**: 2026-05-20
+- **现象**: aihubmix 后台显示 `/images/generations` 调用成功且已计费，但我方后端持续报 `Server disconnected without sending a response`，约 60~62s 后必现，前端表现为生图失败。
+- **根因**: aihubmix 官方文档明确说明 gpt-image-2 单次生成可能 >5 分钟，建议客户端超时 ≥10 分钟。而我们 `image_client.py` 的关键配置全都和官方建议相反——
+  1. `ai_visual_generation_timeout_seconds=120`：httpx `read` 超时只有 2 分钟，远低于官方要求；
+  2. `ai_visual_generation_gateway_timeout_hint_seconds=55`：基于 #80 的错误归因预设的 55s 早断阈值，导致连接刚跑到 60s 就被主动判 `api_timeout` 不再重试；
+  3. `ai_http2_enabled=True` + 全局 `_clients` 长期复用：httpx HTTP/2 在长 hang 请求上历史上不稳（参考 #65/#66），复用连接池又放大了坏连接残留的风险；
+  4. 错误归类全部走 `api_timeout`，掩盖了真正可重试的瞬态抖动。
+  → #80 当时把"60s 后断开"归因于 aihubmix 网关侧 60s 超时是误判：在客户端 read 超时只有 120s、HTTP/2 复用连接池的情况下，本地侧也会在接近这个边界时被 httpx 抛 `RemoteProtocolError`，与 aihubmix 后台计费但不返回结果的现象叠加形成了"看起来是上游网关超时"的假象。
+- **复现条件**: 走 aihubmix `/images/generations`、payload 任意合法、模型 `gpt-image-2`，且使用上面配置；用 OpenAI Python SDK + `timeout=600` 直连 aihubmix 不复现。
+- **解决方案**:
+  1. `ai_visual_generation_timeout_seconds`: 120 → **600**（对齐官方"≥10 分钟"建议）；
+  2. `ai_visual_generation_gateway_timeout_hint_seconds`: 55 → **540**（仅在真正长 hang 接近读超时才判 `api_timeout` 不再重试，避免被多次计费）；
+  3. 新增 `ai_visual_http2_enabled`，**生图链路默认强制 HTTP/1.1**，不再与全局 `ai_http2_enabled` 联动，对齐 OpenAI SDK 行为；
+  4. `image_client.py` 每次 `generate_image` 都用一次性 `httpx.AsyncClient`（`finally aclose()`），不再全局复用 `_clients`，避免坏连接残留；
+  5. 保留 502/503/504 重试和 RemoteProtocolError/ReadError/ConnectError 在 hint 阈值内的重试。
+- **关联文件**: app/config.py, app/ai_visual/services/image_client.py, bug.md（标注 #80 误判）

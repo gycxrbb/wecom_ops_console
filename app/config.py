@@ -78,6 +78,28 @@ class Settings(BaseSettings):
     vision_max_image_size_mb: int = 10
     vision_max_pdf_size_mb: int = 20
     vision_max_pdf_pages: int = 10
+
+    # AI Visual Agent
+    ai_visual_enabled: bool = False
+    ai_visual_provider: str = "openai"
+    ai_visual_model: str = "gpt-image-2"
+    ai_visual_generation_strategy: str = "direct_image"
+    ai_visual_auto_generate_confidence: float = 0.80
+    ai_visual_manual_confirm_confidence: float = 0.45
+    ai_visual_max_jobs_per_session: int = 2
+    # aihubmix 官方说明 gpt-image-2 单次生成可能 >5 分钟，建议客户端超时 ≥10 分钟
+    ai_visual_generation_timeout_seconds: int = 1000
+    ai_visual_generation_max_retries: int = 2
+    ai_visual_generation_retry_delay_seconds: float = 1.5
+    # 仅当真正长 hang（接近读超时）后断开才判 api_timeout 不再重试，避免短暂抖动直接放弃
+    ai_visual_generation_gateway_timeout_hint_seconds: int = 540
+    # 生图链路是否启用 HTTP/2。默认关闭：httpx HTTP/2 长 hang 历史不稳，OpenAI SDK 也走 HTTP/1.1
+    ai_visual_http2_enabled: bool = False
+    ai_visual_auto_sendable: bool = False
+    ai_visual_llm_judge_enabled: bool = False
+    ai_visual_llm_judge_model: str = "gpt-4.1-mini"
+    ai_visual_llm_judge_timeout_seconds: int = 8
+
     # RAG
     rag_enabled: bool = False
     qdrant_mode: str = "local"  # "local" = 本地文件, "remote" = 远程服务器

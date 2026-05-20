@@ -222,6 +222,10 @@ if settings.crm_profile_enabled:
     init_models()
     app.include_router(crm_profile_router)
 
+if settings.ai_visual_enabled:
+    from .ai_visual import router as ai_visual_router
+    app.include_router(ai_visual_router)
+
 # Vue SPA 前端（必须在所有 API 路由之后 mount）
 if FRONTEND_DIR.exists():
     from fastapi.responses import FileResponse

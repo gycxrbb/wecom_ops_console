@@ -37,6 +37,12 @@ export type RagRecommendedAsset = {
   resource_id: number
 }
 
+/**
+ * Reference message subtypes — three distinct identities:
+ * - rag_reference:  Knowledge base script (support/formal knowledge)
+ * - rag_attachment:  Recommended material from RAG (formal/candidate material)
+ * - generated_visual: AI-generated image (candidate visual asset, NOT a formal material)
+ */
 export type AiChatMessage =
   | { role: 'user'; messageType: 'user'; content: string; attachments?: AiAttachment[]; requestParams?: Record<string, any> }
   | {
@@ -67,6 +73,19 @@ export type AiChatMessage =
   | {
       role: 'reference'; messageType: 'rag_attachment'
       title: string; asset: RagRecommendedAsset
+    }
+  | {
+      role: 'reference'; messageType: 'generated_visual'
+      jobId: string
+      topic: string
+      status: 'manual_confirm_required' | 'queued' | 'generating' | 'qa_pending' | 'ready' | 'failed' | 'manual_declined'
+      confidence?: number
+      confirmQuestion?: string
+      previewUrl?: string
+      sendable: boolean
+      safetyLevel: string
+      errorMessage?: string
+      feedback?: 'like' | 'dislike' | null
     }
 
 export type SceneOption = { key: string; label: string }
@@ -111,6 +130,7 @@ export type StreamPayload = {
   session_id?: string
   message_id?: string
   delta?: string
+  answer?: string
   message?: string
   code?: string
   stage?: string
@@ -128,4 +148,24 @@ export type StreamPayload = {
   rag_status?: string
   text?: string
   step?: string
+  // Visual agent events (Phase 0 placeholder)
+  visual_id?: string
+  image_url?: string
+  confidence?: number
+  safety_level?: string
+  progress_pct?: number
+  topic?: string
+  confirm_question?: string
+  decision_mode?: string
+  job_id?: string
+  asset_id?: string
+  need_visual?: boolean
+  reason?: string
+  visual_decision?: {
+    need_visual: boolean
+    decision_mode: string
+    topic: string
+    confidence: number
+    visual_type?: string | null
+  }
 }

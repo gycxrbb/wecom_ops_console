@@ -29,6 +29,39 @@ from ..invocation_audit import (
 from ..invocation_audit._writer import _update_diagnostics_json
 
 
+def _write_visual_decision_audit(
+    *,
+    holder: object,
+    call_id: str,
+    effective_message: str,
+    scene_key: str,
+    t0: float,
+) -> None:
+    """Write audit step for visual decision result."""
+    import json as _json
+    _vd = getattr(holder, 'decision', None) if holder else None
+    if not _vd:
+        return
+    _v_latency = int((time.time() - t0) * 1000)
+    update_stage(call_id, "visual_decision")
+    write_step(
+        call_id, 1, "visual_safety_check",
+        name="visual_decision",
+        status="success" if _vd.need_visual else "skipped",
+        input_json=_json.dumps({"message": effective_message[:200], "scene_key": scene_key}),
+        output_json=_json.dumps({
+            "need_visual": _vd.need_visual,
+            "confidence": _vd.confidence,
+            "decision_mode": _vd.decision_mode,
+            "topic": _vd.topic,
+            "safety_level": _vd.safety_level,
+            "visual_type": _vd.visual_type,
+            "score_factors": _vd.score_factors,
+        }, ensure_ascii=False),
+        latency_ms=_v_latency,
+    )
+
+
 def _trigger_auto_diagnosis(call_id: str) -> None:
     """Fire-and-forget: run probes and write diagnostics_json on failure."""
     async def _run():
@@ -472,14 +505,59 @@ async def stream_ai_coach_answer(
             "recommended_assets": prepared.rag_recommended_assets,
         })
 
+    # Visual decision — run concurrently with LLM stream to avoid blocking
+    _visual_decision_holder = None
+    _visual_decision_task = None
+    _visual_step_t0 = 0
+    if settings.ai_visual_enabled:
+        _visual_step_t0 = time.time()
+        try:
+            from .ai_visual_decision import _DecisionHolder, _run_visual_decision
+            _visual_decision_holder = _DecisionHolder()
+            _visual_decision_task = asyncio.create_task(
+                _run_visual_decision(
+                    message=effective_message,
+                    scene_key=scene_key,
+                    rag_sources=prepared.rag_sources,
+                    safety_card=prepared.safety_card,
+                    holder=_visual_decision_holder,
+                )
+            )
+            _log.info(">>> Visual decision task created for message: %s", effective_message[:80])
+        except Exception as _ve:
+            _log.warning("Visual decision setup error: %s", _ve, exc_info=True)
+    else:
+        _log.info(">>> Visual decision SKIPPED (ai_visual_enabled=%s)", settings.ai_visual_enabled)
+
     collected_chunks: list[str] = []
     usage: dict[str, int] = {}
     t0 = time.time()
     t_first_chunk: float | None = None
+    _visual_decision_yielded = False
     try:
         chunk_count = 0
         _sse.info("[SSE-TIMING] AI API stream starts at %.3fs (audit writes running in background)", time.time() - t_start)
         async for chunk in chat_completion_stream(prepared.ai_messages, temperature=0.7, max_tokens=15000, model=model):
+            # Inject visual decision event when concurrent task completes
+            if _visual_decision_task and _visual_decision_task.done() and not _visual_decision_yielded:
+                _visual_decision_yielded = True
+                try:
+                    vevt = _visual_decision_task.result()
+                    if vevt is not None:
+                        _log.info(">>> YIELDING visual event: %s, data=%s", vevt.event, vevt.data)
+                        yield vevt
+                    else:
+                        _log.info(">>> Visual decision completed but no event (need_visual=False)")
+                except Exception as _ve:
+                    _log.warning("Visual decision error: %s", _ve, exc_info=True)
+                _write_visual_decision_audit(
+                    holder=_visual_decision_holder,
+                    call_id=call_id,
+                    effective_message=effective_message,
+                    scene_key=scene_key,
+                    t0=_visual_step_t0,
+                )
+
             if chunk.delta:
                 if t_first_chunk is None:
                     t_first_chunk = time.time()
@@ -495,6 +573,27 @@ async def stream_ai_coach_answer(
 
         answer_text = "".join(collected_chunks).strip()
         answer_text = _ensure_output_contract(answer_text)
+
+        # Ensure visual decision is yielded if not already done during stream
+        if _visual_decision_task and not _visual_decision_yielded:
+            _visual_decision_yielded = True
+            try:
+                vevt = await _visual_decision_task
+                if vevt is not None:
+                    _log.info(">>> YIELDING visual event (after stream): %s", vevt.event)
+                    yield vevt
+                else:
+                    _log.info(">>> Visual decision completed but no event (need_visual=False)")
+            except Exception as _ve:
+                _log.warning("Visual decision error: %s", _ve, exc_info=True)
+            _write_visual_decision_audit(
+                holder=_visual_decision_holder,
+                call_id=call_id,
+                effective_message=effective_message,
+                scene_key=scene_key,
+                t0=_visual_step_t0,
+            )
+
         latency_ms = int((time.time() - t0) * 1000)
         requires_review, safety_notes, safety_result = _check_safety_gates(answer_text, prepared.safety_card.payload or {})
 
@@ -547,10 +646,67 @@ async def stream_ai_coach_answer(
             prepare_ms=int((t_prepare_done - t_start) * 1000),
         )
 
+        # Phase 2: deferred auto visual job creation (after answer completes)
+        if _visual_decision_holder and _visual_decision_holder.decision:
+            _vjob_t0 = time.time()
+            try:
+                from .ai_visual_decision import _maybe_create_visual_job
+                _log.info("Creating auto visual job for topic=%s", _visual_decision_holder.decision.topic)
+                vjob_evt = await _maybe_create_visual_job(
+                    decision=_visual_decision_holder.decision,
+                    session_id=prepared.session_id,
+                    customer_id=customer_id,
+                    rag_sources=prepared.rag_sources,
+                    scene_key=scene_key,
+                    audit_call_id=call_id,
+                    audit_step_index=2,
+                )
+                import json as _json
+                if vjob_evt:
+                    _log.info("Visual job created: %s", vjob_evt.data)
+                    yield vjob_evt
+                    update_stage(call_id, "visual_generation")
+                    _vjob_status = vjob_evt.data.get("status")
+                    _vjob_failed = _vjob_status == "failed"
+                    write_step(
+                        call_id, 2, "visual_generation",
+                        name="auto_job_create" if not _vjob_failed else "auto_image_generate",
+                        status="failed" if _vjob_failed else "pending",
+                        error_code=ErrorCode.VISUAL_GENERATION_FAILED if _vjob_failed else None,
+                        error_message=vjob_evt.data.get("error_message") if _vjob_failed else None,
+                        output_json=_json.dumps(vjob_evt.data, ensure_ascii=False),
+                        latency_ms=int((time.time() - _vjob_t0) * 1000),
+                    )
+                else:
+                    _log.info("No visual job event returned")
+            except Exception as _vje:
+                _log.warning("Visual job creation error: %s", _vje, exc_info=True)
+                update_stage(call_id, "visual_generation")
+                write_step(
+                    call_id, 2, "visual_generation",
+                    name="auto_job_create",
+                    status="failed",
+                    error_message=str(_vje),
+                    latency_ms=int((time.time() - _vjob_t0) * 1000),
+                )
+
+        # Build visual info for done event (frontend fallback)
+        _visual_info = None
+        if _visual_decision_holder and _visual_decision_holder.decision:
+            _vd = _visual_decision_holder.decision
+            _visual_info = {
+                "need_visual": _vd.need_visual,
+                "decision_mode": _vd.decision_mode,
+                "topic": _vd.topic,
+                "confidence": _vd.confidence,
+                "visual_type": getattr(_vd, "visual_type", None),
+            }
+
         yield AiStreamEvent(
             event="done",
             data={
                 "call_id": call_id,
+                "answer": answer_text,
                 "session_id": prepared.session_id,
                 "message_id": assistant_message_id,
                 "model": model or settings.ai_model,
@@ -569,6 +725,7 @@ async def stream_ai_coach_answer(
                     "first_chunk_ms": int((t_first_chunk - t_start) * 1000) if t_first_chunk else None,
                     "total_ms": total_latency,
                 },
+                "visual_decision": _visual_info,
             },
         )
     except asyncio.CancelledError:

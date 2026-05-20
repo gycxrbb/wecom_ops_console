@@ -35,7 +35,9 @@ import { ElMessage } from 'element-plus'
 import { CopyDocument, Document, View, Download, Promotion } from '@element-plus/icons-vue'
 import type { AiChatMessage } from '../composables/useAiCoach'
 
-type RefMsg = Extract<AiChatMessage, { role: 'reference' }>
+type RefMsg = Extract<AiChatMessage, { role: 'reference' }> extends infer T
+  ? T extends { messageType: 'generated_visual' } ? never : T
+  : never
 
 const props = defineProps<{
   msg: RefMsg

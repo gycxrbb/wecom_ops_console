@@ -2,6 +2,7 @@ import { computed, ref } from 'vue'
 import request from '#/utils/request'
 import { ElMessage } from 'element-plus'
 import { streamSse, createSessionId, normalizeHealthWindowDays } from './sseStream'
+import { useVisualJobs } from './useVisualJobs'
 
 // Re-export types for backward compatibility
 export type {
@@ -28,6 +29,7 @@ export function useAiCoach() {
   const outputStyle = ref('coach_brief')
   const availableModels = ref<string[]>([])
   const selectedModel = ref('')
+  const { startPolling, stopPolling, confirmVisual: confirmVisualJob, regenerateVisual, hideVisual, sendVisualFeedback, cleanup: cleanupVisualJobs } = useVisualJobs()
   const profileNote = ref<ProfileNote | null>(null)
   const sessionHistory = ref<AiSessionSummary[]>([])
   const sessionHistoryLoading = ref(false)
@@ -247,6 +249,87 @@ export function useAiCoach() {
       requestBody,
       answerController.signal,
       (event, payload) => {
+        // Debug: log all SSE events for visual troubleshooting
+        if (event.startsWith('visual')) {
+          console.log('[AI Coach] SSE visual event:', event, payload)
+        }
+        // Visual decision events (Phase 1)
+        if (event === 'visual_decision') {
+          const isAuto = payload.decision_mode === 'auto_async_generate'
+          const status = isAuto ? 'queued'
+            : payload.decision_mode === 'manual_confirm' ? 'manual_confirm_required' : 'queued'
+          const topic = payload.topic || '知识卡片'
+          const visualMsg: AiChatMessage = {
+            role: 'reference', messageType: 'generated_visual',
+            jobId: `pending-${Date.now()}`,
+            topic,
+            status,
+            confidence: payload.confidence,
+            sendable: false,
+            safetyLevel: payload.safety_level || 'nutrition_education',
+          }
+          chatHistory.value.splice(assistantIdx, 0, visualMsg)
+          if (isAuto) {
+            ElMessage({ message: `正在生成「${topic}」知识卡片...`, type: 'info', duration: 4000 })
+            // Timeout fallback: if no visual_job event arrives within 15s, mark as failed
+            setTimeout(() => {
+              if (visualMsg.jobId?.startsWith('pending-')) {
+                (visualMsg as any).status = 'failed'
+                ;(visualMsg as any).errorMessage = '生成任务创建超时'
+                ElMessage({ message: `「${topic}」知识卡片生成超时`, type: 'warning', duration: 4000 })
+              }
+            }, 15000)
+          }
+          return
+        }
+
+        if (event === 'visual_confirm_required') {
+          const confirmMsg: AiChatMessage = {
+            role: 'reference', messageType: 'generated_visual',
+            jobId: `pending-${Date.now()}`,
+            topic: payload.topic || '',
+            status: 'manual_confirm_required',
+            confidence: payload.confidence,
+            confirmQuestion: payload.confirm_question,
+            sendable: false,
+            safetyLevel: payload.safety_level || 'nutrition_education',
+          }
+          chatHistory.value.splice(assistantIdx, 0, confirmMsg)
+          return
+        }
+
+        // Visual job event (Phase 2) — update pending message with real job_id, start polling
+        if (event === 'visual_job') {
+          const pJobId = payload.job_id as string
+          const pStatus = payload.status as string
+          const pTopic = payload.topic as string
+          const pendingIdx = chatHistory.value.findIndex(
+            m => m.role === 'reference' && m.messageType === 'generated_visual'
+              && m.topic === pTopic && m.jobId?.startsWith('pending-'),
+          )
+          if (pendingIdx >= 0) {
+            const msg = chatHistory.value[pendingIdx] as Extract<AiChatMessage, { messageType: 'generated_visual' }>
+            msg.jobId = pJobId
+            msg.status = pStatus as any
+            startPolling(pJobId, (_jobId, data) => {
+              if (data.status === 'ready') {
+                msg.status = 'ready'
+                msg.previewUrl = data.preview_url ?? undefined
+                msg.sendable = data.sendable
+                ElMessage({ message: `「${msg.topic}」知识卡片已生成`, type: 'success', duration: 3000 })
+              } else if (data.status === 'failed') {
+                msg.status = 'failed'
+                msg.errorMessage = data.error_message ?? undefined
+                ElMessage({ message: `知识卡片生成失败：${data.error_message || '未知错误'}`, type: 'error', duration: 5000 })
+              }
+            })
+          }
+          return
+        }
+
+        // Ignore other visual events
+        if (event.startsWith('visual_')) return
+
         if (event === 'meta') {
           if (payload.session_id) sessionId.value = payload.session_id
           if (payload.message_id) assistantMessage.messageId = payload.message_id
@@ -308,6 +391,10 @@ export function useAiCoach() {
           assistantMessage.loadingStage = undefined
           assistantMessage.progressText = undefined
           assistantMessage.progressStep = undefined
+          // Replace assembled content with backend-cleaned version (strips markdown from customer script)
+          if (payload.answer) {
+            assistantMessage.content = payload.answer
+          }
           assistantMessage.tokenUsage = payload.token_usage
           assistantMessage.safetyNotes = payload.safety_notes || []
           assistantMessage.safetyResult = payload.safety_result || undefined
@@ -318,6 +405,29 @@ export function useAiCoach() {
           if (payload.token_usage) {
             lastTokenUsage.value = payload.token_usage
           }
+
+          // Fallback: if visual_decision SSE event was missed, create visual card from done payload
+          const vd = payload.visual_decision
+          if (vd && vd.need_visual) {
+            const alreadyHasVisual = chatHistory.value.some(
+              m => m.role === 'reference' && m.messageType === 'generated_visual' && m.topic === vd.topic
+            )
+            if (!alreadyHasVisual) {
+              console.log('[AI Coach] Visual fallback from done event:', vd)
+              const visualMsg: AiChatMessage = {
+                role: 'reference', messageType: 'generated_visual',
+                jobId: `pending-${Date.now()}`,
+                topic: vd.topic || '知识卡片',
+                status: vd.decision_mode === 'auto_async_generate' ? 'queued' : 'manual_confirm_required',
+                confidence: vd.confidence,
+                sendable: false,
+                safetyLevel: 'nutrition_education',
+              }
+              chatHistory.value.splice(assistantIdx, 0, visualMsg)
+              ElMessage({ message: `正在生成「${vd.topic || '知识卡片'}」知识卡片...`, type: 'info', duration: 4000 })
+            }
+          }
+
           setTimeout(() => thinkingAbortController.value?.abort(), 200)
           return
         }
@@ -456,6 +566,7 @@ export function useAiCoach() {
     thinkingAbortController.value?.abort()
     answerAbortController.value = null
     thinkingAbortController.value = null
+    cleanupVisualJobs()
     sessionId.value = null
     chatHistory.value = []
     error.value = ''
@@ -675,6 +786,7 @@ export function useAiCoach() {
     markMedicalReview, uploadAttachment, uploadAttachmentDirect,
     submitFeedback, getMessageFeedback,
     regenerate, quotedMessage, setQuote, clearQuote,
+    confirmVisualJob, regenerateVisual, hideVisual, sendVisualFeedback,
     scenes, styles, currentScene, outputStyle, profileNote, profileNoteSaving, configLoaded,
     sessionHistory, sessionHistoryLoading, sessionSearchKeyword, loadSessionHistory, openHistorySession,
     loadAiConfig, saveProfileNote, restoredSessionMeta,

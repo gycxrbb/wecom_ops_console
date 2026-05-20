@@ -31,6 +31,11 @@ class ErrorCode:
     # system
     SYSTEM_UNKNOWN = "system_unknown"
     SYSTEM_DB_WRITE_FAILED = "system_db_write_failed"
+    # visual
+    VISUAL_GENERATION_FAILED = "visual_generation_failed"
+    VISUAL_SAFETY_BLOCKED = "visual_safety_blocked"
+    VISUAL_MODEL_NOT_CONFIGURED = "visual_model_not_configured"
+    VISUAL_CONFIRMATION_TIMEOUT = "visual_confirmation_timeout"
 
 
 def is_retriable(code: str) -> bool:

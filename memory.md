@@ -971,3 +971,31 @@
 - **场景**: 用户可能在聊天输入框里重复粘贴同一张图片或重复选择同一个文件，业务希望避免重复上传云存储。
 - **经验内容**: 前端可用原始文件字节计算 SHA-256，先拦截当前待发送队列内的重复项，做到不发起任何上传请求；后端仍要在 prepare/confirm/服务端中转上传入口按 `customer_id + content_hash` 复查并复用已有附件，避免刷新页面后重复上传和绕过前端校验。哈希应基于原始文件字节，而不是压缩后的派生文件，否则同一用户文件在不同压缩路径下会失去稳定身份。
 - **验证状态**: 已验证
+
+## 经验 #131: 异步后台任务审计不能把“任务已创建”当成“任务已完成”
+
+- **类别**: AI / 审计 / 异步任务
+- **场景**: 主请求只负责创建后台 job，真实外部 API 调用、存储或交付发生在 fire-and-forget 后台任务中。
+- **经验内容**: 审计 step 的 official 成功状态必须绑定真实完成点，而不是队列任务创建点。创建 job 时应记录 `pending` 或 `queued`，并把 `call_id/step_index` 传到后台执行器；后台 ready 后更新为 `success`，失败后更新为 `failed` 并写入 provider 错误。否则会形成“业务任务失败、调用审计成功”的真值漂移。
+- **验证状态**: 已验证
+
+## 经验 #132: AI 图片生成客户端也需要协议降级和连接池重置
+
+- **类别**: AI / 网络 / 稳定性
+- **场景**: OpenAI-compatible 图片生成接口通过 `httpx.AsyncClient` 调 `/images/generations`，上游或网关偶发首包前断连。
+- **经验内容**: 图片生成不是流式输出，但同样会遇到 `RemoteProtocolError: Server disconnected without sending a response`。客户端不能复用可能已损坏的连接池继续请求，应在连接级异常后关闭当前协议连接池；如果 HTTP/2 开启，先降级 HTTP/1.1；对 502/503/504 这类临时网关错误做有限重试。4xx 和明确业务错误不能重试，以免掩盖配置或参数问题。最终失败仍要进入 official failed 审计，不能为了“稳定性”隐藏真实失败。
+- **验证状态**: 已验证
+
+## 经验 #133: 生图接口排障要区分 endpoint 可达和真实生成可用
+
+- **类别**: AI / 网络 / Provider 排障
+- **场景**: OpenAI-compatible 聚合商的 `/images/generations` endpoint 能返回 4xx JSON，但真实模型生成请求在约 60 秒后断开。
+- **经验内容**: `/models` 200 和 `/images/generations` 无效模型 400 只能证明 base_url、鉴权、路径和基础协议可达，不等于真实生成链路可用。排障时应分层跑 DNS/TCP/TLS、`/models`、无效模型图片端点探针、真实模型 current payload、真实模型兼容 payload、极短 prompt。若极短 prompt 也固定在约 60 秒断开，优先怀疑 provider 网关/upstream generation timeout 或账号真实生图权限/额度，而不是 prompt 或客户端 HTTP 参数。
+- **验证状态**: 已验证
+
+## 经验 #134: 接长生成 API（如 gpt-image-2）前必须先核对供应商建议的客户端超时
+
+- **类别**: AI / 网络 / 配置
+- **场景**: aihubmix gpt-image-2 官方说明"单次生成可能 >5 分钟，建议客户端超时 ≥10 分钟"。我们 `image_client.py` 配的 read=120s + 55s gateway_hint + HTTP/2 复用连接池，叠加之后约 60s 就被 httpx 抛 `RemoteProtocolError`，看起来像"上游 60s 网关超时"，但实际部分锅在客户端配置。
+- **经验内容**: 接长生成同步 API（图片、视频、长 reasoning）必须做三件事：1) 客户端 read 超时 **取供应商建议值的上限**，宁多勿少；2) "长 hang 后断开就放弃"的兜底阈值要贴近 read 超时（如 read=600 → hint=540），不能比真实生成耗时还短；3) 默认走 HTTP/1.1 + 每次请求一次性 client，**不要为了性能复用连接池**——httpx HTTP/2 在长 hang 请求上历史多次出过 `RemoteProtocolError` / `ReadError`（参考 bug #65/#66/#81），OpenAI Python SDK 也没用 HTTP/2。在归因"上游网关超时"之前，先用官方 SDK + 长 timeout 跑一次复现验证。
+- **验证状态**: 已验证（bug.md #81）

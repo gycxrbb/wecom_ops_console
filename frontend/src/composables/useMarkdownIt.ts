@@ -90,8 +90,16 @@ function createInstance(): MarkdownIt {
     const token = tokens[idx]
     const info = token.info ? token.info.trim() : ''
     if (info === 'txt') {
-      const content = token.content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      const escaped = content.replace(/'/g, "\\'").replace(/\n/g, '\\n')
+      // Customer script must be pure text — remove ALL markdown symbols
+      let content = token.content
+      content = content.replace(/\*/g, '')
+      content = content.replace(/^#{1,6}\s+/gm, '')
+      content = content.replace(/^[-+]\s+/gm, '')
+      content = content.replace(/^\d+\.\s+/gm, '')
+      content = content.replace(/^>\s+/gm, '')
+      content = content.replace(/~~/g, '')
+      content = content.replace(/`/g, '')
+      content = content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       return `<div class="md-txt-block"><div class="md-txt-header"><span class="md-txt-label">客户话术</span><button class="md-txt-copy" onclick="(function(btn){var s=btn.closest('.md-txt-block').querySelector('code');navigator.clipboard.writeText(s.textContent).then(function(){btn.textContent='已复制';setTimeout(function(){btn.textContent='复制'},1500)})})(this)">复制</button></div><pre class="md-txt-pre"><code>${content}</code></pre></div>`
     }
     return defaultFence(tokens, idx, options, env, self)

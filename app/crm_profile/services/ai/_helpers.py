@@ -144,15 +144,13 @@ def _chunk_text(text: str, size: int = 28) -> list[str]:
 
 
 def _strip_markdown(text: str) -> str:
-    """Remove markdown formatting symbols from text, keeping only readable content."""
-    text = re.sub(r'\*{1,3}([^*]+)\*{1,3}', r'\1', text)  # bold/italic
-    text = re.sub(r'_{1,3}([^_]+)_{1,3}', r'\1', text)    # bold/italic (underscore)
-    text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)  # headings
-    text = re.sub(r'^[-*+]\s+', '', text, flags=re.MULTILINE)   # unordered list markers
-    text = re.sub(r'^\d+\.\s+', '', text, flags=re.MULTILINE)   # ordered list markers
-    text = re.sub(r'^>\s+', '', text, flags=re.MULTILINE)       # blockquote
-    text = re.sub(r'~~([^~]+)~~', r'\1', text)                  # strikethrough
-    text = re.sub(r'`([^`]+)`', r'\1', text)                    # inline code
+    """Remove ALL markdown formatting from customer script — pure text only."""
+    text = text.replace('*', '')
+    text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
+    text = re.sub(r'^[-+]\s+', '', text, flags=re.MULTILINE)
+    text = re.sub(r'^\d+\.\s+', '', text, flags=re.MULTILINE)
+    text = text.replace('~~', '')
+    text = text.replace('`', '')
     return text
 
 

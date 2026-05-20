@@ -55,5 +55,25 @@ class AiChatResult:
 
 @dataclass
 class AiStreamEvent:
-    event: Literal["meta", "delta", "done", "error", "loading", "rag", "analyzing"]
+    # Event protocol — data shapes per event:
+    #   "meta"                    -> session_id, message_id, prompt_version, scene_key, used_modules
+    #   "loading"                 -> stage: "prepare" | "model_call"
+    #   "progress"                -> text, step
+    #   "analyzing"               -> status
+    #   "rag"                     -> rag_status, sources[], recommended_assets[]
+    #   "delta"                   -> delta (text chunk)
+    #   "done"                    -> call_id, session_id, message_id, model, token_usage, ...
+    #   "error"                   -> message, code, call_id, stage, retriable
+    #   --- Visual events (placeholder, not yet emitted) ---
+    #   "visual_decision"         -> need_visual, confidence, decision_mode, reason, topic, safety_level
+    #   "visual_confirm_required" -> topic, confidence, confirm_question, safety_level
+    #   "visual_job"              -> job_id, status, topic
+    #   "visual_progress"         -> job_id, status, text
+    #   "visual_ready"            -> job_id, asset_id, url, title, sendable
+    #   "visual_error"            -> job_id, code, message
+    event: Literal[
+        "meta", "delta", "done", "error", "loading", "rag", "analyzing", "progress",
+        "visual_decision", "visual_confirm_required", "visual_job",
+        "visual_progress", "visual_ready", "visual_error",
+    ]
     data: dict[str, Any] = field(default_factory=dict)

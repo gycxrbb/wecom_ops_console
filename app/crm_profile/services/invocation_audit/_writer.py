@@ -100,6 +100,61 @@ def write_step(
         db.close()
 
 
+def update_step(
+    call_id: str,
+    step_index: int,
+    kind: str,
+    *,
+    name: str | None = None,
+    status: str | None = None,
+    error_code: str | None = None,
+    error_message: str | None = None,
+    output_json: str | None = None,
+    latency_ms: int | None = None,
+    model: str | None = None,
+) -> None:
+    validate_step_kind(kind)
+    db = SessionLocal()
+    try:
+        step = (
+            db.query(CrmAiTraceStep)
+            .filter_by(call_id=call_id, step_index=step_index, kind=kind)
+            .order_by(CrmAiTraceStep.id.desc())
+            .first()
+        )
+        if not step:
+            write_step(
+                call_id, step_index, kind,
+                name=name,
+                status=status or "success",
+                error_code=error_code,
+                error_message=error_message,
+                output_json=output_json,
+                latency_ms=latency_ms or 0,
+                model=model,
+            )
+            return
+        if name is not None:
+            step.name = name
+        if status is not None:
+            step.status = status
+        step.error_code = error_code
+        step.error_message = error_message[:512] if error_message else None
+        if output_json is not None:
+            step.output_json = output_json
+        if latency_ms is not None:
+            step.latency_ms = latency_ms
+        if model is not None:
+            step.model = model
+        step.finished_at = datetime.utcnow()
+        db.commit()
+    except Exception:
+        _log.exception("Failed to update step %d for %s", step_index, call_id)
+        db.rollback()
+    finally:
+        db.close()
+
+
 def update_stage(
     call_id: str,
     stage: str,

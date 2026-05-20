@@ -14,12 +14,18 @@ AGENT_STAGES = frozenset({
     "tool_observation", "agent_synthesize",
 })
 
-KNOWN_STAGES = SINGLE_TURN_STAGES | AGENT_STAGES
+VISUAL_STAGES = frozenset({
+    "visual_decision", "visual_brief_build", "visual_safety_check",
+    "visual_generation", "visual_qa", "visual_storage",
+})
+
+KNOWN_STAGES = SINGLE_TURN_STAGES | AGENT_STAGES | VISUAL_STAGES
 
 KNOWN_STEP_KINDS = frozenset({
     "llm_call", "rag_retrieval", "vision_analysis",
     "safety_gate", "context_snapshot", "prompt_assembly",
     "shortcut_evaluation", "tool_call",
+    "visual_generation", "visual_safety_check",
 })
 
 
