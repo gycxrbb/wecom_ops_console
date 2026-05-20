@@ -153,3 +153,12 @@ def return_connection(conn: pymysql.connections.Connection) -> None:
 def current_crm_env() -> str:
     """Public helper: return the effective CRM env name ('production' / 'test')."""
     return _resolve_crm_env()
+
+
+def log_effective_env_at_startup() -> None:
+    """在应用启动时主动打一次 CRM 环境日志，不等懒加载首连。
+
+    用于 lifespan 启动阶段，让运维能立刻在 docker logs 里看到本次部署连到了哪个 CRM 库。
+    """
+    params = _resolve_crm_db_params()
+    _log_params_once(params)

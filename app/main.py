@@ -1,6 +1,24 @@
 from contextlib import asynccontextmanager
 import asyncio
 import logging
+import sys
+
+# ── 应用层日志配置 ─────────────────────────────────────────────────────────
+# 给 'app.*' logger 树挂一个 StreamHandler，让所有 _log = logging.getLogger(__name__)
+# 的 INFO/WARNING/ERROR 都能输出到 stdout（docker logs / journalctl 都能看到）。
+# 不动 root logger，避免影响第三方库；不动 uvicorn 自己的 logger。
+_app_logger = logging.getLogger('app')
+if not _app_logger.handlers:
+    _h = logging.StreamHandler(sys.stdout)
+    _h.setFormatter(logging.Formatter(
+        '%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
+    ))
+    _app_logger.addHandler(_h)
+_app_logger.setLevel(logging.INFO)
+_app_logger.propagate = False
+# ──────────────────────────────────────────────────────────────────────────
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -34,6 +52,14 @@ _log = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # 启动即打印一次 CRM 环境，方便 docker logs 一眼确认连到了哪个库
+    try:
+        from .clients.crm_db import log_effective_env_at_startup
+        log_effective_env_at_startup()
+    except Exception:
+        # 启动日志不能阻塞主流程
+        _log.exception('CRM env log at startup failed')
+
     Base.metadata.create_all(bind=engine, checkfirst=True)
     ensure_schedule_schema(engine)
     ensure_asset_folders_schema(engine)
