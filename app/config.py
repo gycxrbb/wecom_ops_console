@@ -88,7 +88,7 @@ class Settings(BaseSettings):
     ai_visual_manual_confirm_confidence: float = 0.45
     ai_visual_max_jobs_per_session: int = 2
     # aihubmix 官方说明 gpt-image-2 单次生成可能 >5 分钟，建议客户端超时 ≥10 分钟
-    ai_visual_generation_timeout_seconds: int = 1000
+    ai_visual_generation_timeout_seconds: int = 1500
     ai_visual_generation_max_retries: int = 2
     ai_visual_generation_retry_delay_seconds: float = 1.5
     # 仅当真正长 hang（接近读超时）后断开才判 api_timeout 不再重试，避免短暂抖动直接放弃
