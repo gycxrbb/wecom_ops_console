@@ -20,7 +20,10 @@
 # ============================================================================
 set -euo pipefail
 
-PROJECT_DIR=${PROJECT_DIR:-/www/wwwroot/wecom-ops-console}
+# 自动定位项目根：脚本位于 scripts/migrate/，向上两层就是项目根。
+# 这样无论你把代码放在 /www/wwwroot、/home/xr 还是其他路径都能正常工作。
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+PROJECT_DIR=${PROJECT_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}
 COMPOSE_FILE=docker-compose.prod.yml
 
 red()   { printf '\033[31m%s\033[0m\n' "$*"; }
@@ -177,10 +180,15 @@ cat <<EOF
 == 后续维护 ==
 
   # 重启
-  docker compose -f docker-compose.prod.yml restart
+  cd $PROJECT_DIR && docker compose -f docker-compose.prod.yml restart
 
   # 拉新代码 + 重建
-  cd $PROJECT_DIR && git pull
-  docker compose -f docker-compose.prod.yml build && docker compose -f docker-compose.prod.yml up -d
+  cd $PROJECT_DIR
+  git pull
+  docker compose -f docker-compose.prod.yml build
+  docker compose -f docker-compose.prod.yml up -d
+
+  # 看 CRM 当前连到哪个库
+  docker logs --tail 50 wecom-ops-console | grep "CRM DB initialized"
 
 EOF

@@ -15,7 +15,11 @@
 # ============================================================================
 set -euo pipefail
 
-PROJECT_DIR=${PROJECT_DIR:-/www/wwwroot/wecom-ops-console}
+# 自动定位项目根：脚本位于 scripts/migrate/，向上两层就是项目根。
+# 如果你把脚本/项目放在其他位置，可以显式设 PROJECT_DIR=/your/path 覆盖。
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+PROJECT_DIR=${PROJECT_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}
+
 TS=$(date +%Y%m%d-%H%M%S)
 OUT_DIR=${OUT_DIR:-/tmp/wecom-ops-migrate-$TS}
 
