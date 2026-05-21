@@ -32,22 +32,28 @@ class Settings(BaseSettings):
     crm_test_db_user: str = ''
     crm_test_db_password: str = ''
     crm_test_db_name: str = 'mfgcrmdb'
+    crm_test_db_ssl_path: str = ''
     # 生产 CRM 库（新服务器走这里）
     crm_prod_db_host: str = ''
     crm_prod_db_port: int = 3306
     crm_prod_db_user: str = ''
     crm_prod_db_password: str = ''
     crm_prod_db_name: str = 'habitilitydb'
+    crm_prod_db_ssl_path: str = ''
     # 旧字段：单套 CRM 配置。保留是为了向后兼容，crm_test/prod 都为空时会回退到这里
     crm_admin_db_host: str = ''
     crm_admin_db_port: int = 3306
     crm_admin_db_user: str = ''
     crm_admin_db_password: str = ''
     crm_admin_db_name: str = 'mfgcrmdb'
+    crm_admin_db_ssl_path: str = ''
     crm_admin_table_name: str = 'admins'
     crm_jwt_secret_key: str = ''                                # CRM 后端 APP_PUBLIC_KEY，用于验证 CRM 签发的 JWT
     crm_token_strict_redis_check: bool = False                  # 生产环境建议开启 Redis token 比对
     database_url: str = 'sqlite:///./data/app.db'
+    # 业务库 SSL CA 证书路径（相对项目根或绝对路径；目录则自动取 rds-ca.pem 或首个 *.pem）。
+    # 本地/旧机走 127.0.0.1 直连可留空；新机连阿里云 RDS habitilitydb 必须配。
+    database_ssl_path: str = ''
     redis_url: str = 'redis://127.0.0.1:6379/0'
     asset_storage_provider: str = 'local'
     asset_storage_fallback_provider: str = 'local'

@@ -29,6 +29,7 @@ services:
       - redis
     volumes:
       - ./data:/app/data
+      - ./certs/aliyun:/app/certs/aliyun:ro
 
   celery_worker:
     build: .
@@ -42,6 +43,9 @@ services:
       - db
       - redis
       - wecom-ops-console
+    volumes:
+      - ./data:/app/data
+      - ./certs/aliyun:/app/certs/aliyun:ro
 
   celery_beat:
     build: .
@@ -54,6 +58,9 @@ services:
     depends_on:
       - db
       - redis
+    volumes:
+      - ./data:/app/data
+      - ./certs/aliyun:/app/certs/aliyun:ro
 
 volumes:
   db_data:

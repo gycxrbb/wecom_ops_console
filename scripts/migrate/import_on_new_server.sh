@@ -48,8 +48,10 @@ if [[ -f "$PACKAGE_DIR/_meta.txt" ]]; then
   cat "$PACKAGE_DIR/_meta.txt"
 fi
 
-# -- 1. 解析新服务器的 DATABASE_URL ----------------------------------------
+# -- 1. 解析新服务器的 DATABASE_URL + DATABASE_SSL_PATH ---------------------
 DB_URL=$(grep -E '^DATABASE_URL=' "$PROJECT_DIR/.env" | head -n1 | sed 's/^DATABASE_URL=//' | tr -d '"' | tr -d "'")
+DB_SSL_PATH_RAW=$(grep -E '^DATABASE_SSL_PATH=' "$PROJECT_DIR/.env" | head -n1 | sed 's/^DATABASE_SSL_PATH=//' | tr -d '"' | tr -d "'")
+
 read -r DB_USER DB_PASS DB_HOST DB_PORT DB_NAME < <(python3 - <<PY
 from urllib.parse import urlparse, unquote
 u = urlparse("${DB_URL}".replace("mysql+pymysql", "mysql"))
@@ -59,6 +61,31 @@ print(unquote(u.username or ""), unquote(u.password or ""),
 PY
 )
 blue "==> 新服务器 wecom_ops 库：user=$DB_USER host=$DB_HOST:$DB_PORT db=$DB_NAME"
+
+# -- 1.1 解析 SSL 证书路径并组装 mysql CLI 的 --ssl 参数 --------------------
+MYSQL_SSL_ARGS=()
+if [[ -n "$DB_SSL_PATH_RAW" ]]; then
+  if [[ "$DB_SSL_PATH_RAW" = /* ]]; then
+    DB_SSL_PATH="$DB_SSL_PATH_RAW"
+  else
+    DB_SSL_PATH="$PROJECT_DIR/$DB_SSL_PATH_RAW"
+  fi
+  # 目录则取 rds-ca.pem 或第一个 *.pem
+  if [[ -d "$DB_SSL_PATH" ]]; then
+    if [[ -f "$DB_SSL_PATH/rds-ca.pem" ]]; then
+      DB_SSL_PATH="$DB_SSL_PATH/rds-ca.pem"
+    else
+      DB_SSL_PATH=$(ls "$DB_SSL_PATH"/*.pem 2>/dev/null | head -n1)
+    fi
+  fi
+  if [[ ! -f "$DB_SSL_PATH" ]]; then
+    red "    DATABASE_SSL_PATH 指向的证书不存在: $DB_SSL_PATH_RAW (→ $DB_SSL_PATH)"
+    exit 1
+  fi
+  # --ssl-mode=REQUIRED 适配 MySQL 5.7.11+ 和 8.0+
+  MYSQL_SSL_ARGS=(--ssl-mode=REQUIRED --ssl-ca="$DB_SSL_PATH")
+  green "==> 使用 SSL 连接 RDS：$DB_SSL_PATH"
+fi
 
 # -- 2. 停旧容器（如果有的话） ---------------------------------------------
 cd "$PROJECT_DIR"
@@ -81,22 +108,22 @@ else
 fi
 
 # 测试连接（同时验证白名单是否放行）
-if ! mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -e "SELECT 1" >/dev/null 2>&1; then
+if ! mysql "${MYSQL_SSL_ARGS[@]}" -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -e "SELECT 1" >/dev/null 2>&1; then
   red "    无法连接 MySQL：host=$DB_HOST, user=$DB_USER"
-  red "    检查：a) .env 里 DATABASE_URL 是否正确"
-  red "          b) 如果是 RDS，确认本机内网 IP 已加入 RDS 白名单"
-  red "          c) 账号密码是否正确"
+  red "    检查：a) .env 里 DATABASE_URL / DATABASE_SSL_PATH 是否正确"
+  red "          b) 如果是 RDS，确认本机内网 IP 已加入 RDS 白名单 + 强制 SSL 是否启用"
+  red "          c) 账号密码是否正确（注意 URL 编码已被脚本自动反编码）"
   exit 1
 fi
 green "    连接 OK"
 
 # 检查库是否已存在（远程 DB 用户多半没 CREATE DATABASE 权限）
-DB_EXISTS=$(mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -N -e \
+DB_EXISTS=$(mysql "${MYSQL_SSL_ARGS[@]}" -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -N -e \
   "SELECT 1 FROM information_schema.schemata WHERE schema_name='$DB_NAME' LIMIT 1" 2>/dev/null || true)
 
 if [[ "${FORCE_DROP_DB:-0}" == "1" ]]; then
   yellow "    [危险] FORCE_DROP_DB=1，正在 DROP DATABASE $DB_NAME ..."
-  if ! mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -e "DROP DATABASE IF EXISTS \`$DB_NAME\`" 2>&1; then
+  if ! mysql "${MYSQL_SSL_ARGS[@]}" -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -e "DROP DATABASE IF EXISTS \`$DB_NAME\`" 2>&1; then
     red "    DROP DATABASE 失败：账号 $DB_USER 可能没有 DROP 权限"
     exit 1
   fi
@@ -105,7 +132,7 @@ fi
 
 if [[ -z "$DB_EXISTS" ]]; then
   blue "    库 $DB_NAME 不存在，尝试创建 ..."
-  if ! mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" \
+  if ! mysql "${MYSQL_SSL_ARGS[@]}" -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" \
        -e "CREATE DATABASE \`$DB_NAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci" 2>/dev/null; then
     red "    CREATE DATABASE 失败：账号 $DB_USER 没有 CREATE 权限。"
     red "    本机 MySQL 请先执行：mysql -uroot -p < scripts/migrate/local_mysql_setup.sql"
@@ -115,7 +142,7 @@ if [[ -z "$DB_EXISTS" ]]; then
   green "    OK 已创建 $DB_NAME"
 else
   yellow "    库 $DB_NAME 已存在（远程 RDS 场景预期如此）"
-  TABLE_CNT=$(mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -N -e \
+  TABLE_CNT=$(mysql "${MYSQL_SSL_ARGS[@]}" -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -N -e \
     "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$DB_NAME'" 2>/dev/null || echo 0)
   if [[ "$TABLE_CNT" -gt 0 ]]; then
     red "    库内已经有 $TABLE_CNT 张表，导入会触发"
@@ -127,13 +154,13 @@ fi
 # 导入。pv 显示进度
 blue "    正在导入 SQL ..."
 if command -v pv >/dev/null 2>&1; then
-  pv "$PACKAGE_DIR/wecom_ops.sql.gz" | gunzip | mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" "$DB_NAME"
+  pv "$PACKAGE_DIR/wecom_ops.sql.gz" | gunzip | mysql "${MYSQL_SSL_ARGS[@]}" -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" "$DB_NAME"
 else
-  gunzip -c "$PACKAGE_DIR/wecom_ops.sql.gz" | mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" "$DB_NAME"
+  gunzip -c "$PACKAGE_DIR/wecom_ops.sql.gz" | mysql "${MYSQL_SSL_ARGS[@]}" -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" "$DB_NAME"
 fi
 unset MYSQL_PWD
 
-ROW_CNT=$(MYSQL_PWD="$DB_PASS" mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -N -e \
+ROW_CNT=$(MYSQL_PWD="$DB_PASS" mysql "${MYSQL_SSL_ARGS[@]}" -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -N -e \
   "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$DB_NAME'" 2>/dev/null || echo 0)
 green "    OK  导入完成，$DB_NAME 现有 $ROW_CNT 张表"
 

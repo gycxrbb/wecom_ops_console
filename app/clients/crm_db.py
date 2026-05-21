@@ -17,12 +17,13 @@ from __future__ import annotations
 
 import logging
 import threading
+from pathlib import Path
 from typing import Any
 
 import pymysql
 from pymysql.cursors import DictCursor
 
-from ..config import settings
+from ..config import BASE_DIR, settings
 from ..services.crm_admin_auth import CrmAdminAuthUnavailable
 
 _log = logging.getLogger(__name__)
@@ -53,12 +54,14 @@ def _resolve_crm_db_params() -> dict[str, Any]:
         user = settings.crm_prod_db_user
         password = settings.crm_prod_db_password
         name = settings.crm_prod_db_name
+        ssl_path = settings.crm_prod_db_ssl_path
     else:
         host = settings.crm_test_db_host
         port = settings.crm_test_db_port
         user = settings.crm_test_db_user
         password = settings.crm_test_db_password
         name = settings.crm_test_db_name
+        ssl_path = settings.crm_test_db_ssl_path
 
     fallback_used = False
     if not host:
@@ -68,7 +71,11 @@ def _resolve_crm_db_params() -> dict[str, Any]:
         user = settings.crm_admin_db_user
         password = settings.crm_admin_db_password
         name = settings.crm_admin_db_name
+        ssl_path = settings.crm_admin_db_ssl_path
         fallback_used = True
+
+    if not ssl_path:
+        ssl_path = settings.crm_admin_db_ssl_path
 
     return {
         'host': host,
@@ -76,9 +83,50 @@ def _resolve_crm_db_params() -> dict[str, Any]:
         'user': user,
         'password': password,
         'database': name,
+        'ssl_path': ssl_path,
         '_env': env,
         '_legacy_fallback': fallback_used,
     }
+
+
+def _resolve_ssl_ca_path(raw_path: str | None) -> str | None:
+    """Return a CA file path for PyMySQL ssl config.
+
+    The env value may point to a pem file or to a directory containing Aliyun's
+    RDS CA certificate. Directories prefer rds-ca.pem, then any *.pem.
+
+    相对路径基于 ``BASE_DIR``（项目根）解析，这样无论 CWD 是何处都能稳定找到，
+    比如本地 uvicorn 在项目根跑、Docker 容器 WORKDIR=/app、或 systemd 服务从 / 启动。
+    绝对路径原样使用。
+    """
+    value = (raw_path or '').strip().strip('"').strip("'")
+    if not value:
+        return None
+
+    path = Path(value)
+    if not path.is_absolute():
+        path = BASE_DIR / path
+
+    if path.is_dir():
+        preferred = path / 'rds-ca.pem'
+        if preferred.is_file():
+            return str(preferred)
+        pem_files = sorted(path.glob('*.pem'))
+        if pem_files:
+            return str(pem_files[0])
+        raise CrmAdminAuthUnavailable(f"CRM 数据库 SSL 证书目录未找到 .pem 文件: {path}")
+
+    if path.is_file():
+        return str(path)
+
+    raise CrmAdminAuthUnavailable(f"CRM 数据库 SSL 证书路径不存在: {path}")
+
+
+def _build_ssl_options(raw_path: str | None) -> dict[str, str]:
+    ca_path = _resolve_ssl_ca_path(raw_path)
+    if not ca_path:
+        return {}
+    return {'ssl_ca': ca_path}
 
 
 def _log_params_once(params: dict[str, Any]) -> None:
@@ -87,8 +135,9 @@ def _log_params_once(params: dict[str, Any]) -> None:
         return
     _PARAMS_LOGGED = True
     _log.info(
-        "CRM DB initialized: env=%s, host=%s, database=%s, legacy_fallback=%s",
+        "CRM DB initialized: env=%s, host=%s, database=%s, ssl=%s, legacy_fallback=%s",
         params.get('_env'), params.get('host'), params.get('database'),
+        bool((params.get('ssl_path') or '').strip()),
         params.get('_legacy_fallback'),
     )
 
@@ -100,18 +149,29 @@ def _create_connection() -> pymysql.connections.Connection:
         raise CrmAdminAuthUnavailable(
             "CRM 数据库未配置：CRM_TEST_DB_HOST / CRM_PROD_DB_HOST / CRM_ADMIN_DB_HOST 全部为空"
         )
-    return pymysql.connect(
-        host=params['host'],
-        port=params['port'],
-        user=params['user'],
-        password=params['password'],
-        database=params['database'],
-        charset='utf8mb4',
-        cursorclass=DictCursor,
-        connect_timeout=10,
-        read_timeout=30,
-        write_timeout=10,
-    )
+    ssl_options = _build_ssl_options(params.get('ssl_path'))
+    connect_kwargs = {
+        'host': params['host'],
+        'port': params['port'],
+        'user': params['user'],
+        'password': params['password'],
+        'database': params['database'],
+        'charset': 'utf8mb4',
+        'cursorclass': DictCursor,
+        'connect_timeout': 10,
+        'read_timeout': 30,
+        'write_timeout': 10,
+        **ssl_options,
+    }
+    try:
+        return pymysql.connect(**connect_kwargs)
+    except pymysql.err.OperationalError as exc:
+        if ssl_options and exc.args and exc.args[0] == 1043:
+            raise CrmAdminAuthUnavailable(
+                "CRM 数据库 SSL 握手失败：请确认目标 RDS 已开启 SSL、"
+                "CRM_*_DB_SSL_PATH 指向正确的 CA 证书，并且当前连接地址支持 SSL"
+            ) from exc
+        raise
 
 
 def get_connection() -> pymysql.connections.Connection:
