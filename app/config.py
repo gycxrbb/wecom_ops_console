@@ -55,6 +55,10 @@ class Settings(BaseSettings):
     # 本地/旧机走 127.0.0.1 直连可留空；新机连阿里云 RDS habitilitydb 必须配。
     database_ssl_path: str = ''
     redis_url: str = 'redis://127.0.0.1:6379/0'
+    # Redis 业务 key 前缀（用于隔离多个应用复用同一 Redis 实例的场景）。
+    # 留空 = 不加前缀，本地/旧机维持现状；新机连阿里云 Redis 时建议设 'wecom'。
+    # 注意：Celery broker/backend 不受此前缀影响，它有自己的命名空间。
+    redis_key_prefix: str = ''
     asset_storage_provider: str = 'local'
     asset_storage_fallback_provider: str = 'local'
     qiniu_enabled: bool = False

@@ -159,7 +159,9 @@ class ScheduleService:
             async def _fire():
                 # Redis 分布式锁：多 worker 环境下只有一个能执行
                 import redis as _redis
-                lock_key = f'auto_ranking_lock:{cfg_id}'
+                _prefix = (settings.redis_key_prefix or '').strip()
+                _prefix = f'{_prefix}:' if _prefix else ''
+                lock_key = f'{_prefix}auto_ranking_lock:{cfg_id}'
                 lock_ttl = 600  # 10 分钟，覆盖整个发送周期
                 r = _redis.from_url(settings.redis_url)
                 acquired = r.set(lock_key, '1', nx=True, ex=lock_ttl)
