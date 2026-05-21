@@ -52,12 +52,23 @@ fi
 DB_URL=$(grep -E '^DATABASE_URL=' "$PROJECT_DIR/.env" | head -n1 | sed 's/^DATABASE_URL=//' | tr -d '"' | tr -d "'")
 DB_SSL_PATH_RAW=$(grep -E '^DATABASE_SSL_PATH=' "$PROJECT_DIR/.env" | head -n1 | sed 's/^DATABASE_SSL_PATH=//' | tr -d '"' | tr -d "'")
 
-read -r DB_USER DB_PASS DB_HOST DB_PORT DB_NAME < <(python3 - <<PY
+read -r DB_USER DB_PASS DB_HOST DB_PORT DB_NAME < <(
+DB_URL="$DB_URL" python3 - <<'PY'
+import os
 from urllib.parse import urlparse, unquote
-u = urlparse("${DB_URL}".replace("mysql+pymysql", "mysql"))
-print(unquote(u.username or ""), unquote(u.password or ""),
-      u.hostname or "127.0.0.1", u.port or 3306,
-      (u.path or "/").lstrip("/"))
+
+db_url = os.environ.get("DB_URL", "").strip()
+db_url = db_url.replace("mysql+pymysql", "mysql", 1)
+
+u = urlparse(db_url)
+
+print(
+    unquote(u.username or ""),
+    unquote(u.password or ""),
+    u.hostname or "127.0.0.1",
+    u.port or 3306,
+    (u.path or "/").lstrip("/")
+)
 PY
 )
 blue "==> 新服务器 wecom_ops 库：user=$DB_USER host=$DB_HOST:$DB_PORT db=$DB_NAME"

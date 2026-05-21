@@ -128,6 +128,8 @@ class Settings(BaseSettings):
     ai_visual_llm_judge_enabled: bool = False
     ai_visual_llm_judge_model: str = "gpt-4.1-mini"
     ai_visual_llm_judge_timeout_seconds: int = 8
+    ai_visual_prompt_model: str = "gpt-4.1-mini"       # LLM 生成生图提示词的模型
+    ai_visual_prompt_timeout_seconds: int = 10           # 提示词生成超时
 
     # RAG
     rag_enabled: bool = False

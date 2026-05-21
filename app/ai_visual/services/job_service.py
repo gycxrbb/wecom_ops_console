@@ -48,6 +48,9 @@ async def create_job(
 
     # Build brief
     brief = build_visual_brief(decision=decision, rag_sources=rag_sources, scene_key=scene_key)
+    # Embed rag_sources and user question for LLM prompt generation in background task
+    brief["_rag_sources"] = rag_sources or []
+    brief["_user_question"] = decision.topic  # topic is extracted from user message
     _log.info("[Visual] brief built: title=%s, key_points=%d, style=%s",
               brief.get("title"), len(brief.get("key_points", [])), brief.get("style_hint"))
 

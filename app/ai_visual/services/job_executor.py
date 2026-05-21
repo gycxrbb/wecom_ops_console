@@ -34,6 +34,24 @@ async def execute_job_background(
 
         job.status = "generating"
         db.commit()
+
+        # LLM prompt generation (optional upgrade over template prompt)
+        try:
+            brief_data = json.loads(job.brief_json) if job.brief_json else {}
+            rag_sources = brief_data.pop("_rag_sources", None)
+            user_question = brief_data.pop("_user_question", "")
+            if rag_sources and user_question:
+                from .prompt_builder import build_image_prompt_llm
+                llm_prompt = await build_image_prompt_llm(
+                    brief=brief_data, rag_sources=rag_sources, user_question=user_question,
+                )
+                if llm_prompt:
+                    job.prompt_text = llm_prompt
+                    db.commit()
+                    _log.info("[Visual] job %s: LLM prompt upgraded (%d chars)", job_id, len(llm_prompt))
+        except Exception as e:
+            _log.warning("[Visual] job %s: LLM prompt generation failed, using template: %s", job_id, e)
+
         _log.info("[Visual] job %s: generating image (model=%s, prompt_len=%d)", job_id, job.model, len(job.prompt_text or ""))
 
         image_bytes, _metadata = await generate_image(prompt=job.prompt_text, model=job.model)

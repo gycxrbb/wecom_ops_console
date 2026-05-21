@@ -121,7 +121,7 @@ const handleConfirm = async (confirmed: boolean) => {
 .ai-visual-progress { margin-top: 6px; display: flex; align-items: center; gap: 6px; color: #909399; font-size: 13px; }
 .ai-visual-error { margin-top: 6px; display: flex; align-items: center; gap: 8px; color: #f56c6c; font-size: 13px; }
 .ai-visual-preview { margin-top: 8px; }
-.ai-visual-preview__img { max-width: 100%; border-radius: 8px; cursor: pointer; }
+.ai-visual-preview__img { max-width: 360px; max-height: 300px; border-radius: 8px; cursor: pointer; }
 .ai-visual-actions { display: flex; align-items: center; gap: 4px; margin-top: 6px; padding-top: 6px; border-top: 1px solid #f0f0f0; }
 .ai-visual-feedback { display: inline-flex; gap: 2px; }
 </style>

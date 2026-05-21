@@ -211,6 +211,8 @@ export function useAiCoach() {
     sessionId.value = nextSessionId
 
     const assistantIdx = chatHistory.value.length
+    // Track insertion point AFTER assistant message for RAG refs / visual cards
+    let referenceInsertIdx = assistantIdx + 1
     chatHistory.value.push({
       role: 'assistant', messageType: 'assistant_answer',
       content: '',
@@ -268,7 +270,8 @@ export function useAiCoach() {
             sendable: false,
             safetyLevel: payload.safety_level || 'nutrition_education',
           }
-          chatHistory.value.splice(assistantIdx, 0, visualMsg)
+          chatHistory.value.splice(referenceInsertIdx, 0, visualMsg)
+          referenceInsertIdx++
           if (isAuto) {
             ElMessage({ message: `正在生成「${topic}」知识卡片...`, type: 'info', duration: 4000 })
             // Timeout fallback: if no visual_job event arrives within 15s, mark as failed
@@ -294,7 +297,8 @@ export function useAiCoach() {
             sendable: false,
             safetyLevel: payload.safety_level || 'nutrition_education',
           }
-          chatHistory.value.splice(assistantIdx, 0, confirmMsg)
+          chatHistory.value.splice(referenceInsertIdx, 0, confirmMsg)
+          referenceInsertIdx++
           return
         }
 
@@ -372,10 +376,8 @@ export function useAiCoach() {
             })
           }
           if (refMessages.length) {
-            // Insert before the current assistant message
-            chatHistory.value.splice(assistantIdx, 0, ...refMessages)
-            // Adjust assistantIdx since we inserted before it
-            // (assistantMessage ref is still valid via Vue reactivity)
+            chatHistory.value.splice(referenceInsertIdx, 0, ...refMessages)
+            referenceInsertIdx += refMessages.length
           }
           return
         }
@@ -423,7 +425,8 @@ export function useAiCoach() {
                 sendable: false,
                 safetyLevel: 'nutrition_education',
               }
-              chatHistory.value.splice(assistantIdx, 0, visualMsg)
+              chatHistory.value.splice(referenceInsertIdx, 0, visualMsg)
+              referenceInsertIdx++
               ElMessage({ message: `正在生成「${vd.topic || '知识卡片'}」知识卡片...`, type: 'info', duration: 4000 })
             }
           }
