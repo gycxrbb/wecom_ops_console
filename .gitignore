@@ -116,6 +116,9 @@ node_modules/
 data/qdrant/
 *.lock
 
+# --- 证书/密钥 ---
+certs/
+
 # --- AI/IDE 工具文件 ---
 .claude/
 .github/
