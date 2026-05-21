@@ -19,12 +19,18 @@ class CrmAdminAuthUnavailable(RuntimeError):
 
 
 def crm_admin_auth_enabled() -> bool:
-    return bool(
-        settings.crm_admin_auth_enabled
-        and settings.crm_admin_db_host
-        and settings.crm_admin_db_user
-        and settings.crm_admin_db_name
-    )
+    """CRM admin 鉴权是否可用。
+
+    走 crm_db.is_crm_db_configured()：自动支持 CRM_TEST_DB_* / CRM_PROD_DB_* /
+    legacy CRM_ADMIN_DB_*，与底层连接配置保持一致。
+
+    注意：函数内 import 是为了打破和 ``app.clients.crm_db`` 的循环依赖
+    （crm_db.py 顶部 import 了本模块的 ``CrmAdminAuthUnavailable``）。
+    """
+    if not settings.crm_admin_auth_enabled:
+        return False
+    from ..clients.crm_db import is_crm_db_configured
+    return is_crm_db_configured()
 
 
 def _candidate_hashes(password: str, salt: str) -> list[str]:

@@ -10,6 +10,7 @@ import time
 from typing import Any
 
 from ..clients.crm_db import get_connection as _get_connection
+from ..clients.crm_db import is_crm_db_configured as _is_crm_db_configured
 from ..clients.crm_db import return_connection as _return_connection
 from ..config import settings
 from .crm_admin_auth import CrmAdminAuthUnavailable
@@ -37,13 +38,12 @@ def clear_cache() -> None:
 
 
 def crm_group_enabled() -> bool:
-    """CRM 外部群查询是否可用（复用 CRM 认证的同一套配置）"""
-    return bool(
-        settings.crm_admin_auth_enabled
-        and settings.crm_admin_db_host
-        and settings.crm_admin_db_user
-        and settings.crm_admin_db_name
-    )
+    """CRM 外部群查询是否可用（复用 CRM 认证的同一套配置）。
+
+    走 crm_db.is_crm_db_configured()：自动支持 CRM_TEST_DB_* / CRM_PROD_DB_* /
+    legacy CRM_ADMIN_DB_*，与底层连接配置保持一致。
+    """
+    return bool(settings.crm_admin_auth_enabled) and _is_crm_db_configured()
 
 
 def _format_index_columns(columns: str | tuple[str, ...] | list[str]) -> str:

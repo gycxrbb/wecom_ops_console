@@ -71,29 +71,34 @@ async def build_image_prompt_llm(
     """
     from app.config import settings
 
-    # Pick highest-score RAG source as core reference
-    best_source = ""
+    # Pick top RAG sources as reference material
+    source_texts: list[str] = []
     if rag_sources:
         sorted_sources = sorted(rag_sources, key=lambda s: s.get("score", 0), reverse=True)
-        best_source = sorted_sources[0].get("content") or sorted_sources[0].get("text") or ""
+        for src in sorted_sources[:3]:
+            text = src.get("content") or src.get("text") or ""
+            if text:
+                source_texts.append(text)
 
     title = brief.get("title", "健康知识卡片")
     visual_type = brief.get("visual_type", "health_education_card")
     key_points = brief.get("key_points", [])
 
-    user_msg_parts = [
-        f"User Question: {user_question}",
-        f"Visual Type: {visual_type}",
-        f"Title: {title}",
-    ]
-    if best_source:
-        user_msg_parts.append(f"Reference Content:\n{best_source[:1500]}")
+    user_msg = (
+        f"User Question: {user_question}\n\n"
+        f"Title: {title}\n"
+        f"Visual Type: {visual_type}\n\n"
+    )
+    if source_texts:
+        combined = "\n\n---\n\n".join(source_texts)
+        user_msg += f"Reference Knowledge Content (extract specific facts, foods, tips from this):\n{combined[:3000]}\n\n"
     if key_points:
-        user_msg_parts.append("Suggested Key Points:\n" + "\n".join(f"- {p}" for p in key_points[:5]))
+        user_msg += "Suggested Key Points (expand on these with specific content):\n"
+        user_msg += "\n".join(f"- {p}" for p in key_points[:6])
 
     messages = [
         {"role": "system", "content": _PROMPT_GEN_SYSTEM},
-        {"role": "user", "content": "\n\n".join(user_msg_parts)},
+        {"role": "user", "content": user_msg},
     ]
 
     try:
@@ -103,7 +108,7 @@ async def build_image_prompt_llm(
                 messages,
                 model=settings.ai_visual_prompt_model,
                 temperature=0.7,
-                max_tokens=800,
+                max_tokens=2000,
             ),
             timeout=settings.ai_visual_prompt_timeout_seconds,
         )
@@ -112,7 +117,7 @@ async def build_image_prompt_llm(
         _log.warning("[Visual] LLM prompt generation failed: %s", e)
         return None
 
-    if not prompt_text or len(prompt_text) < 20:
+    if not prompt_text or len(prompt_text) < 50:
         _log.warning("[Visual] LLM prompt too short (%d chars), discarding", len(prompt_text))
         return None
 

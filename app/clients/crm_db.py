@@ -215,6 +215,18 @@ def current_crm_env() -> str:
     return _resolve_crm_env()
 
 
+def is_crm_db_configured() -> bool:
+    """是否已经为当前环境配置好 CRM 数据库的最小三件套（host / user / database）。
+
+    用于上层 service 判断"CRM 库能不能用"——必须走 ``_resolve_crm_db_params`` 的环境感知
+    + legacy fallback 逻辑，不能直接看任意单一字段（比如老的 crm_admin_db_*）。
+    否则会出现：``.env`` 用新格式 ``CRM_PROD_DB_*`` 填好后，
+    底层连接 OK，但上层 service 误判"未配置"的尴尬场景（参考 bug.md "外部群 available=False"）。
+    """
+    params = _resolve_crm_db_params()
+    return bool(params.get('host') and params.get('user') and params.get('database'))
+
+
 def log_effective_env_at_startup() -> None:
     """在应用启动时主动打一次 CRM 环境日志，不等懒加载首连。
 
