@@ -114,7 +114,7 @@ async def build_image_prompt_llm(
         )
         prompt_text = result[0].strip() if result else ""
     except Exception as e:
-        _log.warning("[Visual] LLM prompt generation failed: %s", e)
+        _log.warning("[Visual] LLM prompt generation failed (%s): %s", type(e).__name__, e, exc_info=False)
         return None
 
     if not prompt_text or len(prompt_text) < 50:
