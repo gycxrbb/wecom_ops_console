@@ -99,11 +99,14 @@ frontend/dist/
 frontend/.next/
 
 # --- 其他 ---
-.github/
 *.bak
 *.tmp
 *.temp
 *.tsbuildinfo
+
+# docs 下只保留 system_teaching
+docs/*
+!docs/system_teaching/
 
 .venv/
 
@@ -112,5 +115,21 @@ node_modules/
 # 忽略 Qdrant 向量库数据目录
 data/qdrant/
 *.lock
+
+# --- AI/IDE 工具文件 ---
+.claude/
+.github/
+.kiro/
+.tasks/
+.vscode/
+AGENTS.md
+CLAUDE.md
+bug.md
+memory.md
+findings.md
+progress.md
+task_plan.md
+deploy-guide.md
+部署文档.txt
 
 

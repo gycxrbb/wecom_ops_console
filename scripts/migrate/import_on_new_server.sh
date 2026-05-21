@@ -71,23 +71,61 @@ fi
 blue "==> [1/6] 恢复 wecom_ops 数据库 ..."
 export MYSQL_PWD="$DB_PASS"
 
-# 测试连接
+# 自动识别是 RDS（aliyuncs.com / amazonaws.com 等）还是本机
+if [[ "$DB_HOST" =~ aliyuncs|amazonaws|rds ]]; then
+  IS_REMOTE=1
+  blue "    数据库目标：远程 RDS ($DB_HOST)"
+else
+  IS_REMOTE=0
+  blue "    数据库目标：本机 MySQL ($DB_HOST)"
+fi
+
+# 测试连接（同时验证白名单是否放行）
 if ! mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -e "SELECT 1" >/dev/null 2>&1; then
-  red "    无法连接 MySQL，请先确认 .env 里 DATABASE_URL 和宝塔 MySQL 账号一致"
+  red "    无法连接 MySQL：host=$DB_HOST, user=$DB_USER"
+  red "    检查：a) .env 里 DATABASE_URL 是否正确"
+  red "          b) 如果是 RDS，确认本机内网 IP 已加入 RDS 白名单"
+  red "          c) 账号密码是否正确"
   exit 1
 fi
+green "    连接 OK"
 
-# 可选：危险操作，DROP 并重建
+# 检查库是否已存在（远程 DB 用户多半没 CREATE DATABASE 权限）
+DB_EXISTS=$(mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -N -e \
+  "SELECT 1 FROM information_schema.schemata WHERE schema_name='$DB_NAME' LIMIT 1" 2>/dev/null || true)
+
 if [[ "${FORCE_DROP_DB:-0}" == "1" ]]; then
   yellow "    [危险] FORCE_DROP_DB=1，正在 DROP DATABASE $DB_NAME ..."
-  mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" \
-    -e "DROP DATABASE IF EXISTS \`$DB_NAME\`"
+  if ! mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -e "DROP DATABASE IF EXISTS \`$DB_NAME\`" 2>&1; then
+    red "    DROP DATABASE 失败：账号 $DB_USER 可能没有 DROP 权限"
+    exit 1
+  fi
+  DB_EXISTS=""
 fi
 
-mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" \
-  -e "CREATE DATABASE IF NOT EXISTS \`$DB_NAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+if [[ -z "$DB_EXISTS" ]]; then
+  blue "    库 $DB_NAME 不存在，尝试创建 ..."
+  if ! mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" \
+       -e "CREATE DATABASE \`$DB_NAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci" 2>/dev/null; then
+    red "    CREATE DATABASE 失败：账号 $DB_USER 没有 CREATE 权限。"
+    red "    本机 MySQL 请先执行：mysql -uroot -p < scripts/migrate/local_mysql_setup.sql"
+    red "    （远程 RDS 场景请联系 DBA 用高权账号建库）"
+    exit 1
+  fi
+  green "    OK 已创建 $DB_NAME"
+else
+  yellow "    库 $DB_NAME 已存在（远程 RDS 场景预期如此）"
+  TABLE_CNT=$(mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -N -e \
+    "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$DB_NAME'" 2>/dev/null || echo 0)
+  if [[ "$TABLE_CNT" -gt 0 ]]; then
+    red "    库内已经有 $TABLE_CNT 张表，导入会触发"
+    red "    'Table already exists' 错误。请确认你真的要覆盖；要覆盖请加 FORCE_DROP_DB=1 重跑。"
+    exit 1
+  fi
+fi
 
-# 导入。pv 优雅地显示进度，没装就用普通 cat。
+# 导入。pv 显示进度
+blue "    正在导入 SQL ..."
 if command -v pv >/dev/null 2>&1; then
   pv "$PACKAGE_DIR/wecom_ops.sql.gz" | gunzip | mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" "$DB_NAME"
 else
@@ -95,9 +133,9 @@ else
 fi
 unset MYSQL_PWD
 
-ROW_CNT=$(mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASS" -N -e \
+ROW_CNT=$(MYSQL_PWD="$DB_PASS" mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -N -e \
   "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$DB_NAME'" 2>/dev/null || echo 0)
-green "    OK  导入了 $ROW_CNT 张表"
+green "    OK  导入完成，$DB_NAME 现有 $ROW_CNT 张表"
 
 # -- 4. 恢复 Qdrant --------------------------------------------------------
 if [[ "${SKIP_QDRANT_RESTORE:-0}" != "1" && -f "$PACKAGE_DIR/qdrant_storage.tgz" ]]; then
