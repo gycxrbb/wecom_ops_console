@@ -1,4 +1,4 @@
-"""gpt-image-2 API client — calls /images/generations endpoint.
+"""AI visual image generation client.
 
 设计要点（对齐 aihubmix 官方 sample 与 OpenAI Python SDK 的行为）：
 
@@ -12,6 +12,8 @@
 - 连接级错误（``RemoteProtocolError`` / ``ReadError`` / ``ConnectError`` 等）
   做有限重试；只有当一次尝试已经跑到接近读超时（``ai_visual_generation_gateway_timeout_hint_seconds``）
   才判 ``api_timeout`` 并停止重试，避免被 aihubmix 多次计费。
+- ``doubao/doubao-seedream-*`` 走 aihubmix predictions endpoint；其他模型继续走
+  OpenAI-compatible ``/images/generations``。
 """
 from __future__ import annotations
 
@@ -19,6 +21,7 @@ import asyncio
 import base64
 import logging
 import time
+from typing import Any
 
 import httpx
 
@@ -37,6 +40,7 @@ _RETRYABLE_TRANSPORT_ERRORS = (
     httpx.RemoteProtocolError,
     httpx.WriteError,
 )
+_DOUBAO_SEEDREAM_PREFIXES = ("doubao/", "doubao-seedream")
 
 
 class ImageGenerationError(Exception):
@@ -80,28 +84,28 @@ async def generate_image(
     size: str = "auto",
     n: int = 1,
 ) -> tuple[bytes, dict]:
-    """Call gpt-image-2 API. Returns (image_bytes, metadata_dict).
+    """Call the configured image generation API. Returns (image_bytes, metadata_dict).
 
     Raises ImageGenerationError on failure.
     """
     model_name = model or settings.ai_visual_model
     base_url = settings.ai_base_url.rstrip("/")
-    url = f"{base_url}/images/generations"
     headers = {
         "Authorization": f"Bearer {settings.ai_api_key}",
         "Content-Type": "application/json",
     }
-    payload = {
-        "model": model_name,
-        "prompt": prompt,
-        "n": n,
-        "size": size,
-        "quality": "auto",
-    }
+    endpoint = _endpoint_for_model(model_name)
+    url, payload = _build_generation_request(
+        base_url=base_url,
+        model_name=model_name,
+        prompt=prompt,
+        size=size,
+        n=n,
+    )
 
     _log.info(
-        "Image generation: model=%s, size=%s, prompt_len=%d, read_timeout=%ds",
-        model_name, size, len(prompt), settings.ai_visual_generation_timeout_seconds,
+        "Image generation: model=%s, endpoint=%s, size=%s, prompt_len=%d, read_timeout=%ds",
+        model_name, endpoint, _metadata_size(model_name, size), len(prompt), settings.ai_visual_generation_timeout_seconds,
     )
 
     try:
@@ -124,17 +128,11 @@ async def generate_image(
     except Exception as e:
         raise ImageGenerationError("api_error", f"Connection error: {e}")
 
-    images = data.get("data", [])
-    if not images:
-        raise ImageGenerationError("api_error", "No image data in response")
-
-    img_data = images[0]
-
-    # Prefer b64_json (gpt-image-2 default)
-    if "b64_json" in img_data:
-        image_bytes = base64.b64decode(img_data["b64_json"])
-    elif "url" in img_data:
-        image_url = img_data["url"]
+    image_source = _extract_image_source(data)
+    if image_source["kind"] == "b64":
+        image_bytes = base64.b64decode(image_source["value"])
+    elif image_source["kind"] == "url":
+        image_url = image_source["value"]
         try:
             dl_resp = await _download_image(image_url)
             image_bytes = dl_resp.content
@@ -145,12 +143,126 @@ async def generate_image(
 
     metadata = {
         "model": model_name,
-        "size": size,
+        "endpoint": endpoint,
+        "size": _metadata_size(model_name, size),
         "prompt_chars": len(prompt),
     }
 
     _log.info("Image generation success: %d bytes", len(image_bytes))
     return image_bytes, metadata
+
+
+def _endpoint_for_model(model_name: str) -> str:
+    return "doubao_predictions" if _is_doubao_seedream_model(model_name) else "openai_images"
+
+
+def _is_doubao_seedream_model(model_name: str) -> bool:
+    normalized = (model_name or "").strip().lower()
+    return normalized.startswith(_DOUBAO_SEEDREAM_PREFIXES) or "doubao-seedream" in normalized
+
+
+def _normalize_doubao_model_path(model_name: str) -> str:
+    normalized = (model_name or "").strip().strip("/")
+    if normalized.startswith("doubao/"):
+        return normalized
+    return f"doubao/{normalized}"
+
+
+def _metadata_size(model_name: str, requested_size: str) -> str:
+    if _is_doubao_seedream_model(model_name):
+        return settings.ai_visual_seedream_size or "2K"
+    return requested_size
+
+
+def _build_generation_request(
+    *,
+    base_url: str,
+    model_name: str,
+    prompt: str,
+    size: str,
+    n: int,
+) -> tuple[str, dict]:
+    if _is_doubao_seedream_model(model_name):
+        model_path = _normalize_doubao_model_path(model_name)
+        return (
+            f"{base_url}/models/{model_path}/predictions",
+            {
+                "input": {
+                    "prompt": prompt,
+                    "size": settings.ai_visual_seedream_size or "2K",
+                    "sequential_image_generation": "disabled",
+                    "stream": False,
+                    "response_format": "url",
+                    "watermark": bool(settings.ai_visual_seedream_watermark),
+                }
+            },
+        )
+
+    return (
+        f"{base_url}/images/generations",
+        {
+            "model": model_name,
+            "prompt": prompt,
+            "n": n,
+            "size": size,
+            "quality": "auto",
+        },
+    )
+
+
+def _extract_image_source(data: dict[str, Any]) -> dict[str, str]:
+    """Return the first image source from OpenAI or predictions-style responses."""
+    openai_images = data.get("data")
+    source = _source_from_candidate(openai_images)
+    if source:
+        return source
+
+    for key in ("output", "result", "images", "image", "urls", "url"):
+        source = _source_from_candidate(data.get(key))
+        if source:
+            return source
+
+    prediction = data.get("prediction")
+    source = _source_from_candidate(prediction)
+    if source:
+        return source
+
+    status = data.get("status")
+    if status and status not in {"succeeded", "success", "completed"}:
+        raise ImageGenerationError("api_error", f"Image prediction not completed: status={status}")
+
+    raise ImageGenerationError("api_error", "No image data in response")
+
+
+def _source_from_candidate(candidate: Any) -> dict[str, str] | None:
+    if candidate is None:
+        return None
+    if isinstance(candidate, str):
+        if candidate.startswith(("http://", "https://")):
+            return {"kind": "url", "value": candidate}
+        if candidate.startswith("data:image/") and ";base64," in candidate:
+            return {"kind": "b64", "value": candidate.split(";base64,", 1)[1]}
+        return None
+    if isinstance(candidate, list):
+        for item in candidate:
+            source = _source_from_candidate(item)
+            if source:
+                return source
+        return None
+    if isinstance(candidate, dict):
+        for key in ("b64_json", "base64", "image_base64"):
+            value = candidate.get(key)
+            if isinstance(value, str) and value:
+                return {"kind": "b64", "value": value}
+        for key in ("url", "image_url", "image", "file_url"):
+            source = _source_from_candidate(candidate.get(key))
+            if source:
+                return source
+        for key in ("output", "result", "images", "data"):
+            source = _source_from_candidate(candidate.get(key))
+            if source:
+                return source
+    return None
 
 
 async def _post_generation(url: str, headers: dict, payload: dict) -> httpx.Response:

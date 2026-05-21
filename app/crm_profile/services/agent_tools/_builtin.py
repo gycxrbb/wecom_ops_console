@@ -19,7 +19,7 @@ def _register_all() -> None:
     ))
     register_tool(ToolDef(
         name="visual_generate",
-        description="AI visual generation — create knowledge card images via gpt-image-2",
+        description="AI visual generation — create knowledge card images via configured image model",
         input_schema={"topic": "string", "brief": "object", "safety_level": "string"},
         output_schema={"job_id": "string", "asset_id": "string", "image_url": "string"},
         category="visual",

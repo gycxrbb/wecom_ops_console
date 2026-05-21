@@ -108,8 +108,8 @@ class Settings(BaseSettings):
 
     # AI Visual Agent
     ai_visual_enabled: bool = False
-    ai_visual_provider: str = "openai"
-    ai_visual_model: str = "gpt-image-2"
+    ai_visual_provider: str = "aihubmix"
+    ai_visual_model: str = "doubao/doubao-seedream-4-5-251128"
     ai_visual_generation_strategy: str = "direct_image"
     ai_visual_auto_generate_confidence: float = 0.80
     ai_visual_manual_confirm_confidence: float = 0.45
@@ -122,6 +122,8 @@ class Settings(BaseSettings):
     ai_visual_generation_gateway_timeout_hint_seconds: int = 540
     # 生图链路是否启用 HTTP/2。默认关闭：httpx HTTP/2 长 hang 历史不稳，OpenAI SDK 也走 HTTP/1.1
     ai_visual_http2_enabled: bool = False
+    ai_visual_seedream_size: str = "2K"
+    ai_visual_seedream_watermark: bool = True
     ai_visual_auto_sendable: bool = False
     ai_visual_llm_judge_enabled: bool = False
     ai_visual_llm_judge_model: str = "gpt-4.1-mini"
