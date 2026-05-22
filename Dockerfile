@@ -34,5 +34,6 @@ COPY --from=frontend-builder /build/dist ./frontend/dist/
 RUN mkdir -p data/uploads
 
 ENV PYTHONUNBUFFERED=1
-EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+# EXPOSE 指令在 Dockerfile 中仅作声明，如果有环境变量可以运行时映射
+EXPOSE ${PORT:-8000}
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 2"]

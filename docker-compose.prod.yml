@@ -17,7 +17,7 @@ services:
       # 阿里云 RDS SSL CA 证书（生产连 habitilitydb 必须，参考 .env.production.example 的 CRM_PROD_DB_SSL_PATH）
       - ./certs/aliyun:/app/certs/aliyun:ro
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health')"]
+      test: ["CMD", "python", "-c", "import os, urllib.request; port = os.environ.get('PORT', '8000'); urllib.request.urlopen('http://127.0.0.1:' + port + '/api/v1/health')"]
       interval: 30s
       timeout: 10s
       retries: 3

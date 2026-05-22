@@ -218,8 +218,23 @@ class QiniuStorageProvider(StorageProvider):
         )
 
     @staticmethod
-    def _post_upload(upload_host: str, *, data: dict, files: dict) -> httpx.Response:
-        return httpx.post(upload_host, data=data, files=files, timeout=300)
+    def _post_upload(upload_host: str, *, data: dict, files: dict, _max_retries: int = 3) -> httpx.Response:
+        delays = [1.0, 3.0, 6.0]
+        last_exc: Exception | None = None
+        for attempt in range(_max_retries + 1):
+            try:
+                return httpx.post(upload_host, data=data, files=files, timeout=300)
+            except (httpx.ConnectError, httpx.ReadTimeout, httpx.RemoteProtocolError, httpx.WriteTimeout) as e:
+                last_exc = e
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code < 500:
+                    raise
+                last_exc = e
+            if attempt < _max_retries:
+                delay = delays[attempt]
+                _log.warning("Qiniu upload retry %d/%d after %.1fs: %s", attempt + 1, _max_retries, delay, last_exc)
+                time.sleep(delay)
+        raise last_exc  # type: ignore[misc]
 
     @staticmethod
     def _extract_region_upload_host(message: str) -> str:

@@ -16,7 +16,7 @@ from .storage import StorageResult, storage_facade
 
 logger = logging.getLogger(__name__)
 
-RATE_LIMIT = 20
+RATE_LIMIT = 19  # 微信官方文档宣称每分钟最多20条，但实测在高峰期可能触发45009错误，保守设置为18条/分钟
 RATE_WINDOW_SECONDS = 60
 MAX_RATE_WAIT_SECONDS = 120
 _timestamps: dict[str, deque] = defaultdict(deque)
