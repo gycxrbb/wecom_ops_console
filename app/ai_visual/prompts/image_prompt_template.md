@@ -1,6 +1,6 @@
 Create a health education knowledge card image in Chinese.
 
-Title: {{title}}
+Title: A professional health education infographic (synthesize a concise Chinese title from the key points below — do NOT copy the topic text verbatim)
 Card type: {{visual_type}}
 Style: {{style_hint}}
 Tone: {{tone}}

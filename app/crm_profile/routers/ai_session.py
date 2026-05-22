@@ -64,10 +64,14 @@ def get_ai_session_detail(
         else:
             m["feedback"] = None
 
+    # Load visual jobs for this session
+    visual_jobs = _load_session_visual_jobs(session_id)
+
     return {
         "customer_id": customer_id,
         "session": detail["session"],
         "messages": detail["messages"],
+        "visual_jobs": visual_jobs,
         "scene_key": detail["session"].get("scene_key"),
         "output_style": detail["session"].get("output_style"),
         "prompt_version": detail["session"].get("prompt_version"),
@@ -174,3 +178,37 @@ def trigger_auto_title(
 
     title = asyncio.get_event_loop().run_until_complete(generate_auto_title(session_id))
     return {"session_id": session_id, "auto_title": title}
+
+
+def _load_session_visual_jobs(session_id: str) -> list[dict]:
+    """Load visual jobs with assets for a session, used to restore image cards in history."""
+    from ...database import SessionLocal
+    from ...models import AiVisualJob, AiVisualAsset
+
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(AiVisualJob, AiVisualAsset)
+            .outerjoin(AiVisualAsset, (AiVisualAsset.job_id == AiVisualJob.job_id) & (AiVisualAsset.hidden == False))  # noqa: E712
+            .filter(AiVisualJob.session_id == session_id, AiVisualJob.status.in_(["ready", "failed"]))
+            .order_by(AiVisualJob.created_at.asc())
+            .all()
+        )
+        result = []
+        for job, asset in rows:
+            result.append({
+                "job_id": job.job_id,
+                "topic": job.topic,
+                "status": job.status,
+                "confidence": job.confidence,
+                "safety_level": job.safety_level,
+                "preview_url": asset.storage_public_url if asset else None,
+                "error_message": job.error_message,
+                "feedback": asset.feedback if asset else None,
+                "created_at": job.created_at.isoformat() if job.created_at else None,
+            })
+        return result
+    except Exception:
+        return []
+    finally:
+        db.close()

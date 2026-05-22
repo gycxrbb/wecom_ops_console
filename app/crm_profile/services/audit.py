@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import uuid
 import logging
 from collections import defaultdict
 
@@ -71,6 +72,33 @@ def write_message(session_id: str, message_id: str, role: str,
         touch_last_active(session_id)
     except Exception:
         _log.exception("Failed to write audit message")
+        db.rollback()
+    finally:
+        db.close()
+
+
+def write_rag_references(session_id: str, rag_sources: list[dict] | None,
+                         rag_recommended_assets: list[dict] | None):
+    """Persist RAG sources and recommended assets as a single reference message."""
+    if not rag_sources and not rag_recommended_assets:
+        return
+    db = SessionLocal()
+    try:
+        content = json.dumps({
+            "_type": "rag",
+            "sources": rag_sources or [],
+            "recommended_assets": rag_recommended_assets or [],
+        }, ensure_ascii=False)
+        message_id = f"rag-{uuid.uuid4().hex[:12]}"
+        db.add(CrmAiMessage(
+            session_id=session_id,
+            message_id=message_id,
+            role="reference",
+            content=content,
+        ))
+        db.commit()
+    except Exception:
+        _log.exception("Failed to write RAG references")
         db.rollback()
     finally:
         db.close()

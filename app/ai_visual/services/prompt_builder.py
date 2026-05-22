@@ -71,30 +71,28 @@ async def build_image_prompt_llm(
     """
     from app.config import settings
 
-    # Pick top RAG sources as reference material
-    source_texts: list[str] = []
+    # Pick the single most relevant RAG source as the poster's primary content
+    source_text = ""
     if rag_sources:
         sorted_sources = sorted(rag_sources, key=lambda s: s.get("score", 0), reverse=True)
-        for src in sorted_sources[:3]:
-            text = src.get("content") or src.get("text") or ""
-            if text:
-                source_texts.append(text)
+        top = sorted_sources[0]
+        source_text = top.get("content") or top.get("text") or ""
 
     title = brief.get("title", "健康知识卡片")
     visual_type = brief.get("visual_type", "health_education_card")
-    key_points = brief.get("key_points", [])
 
     user_msg = (
-        f"User Question: {user_question}\n\n"
-        f"Title: {title}\n"
+        f"Topic: {title}\n"
+        f"(Generate a PROFESSIONAL poster title from this topic — do NOT copy verbatim)\n"
         f"Visual Type: {visual_type}\n\n"
     )
-    if source_texts:
-        combined = "\n\n---\n\n".join(source_texts)
-        user_msg += f"Reference Knowledge Content (extract specific facts, foods, tips from this):\n{combined[:3000]}\n\n"
-    if key_points:
-        user_msg += "Suggested Key Points (expand on these with specific content):\n"
-        user_msg += "\n".join(f"- {p}" for p in key_points[:6])
+    if source_text:
+        user_msg += (
+            "## Poster Content Source\n"
+            "The poster MUST present the knowledge from this content. "
+            "Organize sections based on its structure:\n\n"
+            f"{source_text[:3000]}\n\n"
+        )
 
     messages = [
         {"role": "system", "content": _PROMPT_GEN_SYSTEM},
@@ -108,7 +106,7 @@ async def build_image_prompt_llm(
                 messages,
                 model=settings.ai_visual_prompt_model,
                 temperature=0.7,
-                max_tokens=2000,
+                max_tokens=4000,
             ),
             timeout=settings.ai_visual_prompt_timeout_seconds,
         )

@@ -256,6 +256,9 @@
             @retry="onRetryLast"
             @feedback="onFeedback"
             @regenerate="onRegenerate"
+            @visual-retry="onVisualRetry"
+            @visual-hide="onVisualHide"
+            @visual-feedback="onVisualFeedback"
             @quote="onQuote"
           />
 
@@ -499,6 +502,7 @@ const {
   markMedicalReview: markReviewApi,
   submitFeedback: submitFeedbackApi,
   regenerate: regenerateApi,
+  regenerateVisual, hideVisual, sendVisualFeedback, startPolling,
   quotedMessage, setQuote, clearQuote,
   scenes, styles, currentScene, outputStyle, profileNote, profileNoteSaving, configLoaded,
   sessionHistory, sessionHistoryLoading, sessionSearchKeyword, loadSessionHistory, openHistorySession,
@@ -1036,6 +1040,40 @@ const onRegenerate = async (msg: any) => {
   await regenerateApi(props.customerId, msg.messageId)
   await nextTick()
   forceScrollBottom()
+}
+
+const onVisualRetry = async (msg: any) => {
+  if (!msg.jobId) return
+  msg.status = 'queued'
+  msg.previewUrl = undefined
+  const result = await regenerateVisual(msg.jobId)
+  if (result?.job_id) {
+    msg.jobId = result.job_id
+    startPolling(result.job_id, (_jobId: string, data: any) => {
+      msg.status = data.status
+      msg.previewUrl = data.preview_url ?? undefined
+      msg.sendable = data.sendable
+      if (data.error_message) msg.errorMessage = data.error_message
+      if (data.status === 'ready') ElMessage.success('图片重新生成完成')
+      if (data.status === 'failed') ElMessage.error(data.error_message || '图片生成失败')
+    })
+  } else {
+    msg.status = 'failed'
+    msg.errorMessage = '重新生成失败'
+  }
+}
+
+const onVisualHide = async (msg: any) => {
+  if (!msg.jobId) return
+  await hideVisual(msg.jobId)
+  const idx = chatHistory.value.indexOf(msg)
+  if (idx !== -1) chatHistory.value.splice(idx, 1)
+}
+
+const onVisualFeedback = async (msg: any, feedback: 'like' | 'dislike') => {
+  if (!msg.jobId) return
+  await sendVisualFeedback(msg.jobId, feedback)
+  msg.feedback = feedback
 }
 
 const onQuote = (msg: any) => {

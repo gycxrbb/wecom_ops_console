@@ -142,19 +142,76 @@ export function useAiCoach() {
       loading.value = false
       error.value = ''
       sessionId.value = res.session?.session_id || targetSessionId
-      chatHistory.value = (res.messages || []).map((item: AiSessionMessage) => ({
-        role: item.role as 'user' | 'assistant',
-        messageType: item.role === 'user' ? 'user' as const : 'assistant_answer' as const,
-        content: item.content || '',
-        messageId: item.message_id,
-        requiresMedicalReview: item.requires_medical_review,
-        tokenUsage: item.token_usage,
-        requestParams: (item as any).request_params || undefined,
-        thinkingVisible: false,
-        thinkingDone: true,
-        streaming: false,
-        feedback: item.feedback ? { rating: item.feedback.rating as 'like' | 'dislike', feedbackId: item.feedback.feedback_id } : null,
-      }))
+      // Map messages — handle user, assistant, and reference (RAG) roles
+      chatHistory.value = []
+      for (const item of res.messages || []) {
+        if (item.role === 'reference') {
+          // Parse persisted RAG references
+          try {
+            const data = JSON.parse(item.content || '{}')
+            if (data._type === 'rag') {
+              for (const src of data.sources || []) {
+                chatHistory.value.push({
+                  role: 'reference', messageType: 'rag_reference',
+                  resource_id: src.resource_id, title: src.title,
+                  snippet: src.snippet || '', score: src.score,
+                  source_type: src.source_type, content_kind: src.content_kind,
+                })
+              }
+              for (const asset of data.recommended_assets || []) {
+                chatHistory.value.push({
+                  role: 'reference', messageType: 'rag_attachment',
+                  title: asset.title, asset,
+                })
+              }
+            }
+          } catch { /* skip malformed */ }
+          continue
+        }
+        chatHistory.value.push({
+          role: item.role as 'user' | 'assistant',
+          messageType: item.role === 'user' ? 'user' as const : 'assistant_answer' as const,
+          content: item.content || '',
+          messageId: item.message_id,
+          requiresMedicalReview: item.requires_medical_review,
+          tokenUsage: item.token_usage,
+          requestParams: (item as any).request_params || undefined,
+          thinkingVisible: false,
+          thinkingDone: true,
+          streaming: false,
+          feedback: item.feedback ? { rating: item.feedback.rating as 'like' | 'dislike', feedbackId: item.feedback.feedback_id } : null,
+        } as AiChatMessage)
+      }
+
+      // Restore visual job cards into chat history (chronological order)
+      if (res.visual_jobs?.length) {
+        const visualMsgs: AiChatMessage[] = res.visual_jobs.map((vj: any) => ({
+          role: 'reference' as const,
+          messageType: 'generated_visual' as const,
+          jobId: vj.job_id,
+          topic: vj.topic,
+          status: vj.status,
+          confidence: vj.confidence,
+          safetyLevel: vj.safety_level,
+          previewUrl: vj.preview_url ?? undefined,
+          sendable: vj.status === 'ready',
+          errorMessage: vj.error_message,
+          feedback: vj.feedback ?? null,
+          _createdAt: vj.created_at,
+        }))
+        // Interleave by created_at: find the user message just before each visual's timestamp
+        const sortedVisuals = [...visualMsgs].sort((a: any, b: any) => (a._createdAt || '').localeCompare(b._createdAt || ''))
+        for (const vMsg of sortedVisuals) {
+          const vTime = (vMsg as any)._createdAt
+          // Insert after the last user message before this visual's creation time
+          let insertIdx = chatHistory.value.length
+          for (let i = chatHistory.value.length - 1; i >= 0; i--) {
+            const m = chatHistory.value[i] as any
+            if (m.role === 'user') { insertIdx = i + 1; break }
+          }
+          chatHistory.value.splice(insertIdx, 0, vMsg as AiChatMessage)
+        }
+      }
 
       // Restore session strategy from audit trail
       if (res.scene_key) currentScene.value = res.scene_key
@@ -789,7 +846,7 @@ export function useAiCoach() {
     markMedicalReview, uploadAttachment, uploadAttachmentDirect,
     submitFeedback, getMessageFeedback,
     regenerate, quotedMessage, setQuote, clearQuote,
-    confirmVisualJob, regenerateVisual, hideVisual, sendVisualFeedback,
+    confirmVisualJob, regenerateVisual, hideVisual, sendVisualFeedback, startPolling,
     scenes, styles, currentScene, outputStyle, profileNote, profileNoteSaving, configLoaded,
     sessionHistory, sessionHistoryLoading, sessionSearchKeyword, loadSessionHistory, openHistorySession,
     loadAiConfig, saveProfileNote, restoredSessionMeta,

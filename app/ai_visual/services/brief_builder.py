@@ -43,7 +43,8 @@ def _extract_key_points(rag_sources: list[dict] | None) -> list[str]:
         return []
     points: list[str] = []
     for src in rag_sources[:5]:
-        content = src.get("content", "") or src.get("text", "") or src.get("title", "")
+        content = src.get("content", "") or src.get("text", "")
+        # Do NOT fallback to title — RAG document titles are internal labels, not knowledge content
         if not content:
             continue
         # Split on numbered items or bullet markers

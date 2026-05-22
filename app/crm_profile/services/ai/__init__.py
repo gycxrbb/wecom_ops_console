@@ -154,6 +154,7 @@ async def ask_ai_coach(
     }
     audit.write_message(prepared.session_id, user_message_id, "user", message,
                         quoted_message_id=quoted_message_id, request_params=_req_params)
+    audit.write_rag_references(prepared.session_id, prepared.rag_sources, prepared.rag_recommended_assets)
     if attachment_ids:
         from ..ai_attachment import bind_attachments_to_message
         with SessionLocal() as _adb:
@@ -432,6 +433,7 @@ async def stream_ai_coach_answer(
                 ),
                 audit.write_message(prepared.session_id, user_message_id, "user", message,
                                     quoted_message_id=quoted_message_id, request_params=_req_params),
+                audit.write_rag_references(prepared.session_id, prepared.rag_sources, prepared.rag_recommended_assets),
                 _bind_attachments_if_any(prepared.session_id, user_message_id, attachment_ids),
                 audit.write_context_snapshot(
                     prepared.session_id, build_context_text(prepared.ctx.cards, selected_expansions=selected_expansions), prepared.used_modules,

@@ -17,7 +17,7 @@ export interface JobDetail {
 export function useVisualJobs() {
   const pollers = ref<Map<string, ReturnType<typeof setInterval>>>(new Map())
   const POLL_INTERVAL = 2000
-  const POLL_MAX_MS = 180000
+  const POLL_MAX_MS = 15 * 60 * 1000  // 15 minutes — LLM prompt + image generation + upload can take several minutes
 
   function startPolling(
     jobId: string,

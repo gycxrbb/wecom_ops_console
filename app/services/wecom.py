@@ -16,7 +16,12 @@ from .storage import StorageResult, storage_facade
 
 logger = logging.getLogger(__name__)
 
-RATE_LIMIT = 19  # 微信官方文档宣称每分钟最多20条，但实测在高峰期可能触发45009错误，保守设置为18条/分钟
+RATE_LIMIT = 19  # 微信官方文档宣称每分钟最多20条，本地保守设置 19，留 1 条 buffer 给时钟漂移
+# 限流策略：sliding window with first-of-batch anchor。
+# 攒满 RATE_LIMIT 条后，动态计算"距桶里最早一条还差多久到 60s"，等够这段时间再放下一条。
+# 例：19 条用了 35s，则等 60 - 35 + 5(余量) = 30s，msg #20 在 t=65 发出 → msg #1 已过期。
+# 后续消息会自然平滑：msg #21 等到 msg #2 过期、msg #22 等到 msg #3 过期，依此类推。
+# 这样稳态吞吐 ≈ RATE_LIMIT / 60s，刚好贴在微信官方限速线下方。
 RATE_WINDOW_SECONDS = 60
 MAX_RATE_WAIT_SECONDS = 120
 _timestamps: dict[str, deque] = defaultdict(deque)
@@ -108,6 +113,16 @@ class WeComService:
 
     @staticmethod
     async def _check_rate_limit(group_key: str):
+        """sliding window 限流：等到桶里【最早一条】过 60s（+ 5s 余量），再放新消息进来。
+
+        例：19 条已发完用了 35s（bucket[0]=t0，bucket[-1]=t0+35），现在要发第 20 条：
+            wait = bucket[0] + 60 + 5 - now = 65 - 35 = 30s
+        等满后 msg #20 在距 msg #1 = 65s 时发出，msg #1 已退出微信 60s 窗口。
+        之后 msg #21 触发时只需等 msg #2 过期（约 1.5s），自然过渡到稳态 20 条/分钟节奏。
+
+        bucket[0] 锚点比 bucket[-1]（"等整批过期"）更快：21 条总耗时 ~65s vs ~95s。
+        代价：贴近微信窗口边界，依赖 +5s 余量覆盖时钟漂移和网络延迟。
+        """
         lock = _locks[group_key]
         while True:
             async with lock:
@@ -118,17 +133,15 @@ class WeComService:
                 if len(bucket) < RATE_LIMIT:
                     bucket.append(now)
                     return
-                # +5s 安全余量：覆盖 NTP 时钟漂移（±2s）、网络单程延迟（~0.5s）和
-                # 微信服务端限流窗口口径差异。+1s 在 60s 硬边界上太紧，曾在新服务器
-                # （39.106.212.142）上触发 errcode 45009：本地算"过了 60s"但微信仍
-                # 在窗口内。参考：自动排行完成通知撞限流的 bug 复盘。
+                # bucket[0] = 桶里最早一条；+ 60s 后这条过期 → 可以放新一条进来
+                # + 5s 安全余量：NTP 时钟漂移 + 网络延迟 + WeCom 窗口口径差异
                 wait_seconds = bucket[0] + RATE_WINDOW_SECONDS - now + 5.0
             if wait_seconds > MAX_RATE_WAIT_SECONDS:
                 raise RuntimeError(
                     f'该群机器人限流等待超过 {MAX_RATE_WAIT_SECONDS}s 上限，放弃发送。'
                 )
             logger.warning(
-                '群 %s 触达 %d 条/分钟限制，等待 %.1fs 后继续',
+                '群 %s 触达 %d 条/分钟限制，等待 %.1fs 让最早一条过期后再继续',
                 group_key, RATE_LIMIT, wait_seconds,
             )
             await asyncio.sleep(wait_seconds)
