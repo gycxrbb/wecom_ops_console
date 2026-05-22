@@ -118,7 +118,11 @@ class WeComService:
                 if len(bucket) < RATE_LIMIT:
                     bucket.append(now)
                     return
-                wait_seconds = bucket[0] + RATE_WINDOW_SECONDS - now + 1.0
+                # +5s 安全余量：覆盖 NTP 时钟漂移（±2s）、网络单程延迟（~0.5s）和
+                # 微信服务端限流窗口口径差异。+1s 在 60s 硬边界上太紧，曾在新服务器
+                # （39.106.212.142）上触发 errcode 45009：本地算"过了 60s"但微信仍
+                # 在窗口内。参考：自动排行完成通知撞限流的 bug 复盘。
+                wait_seconds = bucket[0] + RATE_WINDOW_SECONDS - now + 5.0
             if wait_seconds > MAX_RATE_WAIT_SECONDS:
                 raise RuntimeError(
                     f'该群机器人限流等待超过 {MAX_RATE_WAIT_SECONDS}s 上限，放弃发送。'

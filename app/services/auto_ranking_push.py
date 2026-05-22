@@ -15,7 +15,7 @@ from ..models import Group, Message, MessageLog
 from ..models_auto_ranking import AutoRankingConfig
 from ..services.crm_points_ranking import preview_ranking_batch
 from ..services.crm_group_directory import fetch_crm_group_names
-from ..services.wecom import WeComService
+from ..services.wecom import RATE_LIMIT as _WECOM_RATE_LIMIT, WeComService
 from ..routers.api import resolve_group_webhook
 from .auto_ranking_sender import create_send_record, mark_send_success, mark_send_failure
 
@@ -222,6 +222,13 @@ async def execute_auto_ranking(cfg: AutoRankingConfig) -> dict:
         # ── 推送完成通知 ──
         if sent > 0:
             elapsed = _time.time() - send_start
+            # 如果排行正文已经接近本地 20 条/分钟限流阈值，完成通知和正文挤同一个
+            # 限流桶（webhook + target_group.id），微信服务端的滑窗也会算这条进去。
+            # 主动多等 10s 拉开和最后一条正文的时间差，避免 errcode 45009。
+            if sent >= _WECOM_RATE_LIMIT - 2:
+                _log.info('自动排行 %s: 正文已达 %d 条，完成通知前主动 sleep 10s 避撞限流',
+                          cfg.name, sent)
+                await asyncio.sleep(10)
             from .batch_summary import _build_summary_markdown
             md = _build_summary_markdown(
                 title=cfg.name, success_count=sent, total_count=total_count,
