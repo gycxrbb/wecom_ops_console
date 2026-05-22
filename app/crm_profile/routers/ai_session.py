@@ -183,7 +183,7 @@ def trigger_auto_title(
 def _load_session_visual_jobs(session_id: str) -> list[dict]:
     """Load visual jobs with assets for a session, used to restore image cards in history."""
     from ...database import SessionLocal
-    from ...models import AiVisualJob, AiVisualAsset
+    from ...ai_visual.models import AiVisualJob, AiVisualAsset
 
     db = SessionLocal()
     try:
