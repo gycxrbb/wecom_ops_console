@@ -36,7 +36,7 @@
             <el-icon :size="20"><Expand /></el-icon>
           </button>
           <el-breadcrumb separator="/">
-            <el-breadcrumb-item :to="{ path: '/' }">企微运营平台</el-breadcrumb-item>
+            <el-breadcrumb-item :to="{ path: '/' }">个人智能小助手</el-breadcrumb-item>
             <el-breadcrumb-item>{{ getRouteName() }}</el-breadcrumb-item>
           </el-breadcrumb>
         </div>
@@ -55,6 +55,9 @@
           </KeepAlive>
         </router-view>
       </el-main>
+      <footer class="icp-footer">
+        <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">皖ICP备2025082920号</a>
+      </footer>
     </el-container>
   </el-container>
 </template>
@@ -231,8 +234,24 @@ const getRouteName = () => resolveTitle(route.path)
 }
 .custom-main {
   padding: 24px 32px;
-  height: calc(100vh - 60px);
+  flex: 1;
   overflow-y: auto;
+}
+.icp-footer {
+  text-align: center;
+  padding: 10px 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border-color);
+  background-color: var(--card-bg);
+  flex-shrink: 0;
+}
+.icp-footer a {
+  color: var(--text-muted);
+  text-decoration: none;
+}
+.icp-footer a:hover {
+  color: var(--primary-color);
 }
 
 /* ---- Mobile / Tablet: ≤991px ---- */

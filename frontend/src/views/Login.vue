@@ -15,7 +15,7 @@
           <div class="logo-wrapper">
             <img :src="isDark ? '/images/light-logo.svg' : '/images/dark-logo.svg'" alt="logo" class="login-logo" />
           </div>
-          <h2>企微运营平台</h2>
+          <h2>个人智能小助手</h2>
         </div>
       </template>
       <el-form :model="form" :rules="rules" ref="formRef" @submit.prevent>
@@ -44,9 +44,6 @@
           账号已被临时锁定，请 <strong>{{ lockoutSeconds }}</strong> 秒后重试
         </div>
         <div v-else-if="loginError" class="login-error">{{ loginError }}</div>
-        <div class="login-tip">
-          admin 继续使用当前本地管理员账号，其他运营成员请使用 CRM 后台账号登录。
-        </div>
         <el-form-item>
           <el-button type="primary" class="login-btn" :loading="loading" :disabled="lockoutSeconds > 0" @click="handleLogin">
             登 录
@@ -57,6 +54,9 @@
         <div>管理员账号：admin / 当前本地密码</div>
       </div>
     </el-card>
+    <footer class="icp-footer">
+      <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">皖ICP备2025082920号</a>
+    </footer>
   </div>
 </template>
 
@@ -220,6 +220,22 @@ const handleLogin = async () => {
   background-color: var(--bg-color);
   position: relative;
 }
+.icp-footer {
+  position: absolute;
+  bottom: 0;
+  width: 100%;
+  text-align: center;
+  padding: 12px 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.icp-footer a {
+  color: var(--text-muted);
+  text-decoration: none;
+}
+.icp-footer a:hover {
+  color: var(--primary-color);
+}
 
 /* 顶栏 */
 .login-topbar {
@@ -251,12 +267,6 @@ const handleLogin = async () => {
   background: rgba(34, 197, 94, 0.08);
 }
 
-.login-tip {
-  margin: -4px 0 12px;
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.6;
-}
 .login-card {
   width: 400px;
   max-width: calc(100vw - 32px);

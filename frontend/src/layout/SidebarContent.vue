@@ -4,7 +4,7 @@
       <div class="logo-wrapper">
         <img :src="isDark ? '/images/light-logo.svg' : '/images/dark-logo.svg'" alt="logo" class="logo-img" />
       </div>
-      <span class="logo-text">企微运营平台</span>
+      <span class="logo-text">个人智能小助手</span>
     </div>
     <el-menu
       :default-active="routePath"
