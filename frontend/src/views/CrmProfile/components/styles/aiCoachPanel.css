@@ -50,6 +50,7 @@
   font-weight: 600;
   color: #9ca3af;
   letter-spacing: 0.5px;
+  white-space: nowrap;
 }
 .ai-floating-actions {
   position: absolute;

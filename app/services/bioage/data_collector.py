@@ -66,12 +66,9 @@ class CRMDataProvider:
     def get_latest_biomarkers(self, customer_id: int) -> dict:
         """获取最新血生化指标，按标准 code 映射。"""
         all_variants = []
-        params = []
         for std_code, variants in BIOMARKER_CODE_MAP.items():
             for v in variants:
                 all_variants.append("%s")
-                params.append(v)
-        params.append(customer_id)
 
         placeholders = ",".join(all_variants)
         sql = f"""
@@ -88,6 +85,12 @@ class CRMDataProvider:
             WHERE cri.customer_id = %s
               AND cri.value IS NOT NULL
         """
+
+        # Build params: subquery customer_id, then code variants, then outer customer_id
+        params = [customer_id]
+        for std_code, variants in BIOMARKER_CODE_MAP.items():
+            for v in variants:
+                params.append(v)
         params.append(customer_id)
 
         rows = self._query_all(sql, tuple(params))
