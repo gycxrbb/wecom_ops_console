@@ -44,6 +44,7 @@ from .routers.api_speech_templates import router as speech_templates_router
 from .routers.api_external_docs import router as external_docs_router
 from .routers.api_rag import router as rag_router
 from .routers.api_prompt_templates import router as prompt_templates_router
+from .routers.api_bioage import router as bioage_router
 from .services.seed import seed_all
 from .services.scheduler_service import schedule_service
 import hashlib
@@ -61,6 +62,11 @@ async def lifespan(app: FastAPI):
         _log.exception('CRM env log at startup failed')
 
     Base.metadata.create_all(bind=engine, checkfirst=True)
+
+    # bioage 独立 Base 建表（wecom_ops 库）
+    from .services.bioage.models import BioageBase
+    BioageBase.metadata.create_all(bind=engine, checkfirst=True)
+
     ensure_schedule_schema(engine)
     ensure_asset_folders_schema(engine)
     ensure_plan_schema(engine)
@@ -242,6 +248,7 @@ app.include_router(speech_templates_router)
 app.include_router(external_docs_router)
 app.include_router(rag_router)
 app.include_router(prompt_templates_router)
+app.include_router(bioage_router)
 
 if settings.crm_profile_enabled:
     from .crm_profile import router as crm_profile_router, init_models

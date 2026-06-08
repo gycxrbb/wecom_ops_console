@@ -1177,3 +1177,339 @@ html.dark .crm-issue-row {
 :global(html.dark) .crm-card__footer {
   border-color: rgba(255, 255, 255, 0.08);
 }
+
+/* ---- BioAge ---- */
+.bioage {
+  margin-top: 20px;
+  padding: 18px 24px;
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  background: var(--card-bg);
+  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.06);
+}
+
+.bioage__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.bioage__head-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bioage__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* ---- Body: Two Column ---- */
+.bioage__body {
+  display: flex;
+  gap: 32px;
+  align-items: stretch;
+}
+
+.bioage__left {
+  flex: 0 0 200px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.bioage__right {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+}
+
+.bioage__right--empty {
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+}
+
+/* ---- Age Items ---- */
+.bioage__age-item {
+  padding: 6px 0;
+}
+
+.bioage__age-divider {
+  height: 1px;
+  background: var(--border-color);
+  margin: 4px 0;
+}
+
+.bioage__age-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.bioage__age-badge {
+  font-size: 10px;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: rgba(99, 102, 241, 0.08);
+  color: #6366f1;
+  line-height: 16px;
+}
+
+.bioage__age-num {
+  font-size: 30px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+}
+
+.bioage__age-num small {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-left: 2px;
+  letter-spacing: 0;
+}
+
+.bioage__age-num--primary {
+  color: #6366f1;
+}
+
+.bioage__age-num--muted {
+  color: var(--text-muted);
+  font-size: 26px;
+}
+
+.bioage__age-num--muted small {
+  color: var(--text-muted);
+}
+
+.bioage__age-sub {
+  margin-top: 3px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.bioage--good { color: #16a34a; }
+.bioage--bad  { color: #ef4444; }
+.bioage--muted { color: var(--text-muted); }
+
+/* ---- Dimension Bars ---- */
+.bioage__dim-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.bioage__dim-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.bioage__dim-tag {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 3px;
+  line-height: 16px;
+}
+
+.bioage__dim-track {
+  height: 5px;
+  background: var(--border-color);
+  border-radius: 2.5px;
+  overflow: hidden;
+}
+
+.bioage__dim-bar {
+  height: 100%;
+  border-radius: 2.5px;
+  transition: width 0.5s ease;
+}
+
+/* ---- AI Reading ---- */
+.bioage__ai {
+  margin-top: 14px;
+  padding: 10px 12px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.04), rgba(139, 92, 246, 0.04));
+  border: 1px solid rgba(99, 102, 241, 0.08);
+  border-radius: 8px;
+}
+
+.bioage__ai-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+
+/* ---- Actions ---- */
+.bioage__actions {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.bioage__action {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.bioage__action-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  margin-top: 6px;
+  flex-shrink: 0;
+}
+
+/* ---- Timestamp ---- */
+.bioage__ts {
+  margin-top: 10px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* ---- Loading ---- */
+.bioage__loading {
+  text-align: center;
+  padding: 24px 0;
+}
+
+.bioage__loading-text {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* ---- Error ---- */
+.bioage__msg {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.bioage__msg--error {
+  background: rgba(239, 68, 68, 0.05);
+  border: 1px solid rgba(239, 68, 68, 0.10);
+  color: #dc2626;
+}
+
+/* ---- Empty State ---- */
+.bioage__empty-hint {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+}
+
+.bioage__missing {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.bioage__missing-tag {
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 3px;
+  background: rgba(245, 158, 11, 0.08);
+  color: #d97706;
+}
+
+.bioage__ready-bar {
+  height: 3px;
+  background: var(--border-color);
+  border-radius: 2px;
+  overflow: hidden;
+  width: 140px;
+  margin: 0 auto 5px;
+}
+
+.bioage__ready-fill {
+  height: 100%;
+  background: var(--primary-color);
+  border-radius: 2px;
+  transition: width 0.4s ease;
+}
+
+.bioage__ready-text {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ---- Dark Mode ---- */
+:global(html.dark) .bioage {
+  background: var(--card-bg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+
+:global(html.dark) .bioage__age-badge {
+  background: rgba(99, 102, 241, 0.15);
+  color: #818cf8;
+}
+
+:global(html.dark) .bioage__age-num--primary {
+  color: #818cf8;
+}
+
+:global(html.dark) .bioage--good { color: #4ade80; }
+:global(html.dark) .bioage--bad  { color: #f87171; }
+
+:global(html.dark) .bioage__ai {
+  background: rgba(99, 102, 241, 0.06);
+  border-color: rgba(99, 102, 241, 0.12);
+}
+
+:global(html.dark) .bioage__dim-track {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+:global(html.dark) .bioage__msg--error {
+  background: rgba(239, 68, 68, 0.10);
+  border-color: rgba(239, 68, 68, 0.18);
+}
+
+:global(html.dark) .bioage__missing-tag {
+  background: rgba(245, 158, 11, 0.12);
+  color: #fbbf24;
+}
+
+/* ---- Responsive ---- */
+@media (max-width: 600px) {
+  .bioage {
+    padding: 14px;
+  }
+  .bioage__body {
+    flex-direction: column;
+    gap: 16px;
+  }
+  .bioage__left {
+    flex: none;
+  }
+  .bioage__age-num {
+    font-size: 24px;
+  }
+}

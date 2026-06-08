@@ -674,7 +674,11 @@
                 </span>
               </template>
             </ProfileCard>
+
         </div>
+
+        <!-- BioAge Section -->
+        <BioAgeCard :customer-id="selectedCustomer?.id ?? null" />
 
         <!-- Insights Section: 5 new behavioral modules -->
         <div class="crm-insights">
@@ -940,6 +944,7 @@ import { Search, ArrowLeft, Warning, ChatDotRound, User, ScaleToOriginal, DataAn
 import { useCrmProfile } from './composables/useCrmProfile'
 import ProfileCard from './components/ProfileCard.vue'
 import BodyCompCard from './components/BodyCompCard.vue'
+import BioAgeCard from './components/BioAgeCard.vue'
 import AiCoachPanel from './components/AiCoachPanel.vue'
 import ModuleDetailDialog from './components/ModuleDetailDialog.vue'
 

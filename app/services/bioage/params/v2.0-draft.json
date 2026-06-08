@@ -1,0 +1,55 @@
+{
+  "version": "v2.0-draft",
+  "created_at": "2025-06-05",
+  "source": "过渡初始值，开发联调用",
+  "status": "draft",
+  "meta": {
+    "s2_ca": 30,
+    "age_range": [45, 80]
+  },
+  "biomarkers": {
+    "hba1c": {
+      "qi": 4.78,
+      "ki": 0.038,
+      "si": 0.62
+    },
+    "sbp": {
+      "qi": 100.5,
+      "ki": 0.50,
+      "si": 15.2
+    },
+    "pp": {
+      "qi": 31.0,
+      "ki": 0.22,
+      "si": 9.5
+    },
+    "albumin": {
+      "qi": 47.5,
+      "ki": -0.075,
+      "si": 3.1
+    },
+    "creatinine": {
+      "qi_male": 64.0,
+      "qi_female": 47.0,
+      "ki": 0.18,
+      "si_male": 14.0,
+      "si_female": 11.0
+    },
+    "alp": {
+      "qi": 57.0,
+      "ki": 0.45,
+      "si": 22.0
+    },
+    "hscrp": {
+      "qi": -0.50,
+      "ki": 0.018,
+      "si": 1.1,
+      "log_transform": true
+    },
+    "tc": {
+      "qi": 4.50,
+      "ki": 0.010,
+      "si": 0.95
+    }
+  }
+}

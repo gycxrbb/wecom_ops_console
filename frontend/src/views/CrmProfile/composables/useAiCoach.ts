@@ -789,32 +789,37 @@ export function useAiCoach() {
     }
 
     if (cred.mode === 'qiniu' && cred.upload_url && cred.token) {
-      // 2. Direct upload to Qiniu
-      const form = new FormData()
-      form.append('token', cred.token)
-      form.append('key', cred.object_key)
-      form.append('file', file)
+      // 2. Direct upload to Qiniu, fallback to server relay on failure (e.g. CSP blocked)
+      try {
+        const form = new FormData()
+        form.append('token', cred.token)
+        form.append('key', cred.object_key)
+        form.append('file', file)
 
-      const resp = await fetch(cred.upload_url, {
-        method: 'POST',
-        body: form,
-        signal: AbortSignal.timeout(120_000),
-      })
-      if (!resp.ok) throw new Error('直传云存储失败')
+        const resp = await fetch(cred.upload_url, {
+          method: 'POST',
+          body: form,
+          signal: AbortSignal.timeout(120_000),
+        })
+        if (!resp.ok) throw new Error('直传云存储失败')
 
-      // 3. Confirm upload with backend
-      const att: any = await request.post(
-        `/v1/crm-customers/${customerId}/ai/confirm-upload`,
-        {
-          object_key: cred.object_key,
-          public_url: cred.public_url,
-          filename: file.name,
-          mime_type: file.type,
-          file_size: file.size,
-          content_hash: contentHash || undefined,
-        },
-      )
-      return att
+        // 3. Confirm upload with backend
+        const att: any = await request.post(
+          `/v1/crm-customers/${customerId}/ai/confirm-upload`,
+          {
+            object_key: cred.object_key,
+            public_url: cred.public_url,
+            filename: file.name,
+            mime_type: file.type,
+            file_size: file.size,
+            content_hash: contentHash || undefined,
+          },
+        )
+        return att
+      } catch (directErr) {
+        console.warn('[upload] 直传云存储失败，降级为服务器中继上传:', directErr)
+        return uploadAttachment(customerId, file, onProgress)
+      }
     }
 
     // Fallback: server relay
