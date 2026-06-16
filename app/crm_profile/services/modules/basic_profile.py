@@ -53,7 +53,8 @@ def load(conn, customer_id: int) -> ModulePayload:
         bmi = round(weight_kg / (height_m * height_m), 1)
 
     # Map CRM status code to text
-    _STATUS_MAP = {0: "未知", 1: "服务中", 2: "暂停", 3: "已结束", 4: "已归档"}
+    # 编码来源：docs/CRM/mfgcrmdb_database_explanation.md customers.status
+    _STATUS_MAP = {0: "默认", 1: "干预中", 2: "已付费", 3: "潜客", 4: "流失", 5: "暂停"}
     crm_status = _STATUS_MAP.get(raw.get("status"), "未知")
 
     # Map gender code
