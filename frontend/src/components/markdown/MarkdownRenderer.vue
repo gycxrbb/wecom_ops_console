@@ -33,8 +33,26 @@ const props = withDefaults(defineProps<{
 
 const { md, render } = useMarkdownIt()
 
+function normalizeCustomerScriptBlocks(src: string): string {
+  const labelPattern = String.raw`(?:客户沟通话术|客户话术|教练可直接说的话术|教练直接说的话术|销转承接话术)`
+  const re = new RegExp(
+    String.raw`(^|\n)((?:[-*]\s*)?(?:\*\*)?${labelPattern}\s*[：:]?(?:\*\*)?\s*)\n((?:>\s?.+(?:\n|$))+)`,
+    'g',
+  )
+  return src.replace(re, (_match, prefix: string, label: string, quoted: string) => {
+    const text = quoted
+      .split('\n')
+      .map(line => line.replace(/^>\s?/, '').trimEnd())
+      .join('\n')
+      .trim()
+    if (!text) return _match
+    return `${prefix}${label}\n\`\`\`txt\n${text}\n\`\`\`\n`
+  })
+}
+
 const segments = computed<Segment[]>(() => {
-  const src = props.streaming ? safeCloseMarkdown(props.content) : props.content
+  const raw = props.streaming ? safeCloseMarkdown(props.content) : props.content
+  const src = normalizeCustomerScriptBlocks(raw)
   if (!src) return []
 
   const tokens = md.parse(src, {})

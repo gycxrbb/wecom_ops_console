@@ -181,6 +181,13 @@ class AiChatResponse(BaseModel):
     scene_key: str = ""
 
 
+class AiExportRequest(BaseModel):
+    format: Literal["docx", "pdf"]
+    content: str
+    title: str | None = None
+    customer_name: str | None = None
+
+
 class AiSessionSummaryItem(BaseModel):
     session_id: str
     entry_scene: str | None = None

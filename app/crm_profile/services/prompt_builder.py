@@ -39,6 +39,20 @@ _NOTE_FIELD_LABELS = {
     "coach_strategy_note": "教练内部策略备注",
 }
 
+_CUSTOMER_SCRIPT_FORMAT_GUARDRAIL = """
+### 客户话术格式硬性要求
+
+凡是输出“客户沟通话术”“客户话术”“教练可直接说的话术”“销转承接话术”等教练可复制给客户的内容时：
+1. 标题可以正常写在外面，但话术正文必须放入 `txt` fenced code block。
+2. `txt` fenced code block 内只能写客户可直接收到的纯文本自然段。
+3. 禁止用 `>` 引用块、列表缩进、普通代码块或加粗符号呈现客户话术。
+4. 示例格式：
+
+```txt
+这里写教练可直接发给客户的一段自然话术，不要包含 markdown 符号。
+```
+""".strip()
+
 
 @dataclass
 class PromptAssembly:
@@ -139,6 +153,8 @@ def assemble_prompt(
 
     if dynamic_parts:
         messages.append({"role": "system", "content": "\n\n".join(dynamic_parts)})
+
+    messages.append({"role": "system", "content": _CUSTOMER_SCRIPT_FORMAT_GUARDRAIL})
 
     messages.append({"role": "user", "content": f"{user_message}\n\n{style_hint}"})
 

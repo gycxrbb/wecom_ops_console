@@ -51,14 +51,14 @@
       >
         <el-checkbox :model-value="selectedIndices?.has(i)" @click.stop @change="emit('toggle-select', i)" class="ai-msg-checkbox" />
         <div class="ai-msg-content-wrap">
-          <AiCoachAssistantMessage v-if="msg.role === 'assistant'" :msg="msg" @copy="$emit('copy', $event)" @mark-medical-review="$emit('mark-medical-review', $event)" @retry="emit('retry')" @feedback="(m, r) => emit('feedback', m, r)" @regenerate="emit('regenerate', $event)" @quote="emit('quote', $event)" />
+          <AiCoachAssistantMessage v-if="msg.role === 'assistant'" :msg="msg" @copy="$emit('copy', $event)" @preview-export="emit('preview-export', $event)" @mark-medical-review="$emit('mark-medical-review', $event)" @retry="emit('retry')" @feedback="(m, r) => emit('feedback', m, r)" @regenerate="emit('regenerate', $event)" @quote="emit('quote', $event)" />
           <AiCoachReferenceMessage v-else-if="msg.role === 'reference' && msg.messageType !== 'generated_visual'" :msg="msg" @send-to-center="emit('send-to-center', $event)" />
           <AiCoachVisualMessage v-else-if="msg.role === 'reference' && msg.messageType === 'generated_visual'" :msg="msg" :session-id="sessionId ?? undefined" @retry="emit('visual-retry', $event)" @hide="emit('visual-hide', $event)" @feedback="(m, r) => emit('visual-feedback', m, r)" @confirmed="emit('visual-confirmed', $event)" />
           <AiCoachUserMessage v-else-if="msg.role === 'user'" :msg="msg" :user-avatar="userAvatar" :user-display-name="userDisplayName" :is-admin="isAdmin" />
         </div>
       </div>
       <template v-else>
-        <AiCoachAssistantMessage v-if="msg.role === 'assistant'" :msg="msg" @copy="$emit('copy', $event)" @mark-medical-review="$emit('mark-medical-review', $event)" @retry="emit('retry')" @feedback="(m, r) => emit('feedback', m, r)" @regenerate="emit('regenerate', $event)" @quote="emit('quote', $event)" />
+        <AiCoachAssistantMessage v-if="msg.role === 'assistant'" :msg="msg" @copy="$emit('copy', $event)" @preview-export="emit('preview-export', $event)" @mark-medical-review="$emit('mark-medical-review', $event)" @retry="emit('retry')" @feedback="(m, r) => emit('feedback', m, r)" @regenerate="emit('regenerate', $event)" @quote="emit('quote', $event)" />
         <AiCoachReferenceMessage v-else-if="msg.role === 'reference' && msg.messageType !== 'generated_visual'" :msg="msg" @send-to-center="emit('send-to-center', $event)" />
         <AiCoachVisualMessage v-else-if="msg.role === 'reference' && msg.messageType === 'generated_visual'" :msg="msg" :session-id="sessionId ?? undefined" @retry="emit('visual-retry', $event)" @hide="emit('visual-hide', $event)" @feedback="(m, r) => emit('visual-feedback', m, r)" @confirmed="emit('visual-confirmed', $event)" />
         <AiCoachUserMessage v-else-if="msg.role === 'user'" :msg="msg" :user-avatar="userAvatar" :user-display-name="userDisplayName" :is-admin="isAdmin" />
@@ -101,6 +101,7 @@ const emit = defineEmits<{
   feedback: [msg: AiChatMessage, rating: 'like' | 'dislike']
   regenerate: [msg: AiChatMessage]
   quote: [msg: AiChatMessage]
+  'preview-export': [msg: Extract<AiChatMessage, { role: 'assistant' }>]
   retry: []
   'visual-retry': [msg: AiChatMessage]
   'visual-hide': [msg: AiChatMessage]

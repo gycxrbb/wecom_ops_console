@@ -19,7 +19,7 @@
 
     <div class="ai-panel">
       <!-- Body: sidebar + main (no header bar) -->
-      <div class="ai-panel-body">
+      <div class="ai-panel-body" :class="{ 'has-export-preview': exportPreviewVisible }">
         <!-- Sidebar rail -->
         <div class="ai-sidebar" :class="{ 'is-expanded': sidebarExpanded }" @mouseenter="onSidebarEnter" @mouseleave="onSidebarLeave">
           <div class="ai-sidebar-menu">
@@ -268,6 +268,7 @@
             @retry="onRetryLast"
             @feedback="onFeedback"
             @regenerate="onRegenerate"
+            @preview-export="openExportPreview"
             @visual-retry="onVisualRetry"
             @visual-hide="onVisualHide"
             @visual-feedback="onVisualFeedback"
@@ -372,6 +373,14 @@
             </div>
           </div>
         </div>
+
+        <AiCoachExportPreview
+          v-if="exportPreviewVisible && exportPreviewMessage"
+          :message="exportPreviewMessage"
+          :customer-id="customerId"
+          :customer-name="customerName"
+          @close="closeExportPreview"
+        />
       </div>
     </div>
   </el-drawer>
@@ -440,6 +449,7 @@ import AiSessionHistoryList from './AiSessionHistoryList.vue'
 import AiCoachMessageList from './AiCoachMessageList.vue'
 import AiCoachFeedbackDialog from './AiCoachFeedbackDialog.vue'
 import AiCoachCrisisPromptDialog from './AiCoachCrisisPromptDialog.vue'
+import AiCoachExportPreview from './AiCoachExportPreview.vue'
 
 const userStore = useUserStore()
 const router = useRouter()
@@ -494,6 +504,11 @@ const toggleFullscreen = () => {
   } else {
     drawerWidth.value = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, savedWidth))
   }
+}
+
+const enterFullscreen = () => {
+  isFullscreen.value = true
+  drawerWidth.value = window.innerWidth
 }
 
 const onResizeStart = (e: MouseEvent) => {
@@ -594,6 +609,9 @@ const openCrisisAttachmentPreview = (att: AiAttachment) => {
 const { renameSession, togglePin, deleteSession } = useAiSessionAdmin()
 
 const messageListRef = ref<InstanceType<typeof AiCoachMessageList>>()
+type AssistantMsg = Extract<AiChatMessage, { role: 'assistant' }>
+const exportPreviewVisible = ref(false)
+const exportPreviewMessage = ref<AssistantMsg | null>(null)
 const sidebarTab = ref<'history' | 'context' | 'notes' | null>(null)
 const sidebarExpanded = ref(true)
 let sidebarHoverTimer: ReturnType<typeof setTimeout> | null = null
@@ -880,6 +898,8 @@ watch(visible, (v) => {
     selectMode.value = false
     selectedIndices.value = new Set()
     crisisDialogVisible.value = false
+    exportPreviewVisible.value = false
+    exportPreviewMessage.value = null
     clearCrisisAttachments()
   }
   if (v && props.customerId && !configLoaded.value) {
@@ -1089,6 +1109,24 @@ const copyText = (text: string) => {
   navigator.clipboard.writeText(text).then(() => {
     ElMessage.success('已复制到剪贴板')
   })
+}
+
+const openExportPreview = async (msg: AssistantMsg) => {
+  if (!msg.content?.trim()) {
+    ElMessage.warning('当前回复暂无可导出的内容')
+    return
+  }
+  exportPreviewMessage.value = msg
+  exportPreviewVisible.value = true
+  sidebarTab.value = null
+  enterFullscreen()
+  await nextTick()
+  forceScrollBottom()
+}
+
+const closeExportPreview = () => {
+  exportPreviewVisible.value = false
+  exportPreviewMessage.value = null
 }
 
 const onMarkMedicalReview = async (msg: any) => {

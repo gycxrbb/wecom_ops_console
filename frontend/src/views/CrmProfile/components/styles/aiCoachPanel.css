@@ -304,6 +304,23 @@
   background: #f8f9fa;
   position: relative;
 }
+.ai-panel-body.has-export-preview .ai-main {
+  flex: 0 1 520px;
+  max-width: min(42vw, 620px);
+  min-width: 360px;
+  border-right: 1px solid #e5e7eb;
+}
+.ai-panel-body.has-export-preview .ai-resize-handle {
+  display: none;
+}
+.ai-panel-body.has-export-preview .ai-messages {
+  padding: 18px 18px 20px;
+  gap: 20px;
+}
+.ai-panel-body.has-export-preview .ai-input-wrapper {
+  padding: 0 18px;
+  margin-bottom: 16px;
+}
 .ai-disabled-state {
   padding: 12px 20px 0;
   flex-shrink: 0;
@@ -1073,6 +1090,11 @@
   }
   .ai-main {
     width: 100%;
+    min-width: 0;
+  }
+  .ai-panel-body.has-export-preview .ai-main {
+    min-width: 0;
+    max-width: none;
   }
   .ai-input-wrapper {
     padding: 0 12px;
