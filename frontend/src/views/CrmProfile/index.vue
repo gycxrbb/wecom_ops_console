@@ -923,6 +923,8 @@
         :disabled-reason="aiCoachReason"
         :health-window-days="currentWindowDays"
         :profile-cache-status="profileCacheStatus"
+        :customer-info-refreshing="customerInfoRefreshing"
+        @refresh-customer-info="refreshCurrentCustomerInfo"
       />
 
       <ModuleDetailDialog
@@ -941,6 +943,7 @@ export default { name: 'CrmProfile' }
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, reactive } from 'vue'
 import { Search, ArrowLeft, Warning, ChatDotRound, User, ScaleToOriginal, DataAnalysis, Star, UserFilled } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import { useCrmProfile } from './composables/useCrmProfile'
 import ProfileCard from './components/ProfileCard.vue'
 import BodyCompCard from './components/BodyCompCard.vue'
@@ -952,8 +955,8 @@ const {
   loading, selectedCustomer, profile,
   selectCustomer, getCard, backToList, restoreFromUrl,
   genderText, calcAge,
-  safetySnapshots, safetySnapshotLoading, loadSafetySnapshotDetail,
-  currentWindowDays, healthLoading, switchHealthWindow,
+  safetySnapshots, safetySnapshotLoading, loadSafetySnapshots, loadSafetySnapshotDetail,
+  currentWindowDays, healthLoading, switchHealthWindow, forceRefreshProfile,
   profileCacheStatus,
   // list
   listLoading, listItems, listTotal, listPage, listPageSize,
@@ -967,6 +970,7 @@ const detailDialog = reactive({ visible: false, title: '', payload: {} as Record
 const selectedSafetySnapshotId = ref<number | null>(null)
 const safetySnapshotDetailLoading = ref(false)
 const safetyCardOverride = ref<any | null>(null)
+const customerInfoRefreshing = ref(false)
 const aiCoachEnabled = computed(() => profile.value?.ai_chat_enabled ?? false)
 const aiCoachReason = computed(() => profile.value?.ai_chat_reason ?? '')
 
@@ -1103,6 +1107,25 @@ const onSafetySnapshotChange = async (snapshotId: number) => {
     selectedSafetySnapshotId.value = currentSnapshotId
   } finally {
     safetySnapshotDetailLoading.value = false
+  }
+}
+
+const refreshCurrentCustomerInfo = async () => {
+  if (!selectedCustomer.value?.id) return
+  customerInfoRefreshing.value = true
+  try {
+    safetyCardOverride.value = null
+    selectedSafetySnapshotId.value = null
+    await Promise.all([
+      forceRefreshProfile(selectedCustomer.value.id, currentWindowDays.value),
+      loadSafetySnapshots(selectedCustomer.value.id),
+    ])
+    selectedSafetySnapshotId.value = getCurrentSafetySnapshotId()
+    ElMessage.success('已重新读取客户最新信息')
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.detail || '刷新客户信息失败')
+  } finally {
+    customerInfoRefreshing.value = false
   }
 }
 

@@ -53,8 +53,8 @@
         </div>
       </div>
       <div v-if="showActions" class="ai-msg-actions">
-        <el-tooltip content="复制话术" placement="top" :show-after="400">
-          <button class="ai-action-btn" @click="$emit('copy', extractCustomerReply)">
+        <el-tooltip content="复制" placement="top" :show-after="400">
+          <button class="ai-action-btn" @click="$emit('copy', msg.content)">
             <el-icon><CopyDocument /></el-icon>
           </button>
         </el-tooltip>
@@ -125,13 +125,6 @@ const feedbackRating = computed(() => props.msg.feedback?.rating || null)
 const showActions = computed(() =>
   props.msg.content && !props.msg.errorCode && !props.msg.streaming
 )
-
-const extractCustomerReply = computed(() => {
-  const content = props.msg.content || ''
-  const m = content.match(/```txt\s*\n([\s\S]*?)```/)
-  if (m) return m[1].trim()
-  return content
-})
 
 const onLike = () => {
   if (feedbackRating.value === 'like') return

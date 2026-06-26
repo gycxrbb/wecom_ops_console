@@ -25,7 +25,13 @@
       <div class="ai-quick-section">
         <p class="ai-quick-label"><el-icon><MagicStick /></el-icon> 快捷指令</p>
         <div class="ai-quick-grid">
-          <div v-for="qp in quickPromptItems" :key="qp.text" class="ai-quick-card" @click="$emit('quick-ask', qp.text)">
+          <div
+            v-for="qp in quickPromptItems"
+            :key="qp.key"
+            class="ai-quick-card"
+            :class="{ 'is-crisis': qp.key === 'crisis_conversion' }"
+            @click="$emit('quick-ask', qp)"
+          >
             <span class="ai-quick-card__icon" :style="{ background: qp.color }">
               <el-icon :size="15" color="#fff"><component :is="qp.icon" /></el-icon>
             </span>
@@ -63,7 +69,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { MagicStick, ArrowRight, EditPen, Search, ChatLineRound } from '@element-plus/icons-vue'
+import { MagicStick, ArrowRight, EditPen, Search, ChatLineRound, Warning } from '@element-plus/icons-vue'
 import AiCoachAssistantMessage from './AiCoachAssistantMessage.vue'
 import AiCoachUserMessage from './AiCoachUserMessage.vue'
 import AiCoachReferenceMessage from './AiCoachReferenceMessage.vue'
@@ -88,7 +94,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   copy: [content: string]
   'mark-medical-review': [msg: AiChatMessage]
-  'quick-ask': [text: string]
+  'quick-ask': [item: AiQuickPromptItem]
   'dismiss-data-gap': [gap: string]
   'toggle-select': [index: number]
   'send-to-center': [msg: AiChatMessage]
@@ -101,6 +107,13 @@ const emit = defineEmits<{
   'visual-feedback': [msg: AiChatMessage, feedback: 'like' | 'dislike']
   'visual-confirmed': [msg: AiChatMessage]
 }>()
+
+type AiQuickPromptItem = {
+  key: 'service_summary' | 'followup_questions' | 'handoff_note' | 'crisis_conversion'
+  text: string
+  icon: any
+  color: string
+}
 
 const messagesRef = ref<HTMLElement>()
 
@@ -128,10 +141,11 @@ const sceneLabel = (key: string) => {
   return map[key] || key
 }
 
-const quickPromptItems = [
-  { text: '总结服务重点', icon: EditPen, color: '#10b981' },
-  { text: '列出跟进问题', icon: Search, color: '#6366f1' },
-  { text: '生成交接备注', icon: ChatLineRound, color: '#8b5cf6' },
+const quickPromptItems: AiQuickPromptItem[] = [
+  { key: 'service_summary', text: '总结服务重点', icon: EditPen, color: '#10b981' },
+  { key: 'followup_questions', text: '列出跟进问题', icon: Search, color: '#6366f1' },
+  { key: 'handoff_note', text: '生成交接备注', icon: ChatLineRound, color: '#8b5cf6' },
+  { key: 'crisis_conversion', text: '销转下危机', icon: Warning, color: '#ef4444' },
 ]
 </script>
 
@@ -147,14 +161,16 @@ const quickPromptItems = [
 .ai-welcome-hero h3 { font-size: 20px; font-weight: 700; color: #1f2937; margin: 0 0 10px; }
 .ai-text-gradient { color: #6366f1; }
 .ai-welcome-hero p { font-size: 14px; color: #6b7280; margin: 0; }
-.ai-quick-section { width: 100%; max-width: 560px; padding: 0 8px; }
+.ai-quick-section { width: 100%; max-width: 720px; padding: 0 8px; }
 .ai-quick-label { font-size: 13px; font-weight: 600; color: #9ca3af; display: flex; align-items: center; gap: 6px; margin-bottom: 14px; padding-left: 4px; }
 .ai-quick-label .el-icon { color: #6366f1; }
-.ai-quick-grid { display: flex; gap: 12px; flex-wrap: wrap; }
-.ai-quick-card { flex: 1 1 140px; min-width: 140px; display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 14px; background: #fff; border: 1px solid #f0f2f5; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 12px rgba(0,0,0,0.02); }
+.ai-quick-grid { display: grid; grid-template-columns: repeat(4, minmax(126px, 1fr)); gap: 12px; }
+.ai-quick-card { min-width: 0; display: flex; align-items: center; gap: 10px; padding: 14px 14px; border-radius: 14px; background: #fff; border: 1px solid #f0f2f5; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 12px rgba(0,0,0,0.02); }
 .ai-quick-card:hover { border-color: #6366f1; background: #fff; transform: translateY(-2px); box-shadow: 0 8px 24px rgba(99,102,241,0.08); }
-.ai-quick-card__icon { width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; border-radius: 10px; flex-shrink: 0; }
-.ai-quick-card__text { flex: 1; font-size: 13px; font-weight: 500; color: #374151; white-space: nowrap; }
+.ai-quick-card.is-crisis { border-color: #fee2e2; background: #fffafa; }
+.ai-quick-card.is-crisis:hover { border-color: #ef4444; box-shadow: 0 8px 24px rgba(239,68,68,0.1); }
+.ai-quick-card__icon { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 10px; flex-shrink: 0; }
+.ai-quick-card__text { flex: 1; min-width: 0; font-size: 13px; font-weight: 500; color: #374151; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ai-quick-card__arrow { color: #d1d5db; font-size: 13px; flex-shrink: 0; transition: color 0.2s, transform 0.2s; }
 .ai-quick-card:hover .ai-quick-card__arrow { color: #6366f1; transform: translateX(3px); }
 /* Select mode */
@@ -171,6 +187,10 @@ const quickPromptItems = [
   .ai-welcome-hero { padding: 16px 8px 24px; }
   .ai-welcome-hero h3 { font-size: 17px; }
   .ai-quick-section { padding: 0; }
-  .ai-quick-card { flex: 1 1 100%; min-width: 0; padding: 10px 12px; }
+  .ai-quick-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ai-quick-card { padding: 10px 12px; }
+}
+@media (max-width: 420px) {
+  .ai-quick-grid { grid-template-columns: 1fr; }
 }
 </style>

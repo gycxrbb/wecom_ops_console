@@ -483,6 +483,18 @@
   flex-shrink: 0;
   color: #9ca3af;
 }
+.ai-profile-refresh-card {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 0 0 16px;
+  margin: 0 0 16px;
+  border-bottom: 1px dashed #e5e7eb;
+}
+.ai-profile-refresh-card .el-button {
+  width: 100%;
+  justify-content: center;
+}
 .ai-note-fields-grid {
   display: flex;
   flex-direction: column;
@@ -1076,6 +1088,9 @@
 @media (max-width: 480px) {
   .ai-input-wrapper {
     padding: 0 8px;
+  }
+  .ai-profile-refresh-card {
+    padding-bottom: 12px;
   }
   .ai-select-action-bar {
     margin: 0 8px 8px;

@@ -302,7 +302,11 @@ def _compose_ai_messages(assembly, session_id: str, reuse_session: bool,
     if reuse_session:
         history = audit.load_session_messages(session_id, limit=10)
         for h in history:
-            ai_messages.append({"role": h["role"], "content": h["content"]})
+            role = h.get("role")
+            content = h.get("content")
+            if role not in {"user", "assistant"} or not content:
+                continue
+            ai_messages.append({"role": role, "content": content})
 
     # Inject quoted context for follow-up questions
     if quoted_content:

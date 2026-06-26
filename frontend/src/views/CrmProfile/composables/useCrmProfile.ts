@@ -297,6 +297,18 @@ export function useCrmProfile() {
     }
   }
 
+  const forceRefreshProfile = async (customerId: number, windowDays?: number) => {
+    const w = normalizeWindowDays(windowDays ?? currentWindowDays.value)
+    const res: any = await request.get(`/v1/crm-customers/${customerId}/profile`, {
+      params: { window: w, refresh: true },
+    })
+    profile.value = res
+    currentWindowDays.value = w
+    writeNavigationCache(customerId, w)
+    await refreshProfileCacheStatus(customerId, w)
+    return res
+  }
+
   const loadSafetySnapshots = async (customerId: number) => {
     safetySnapshotLoading.value = true
     try {
@@ -391,7 +403,7 @@ export function useCrmProfile() {
 
   return {
     loading, searching, searchResults, selectedCustomer, profile,
-    searchCustomers, loadProfile, selectCustomer, getCard,
+    searchCustomers, loadProfile, forceRefreshProfile, selectCustomer, getCard,
     genderText, calcAge, backToList, restoreFromUrl,
     safetySnapshots, safetySnapshotLoading, loadSafetySnapshots, loadSafetySnapshotDetail,
     currentWindowDays, healthLoading, switchHealthWindow,

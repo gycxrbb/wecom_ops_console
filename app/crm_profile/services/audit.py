@@ -160,6 +160,7 @@ def load_session_messages(session_id: str, limit: int = 10) -> list[dict]:
         rows = (
             db.query(CrmAiMessage)
             .filter(CrmAiMessage.session_id == session_id)
+            .filter(CrmAiMessage.role.in_(("user", "assistant")))
             .order_by(CrmAiMessage.created_at.desc())
             .limit(limit)
             .all()

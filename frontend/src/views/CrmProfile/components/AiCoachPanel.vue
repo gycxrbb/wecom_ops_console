@@ -145,6 +145,18 @@
                   <el-icon><InfoFilled /></el-icon>
                   <span>写长期背景信息，不要写本次问题。保存后对该客户所有 AI 对话生效。</span>
                 </div>
+                <div class="ai-profile-refresh-card">
+                  <el-button
+                    size="small"
+                    type="primary"
+                    :loading="customerInfoRefreshing"
+                    :disabled="!customerId"
+                    @click="emit('refresh-customer-info')"
+                  >
+                    <el-icon><Refresh /></el-icon>
+                    刷新当前客户信息
+                  </el-button>
+                </div>
                 <div class="ai-note-fields-grid">
                   <div class="ai-note-field">
                     <label>沟通风格</label>
@@ -369,6 +381,16 @@
     :ai-answer="feedbackTargetMsg?.content || ''"
     @submit="onFeedbackDialogSubmit"
   />
+  <AiCoachCrisisPromptDialog
+    v-model="crisisDialogVisible"
+    :attachments="crisisPendingAttachments"
+    :loading="loading"
+    :confirming="crisisConfirming"
+    @file-selected="addCrisisFile"
+    @remove-attachment="removeCrisisAttachment"
+    @preview-attachment="openCrisisAttachmentPreview"
+    @confirm="sendCrisisPrompt"
+  />
   <el-dialog
     v-model="previewDialog.visible"
     :title="previewDialog.title"
@@ -403,6 +425,7 @@ import {
   Check,
   Upload,
   VideoPause,
+  Refresh,
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '#/stores/user'
@@ -412,9 +435,11 @@ import type { AiChatMessage, AiAttachment } from '../composables/useAiCoach'
 import type { AiProfileCacheStatus } from '../composables/useCrmProfile'
 import { useAiFileUpload } from '../composables/useAiFileUpload'
 import { useAiSessionAdmin } from '../composables/useAiSessionAdmin'
+import { buildCrisisConversionPrompt } from '../composables/crisisConversionPrompt'
 import AiSessionHistoryList from './AiSessionHistoryList.vue'
 import AiCoachMessageList from './AiCoachMessageList.vue'
 import AiCoachFeedbackDialog from './AiCoachFeedbackDialog.vue'
+import AiCoachCrisisPromptDialog from './AiCoachCrisisPromptDialog.vue'
 
 const userStore = useUserStore()
 const router = useRouter()
@@ -435,6 +460,7 @@ const props = withDefaults(defineProps<{
   disabledReason?: string
   healthWindowDays?: number
   profileCacheStatus?: AiProfileCacheStatus | null
+  customerInfoRefreshing?: boolean
 }>(), {
   customerName: '',
   usedModules: () => [],
@@ -442,10 +468,12 @@ const props = withDefaults(defineProps<{
   disabledReason: '',
   healthWindowDays: 7,
   profileCacheStatus: null,
+  customerInfoRefreshing: false,
 })
 
 const emit = defineEmits<{
   'update:modelValue': [val: boolean]
+  'refresh-customer-info': []
 }>()
 
 const visible = ref(props.modelValue)
@@ -547,6 +575,22 @@ const {
   getCustomerId: () => props.customerId,
 })
 
+const {
+  pendingAttachments: crisisPendingAttachments,
+  uploadingAttachment: crisisUploadingAttachment,
+  addAndUploadFile: addCrisisFile,
+  removeAttachment: removeCrisisAttachment,
+  waitForUploads: waitForCrisisUploads,
+} = useAiFileUpload({
+  loading,
+  uploadAttachmentDirect,
+  getCustomerId: () => props.customerId,
+})
+
+const openCrisisAttachmentPreview = (att: AiAttachment) => {
+  openAttachmentPreview(att)
+}
+
 const { renameSession, togglePin, deleteSession } = useAiSessionAdmin()
 
 const messageListRef = ref<InstanceType<typeof AiCoachMessageList>>()
@@ -588,6 +632,8 @@ const onDrop = async (e: DragEvent) => {
   }
 }
 const selectedIndices = ref<Set<number>>(new Set())
+const crisisDialogVisible = ref(false)
+const crisisConfirming = ref(false)
 
 const setMobileTab = (tab: 'history' | 'context' | 'notes') => {
   if (sidebarTab.value === tab) {
@@ -833,6 +879,8 @@ watch(visible, (v) => {
   if (!v) {
     selectMode.value = false
     selectedIndices.value = new Set()
+    crisisDialogVisible.value = false
+    clearCrisisAttachments()
   }
   if (v && props.customerId && !configLoaded.value) {
     loadAiConfig(props.customerId)
@@ -846,6 +894,12 @@ watch(visible, (v) => {
   if (v) {
     visibleDataGaps.value = props.dataGaps.slice()
     startAutoDismiss()
+  }
+})
+
+watch(crisisDialogVisible, (v) => {
+  if (!v && !crisisConfirming.value && crisisPendingAttachments.value.length) {
+    clearCrisisAttachments()
   }
 })
 
@@ -929,7 +983,12 @@ const onRetryLast = async () => {
   forceScrollBottom()
 }
 
-const askQuick = async (prompt: string) => {
+const askQuick = async (item: string | { key?: string; text: string }) => {
+  if (typeof item !== 'string' && item.key === 'crisis_conversion') {
+    openCrisisDialog()
+    return
+  }
+  const prompt = typeof item === 'string' ? item : item.text
   if (!props.customerId) return
   if (cacheSendBlocked.value) {
     ElMessage.warning('客户档案正在准备，稍后再问')
@@ -942,6 +1001,62 @@ const askQuick = async (prompt: string) => {
   })
   await nextTick()
   forceScrollBottom()
+}
+
+const openCrisisDialog = () => {
+  if (!props.customerId) return
+  if (cacheSendBlocked.value) {
+    ElMessage.warning('客户档案正在准备，稍后再问')
+    return
+  }
+  crisisDialogVisible.value = true
+}
+
+const clearCrisisAttachments = () => {
+  for (let i = crisisPendingAttachments.value.length - 1; i >= 0; i--) {
+    removeCrisisAttachment(i)
+  }
+}
+
+const sendCrisisPrompt = async (extraInfo: string) => {
+  if (!props.customerId || crisisConfirming.value) return
+  if (cacheSendBlocked.value) {
+    ElMessage.warning('客户档案正在准备，稍后再问')
+    return
+  }
+  crisisConfirming.value = true
+  try {
+    if (crisisUploadingAttachment.value) {
+      const ok = await waitForCrisisUploads(3000)
+      if (!ok) {
+        const uploading = crisisPendingAttachments.value.filter(a => a.uploading)
+        if (uploading.length === crisisPendingAttachments.value.length) {
+          ElMessage.info('附件尚未上传完成，请稍后再生成')
+          return
+        }
+        crisisPendingAttachments.value = crisisPendingAttachments.value.filter(a => !a.uploading)
+        ElMessage.info('部分附件尚未上传完成，已跳过')
+      }
+    }
+    visibleDataGaps.value = []
+    const readyAttachments = crisisPendingAttachments.value.filter(a => !a.uploading)
+    const attachmentIds = readyAttachments
+      .map(a => a.attachment_id)
+      .filter((id): id is string => typeof id === 'string' && !id.startsWith('temp_'))
+    const attachments = [...readyAttachments]
+    crisisPendingAttachments.value = []
+    crisisDialogVisible.value = false
+    await sendChat(props.customerId, buildCrisisConversionPrompt(extraInfo), {
+      entryScene: 'quick_prompt',
+      healthWindowDays: props.healthWindowDays,
+      attachmentIds,
+      attachments,
+    })
+    await nextTick()
+    forceScrollBottom()
+  } finally {
+    crisisConfirming.value = false
+  }
 }
 
 const dismissDataGap = (gap: string) => {
