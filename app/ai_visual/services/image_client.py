@@ -56,7 +56,7 @@ def _build_client(*, http2: bool) -> httpx.AsyncClient:
         write=30,
         pool=10,
     )
-    return httpx.AsyncClient(timeout=timeout, http2=http2)
+    return httpx.AsyncClient(timeout=timeout, http2=http2, trust_env=False)
 
 
 def _image_http2_enabled() -> bool:

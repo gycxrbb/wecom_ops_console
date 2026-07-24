@@ -73,7 +73,7 @@ class Settings(BaseSettings):
     qiniu_signed_url_expire_seconds: int = 3600
     default_timezone: str = 'Asia/Shanghai'
     ai_api_key: str = ''
-    ai_base_url: str = 'https://aihubmix.com/v1'
+    ai_base_url: str = 'https://api.inferera.com/v1'
     ai_model: str = 'gpt-4o-mini'
     ai_provider: str = 'aihubmix'                  # 'aihubmix' | 'deepseek'
     ai_available_models: str = 'deepseek-v4-pro,gpt-5.5,gpt-5.4,gpt-4o-mini,deepseek-v4-flash,deepseek-v3.2-fast,claude-opus-4-7,kimi-k2.6,glm-5.1,gemini-3.1-pro-preview,xiaomi-mimo-v2.5,doubao-seed-2-0-pro'
@@ -99,7 +99,7 @@ class Settings(BaseSettings):
     crm_profile_enabled: bool = False
     ai_coach_enabled: bool = False
     # Vision analysis (GPT-4o-mini on aihubmix)
-    vision_model: str = 'gemini-2.0-flash'
+    vision_model: str = 'gemini-2.5-flash'
     vision_fallback_model: str = 'gpt-4o'
     vision_fallback_model_2: str = 'claude-sonnet-4-6'
     vision_max_image_size_mb: int = 10
@@ -138,7 +138,7 @@ class Settings(BaseSettings):
     qdrant_port: int = 6333
     qdrant_local_path: str = "data/qdrant"
     qdrant_collection: str = "wecom_health_rag"
-    rag_embedding_base_url: str = "https://aihubmix.com/v1"
+    rag_embedding_base_url: str = "https://api.inferera.com/v1"
     rag_embedding_api_key: str = ""
     rag_embedding_model: str = "text-embedding-3-large"
     rag_embedding_dimension: int = 1024

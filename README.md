@@ -200,7 +200,7 @@ CRM_PROFILE_ENABLED=true
 AI_COACH_ENABLED=true
 AI_PROVIDER=aihubmix            # 或 deepseek
 AI_API_KEY=your-key
-AI_BASE_URL=https://aihubmix.com/v1
+AI_BASE_URL=https://api.inferera.com/v1
 AI_MODEL=gpt-4o-mini
 ```
 

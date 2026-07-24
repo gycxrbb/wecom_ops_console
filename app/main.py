@@ -117,7 +117,7 @@ async def _ai_warmup():
         if settings.ai_provider == 'deepseek' and settings.deepseek_api_key:
             url = settings.deepseek_base_url
         else:
-            url = settings.ai_base_url or 'https://aihubmix.com/v1'
+            url = settings.ai_base_url or 'https://api.inferera.com/v1'
         await client.head(url, timeout=3.0)
         _log.info('AI client warmup done')
     except Exception:
