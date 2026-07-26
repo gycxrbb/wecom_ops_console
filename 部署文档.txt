@@ -12,6 +12,8 @@ docker compose -f docker-compose.prod.yml build
 docker compose -f docker-compose.prod.yml up -d
 docker logs --tail 50 wecom-ops-console
 
+docker logs -f --tail 50 wecom-ops-console  # 实时更新日志
+
 # 网络修复
 git config --global http.sslVerify false
 git config --global https.sslVerify false
