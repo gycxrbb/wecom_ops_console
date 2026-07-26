@@ -223,7 +223,9 @@ class QiniuStorageProvider(StorageProvider):
         last_exc: Exception | None = None
         for attempt in range(_max_retries + 1):
             try:
-                return httpx.post(upload_host, data=data, files=files, timeout=300)
+                # trust_env=False：忽略系统/环境代理（见 memory #142/#145），直连七牛避免 MITM SSL 失败
+                with httpx.Client(trust_env=False, timeout=300) as client:
+                    return client.post(upload_host, data=data, files=files)
             except (httpx.ConnectError, httpx.ReadTimeout, httpx.RemoteProtocolError, httpx.WriteTimeout) as e:
                 last_exc = e
             except httpx.HTTPStatusError as e:
@@ -248,7 +250,8 @@ class QiniuStorageProvider(StorageProvider):
         entry = _b64_encode(f"{self.config.bucket}:{handle.object_key}".encode('utf-8'))
         url = f"https://rs.qiniuapi.com/delete/{entry}"
         token = self._auth_token(url)
-        resp = httpx.post(url, headers={'Authorization': f'QBox {token}'}, timeout=30)
+        with httpx.Client(trust_env=False, timeout=30) as client:
+            resp = client.post(url, headers={'Authorization': f'QBox {token}'})
         if resp.status_code == 612:
             return
         resp.raise_for_status()
@@ -268,7 +271,8 @@ class QiniuStorageProvider(StorageProvider):
         last_exc = None
         for attempt in range(max_retries + 1):
             try:
-                resp = httpx.get(url, timeout=90)
+                with httpx.Client(trust_env=False, timeout=90) as client:
+                    resp = client.get(url)
                 resp.raise_for_status()
                 return resp.content
             except httpx.HTTPStatusError as e:
