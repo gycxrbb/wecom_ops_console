@@ -167,6 +167,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('#/views/AiAudit/index.vue'),
         meta: { requiresAuth: true, title: 'AI 调用审计', icon: 'Monitor', group: '系统设置', order: 85, role: 'admin' },
       },
+      {
+        path: 'image-gen-admin',
+        name: 'ImageGenAdmin',
+        component: () => import('#/views/ImageGenAdmin/index.vue'),
+        meta: { requiresAuth: true, title: '图片生成管理', icon: 'PictureFilled', group: '系统设置', order: 86, role: 'admin' },
+      },
 
       {
         path: 'profile',

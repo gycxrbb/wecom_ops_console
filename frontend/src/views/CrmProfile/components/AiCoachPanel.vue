@@ -40,6 +40,10 @@
               <span class="ai-sidebar-menu-text">客户配置</span>
               <span v-if="noteHasContent && !sidebarExpanded" class="ai-sidebar-dot ai-sidebar-dot--green" />
             </div>
+            <div class="ai-sidebar-menu-item" :class="{ 'is-active': sidebarTab === 'image-gen' }" @click="sidebarTab = 'image-gen'" title="图片生成">
+              <el-icon class="ai-sidebar-icon" :size="18"><Picture /></el-icon>
+              <span class="ai-sidebar-menu-text">图片生成</span>
+            </div>
           </div>
 
           <div class="ai-sidebar-toggle" @click="sidebarExpanded = !sidebarExpanded" :title="sidebarExpanded ? '收起侧边栏' : '展开侧边栏'">
@@ -52,7 +56,7 @@
 
         <!-- Sidebar panel (slides out) -->
         <transition name="ai-sidebar-slide">
-          <div v-if="sidebarTab !== null" class="ai-sidebar-panel" :key="sidebarTab">
+          <div v-if="sidebarTab !== null && sidebarTab !== 'image-gen'" class="ai-sidebar-panel" :key="sidebarTab">
             <div class="ai-sidebar-panel__header">
               <span class="ai-sidebar-panel__title">
                 {{ sidebarTab === 'history' ? '历史对话' : (sidebarTab === 'context' ? '已加载参考信息' : '客户专属配置') }}
@@ -190,6 +194,17 @@
 
         <!-- Main chat area -->
         <div class="ai-main" @dragenter.prevent="onDragEnter" @dragover.prevent @dragleave="onDragLeave" @drop.prevent="onDrop">
+          <!-- 图片生成（覆盖主聊天区，承载 gpt_image_playground iframe） -->
+          <div v-if="sidebarTab === 'image-gen'" class="ai-image-gen-overlay">
+            <div class="ai-image-gen-overlay__header">
+              <span class="ai-image-gen-overlay__title">
+                <el-icon :size="16"><Picture /></el-icon>
+                图片生成
+              </span>
+              <el-button text circle size="small" @click="sidebarTab = null" title="返回对话"><el-icon><Close /></el-icon></el-button>
+            </div>
+            <iframe v-if="imageGenSrc" :src="imageGenSrc" class="ai-image-gen-iframe" frameborder="0" allow="clipboard-write" />
+          </div>
           <!-- Drop zone overlay -->
           <transition name="ai-drop-fade">
             <div v-if="isDragging" class="ai-drop-zone">
@@ -237,6 +252,10 @@
               <div class="ai-mobile-tab-item" :class="{ 'is-active': sidebarTab === 'notes' }" @click="setMobileTab('notes')">
                 <el-icon :size="16"><Setting /></el-icon>
                 <span>配置</span>
+              </div>
+              <div class="ai-mobile-tab-item" :class="{ 'is-active': sidebarTab === 'image-gen' }" @click="setMobileTab('image-gen')">
+                <el-icon :size="16"><Picture /></el-icon>
+                <span>生图</span>
               </div>
             </div>
           </transition>
@@ -435,6 +454,7 @@ import {
   Upload,
   VideoPause,
   Refresh,
+  Picture,
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '#/stores/user'
@@ -612,7 +632,33 @@ const messageListRef = ref<InstanceType<typeof AiCoachMessageList>>()
 type AssistantMsg = Extract<AiChatMessage, { role: 'assistant' }>
 const exportPreviewVisible = ref(false)
 const exportPreviewMessage = ref<AssistantMsg | null>(null)
-const sidebarTab = ref<'history' | 'context' | 'notes' | null>(null)
+const sidebarTab = ref<'history' | 'context' | 'notes' | 'image-gen' | null>(null)
+
+// 图片生成 playground（gpt_image_playground，iframe 同源嵌入），走后端代理。
+// iframe 里 session cookie 投递不可靠，故父页先向后端 /v1/image-gen/token 拿短期 access token 作 apiKey，
+// playground 以 Bearer 发回，get_current_user 解码鉴权。token 未就绪前不渲染 iframe。
+const imageGenToken = ref('')
+const imageGenSrc = computed(() => {
+  if (typeof window === 'undefined' || !imageGenToken.value) return ''
+  const origin = window.location.origin
+  const params = new URLSearchParams({
+    apiUrl: `${origin}/api/image-gen/v1`,
+    apiKey: imageGenToken.value,
+    model: 'gpt-image-2',        // 画廊直出 /images/generations 用
+    agentModel: 'gpt-4o-mini',   // agent /responses 用推理模型（调 tool + image_generation）
+    apiMode: 'images',
+  })
+  if (props.customerId) params.set('cid', String(props.customerId))
+  return `/image-gen/index.html?${params.toString()}`
+})
+watch(() => sidebarTab.value, async (tab) => {
+  if (tab === 'image-gen' && !imageGenToken.value) {
+    try {
+      const res: any = await request.get('/v1/image-gen/token')
+      if (res?.token) imageGenToken.value = res.token
+    } catch { /* token 获取失败则不渲染 iframe */ }
+  }
+})
 const sidebarExpanded = ref(true)
 let sidebarHoverTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -653,7 +699,7 @@ const selectedIndices = ref<Set<number>>(new Set())
 const crisisDialogVisible = ref(false)
 const crisisConfirming = ref(false)
 
-const setMobileTab = (tab: 'history' | 'context' | 'notes') => {
+const setMobileTab = (tab: 'history' | 'context' | 'notes' | 'image-gen') => {
   if (sidebarTab.value === tab) {
     sidebarTab.value = null
   } else {
@@ -1295,4 +1341,11 @@ const onDeleteSession = async (targetSessionId: string) => {
 
 <style>
 @import './styles/aiCoachPanel.css';
+
+/* 图片生成 overlay（覆盖主聊天区，承载 gpt_image_playground iframe） */
+.ai-main { position: relative; }
+.ai-image-gen-overlay { position: absolute; inset: 0; z-index: 60; display: flex; flex-direction: column; background: var(--el-bg-color, #fff); }
+.ai-image-gen-overlay__header { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-bottom: 1px solid var(--el-border-color-light, #ebeef5); flex: 0 0 auto; }
+.ai-image-gen-overlay__title { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; }
+.ai-image-gen-iframe { flex: 1 1 auto; width: 100%; border: 0; background: #fff; }
 </style>
