@@ -131,6 +131,9 @@ class Settings(BaseSettings):
     ai_visual_prompt_model: str = "gpt-4o-mini"          # LLM 生成生图提示词的模型
     ai_visual_prompt_timeout_seconds: int = 60           # 提示词生成超时（system prompt + RAG 内容较大）
 
+    # 图片生成模块 (gpt_image_playground 集成：独立供应商配置 + failover + 生图历史 + 审计)
+    image_gen_enabled: bool = False
+
     # RAG
     rag_enabled: bool = False
     qdrant_mode: str = "local"  # "local" = 本地文件, "remote" = 远程服务器
