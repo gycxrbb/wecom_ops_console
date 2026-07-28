@@ -26,6 +26,8 @@ eggs/
 lib/
 !frontend/src/lib/
 !frontend/src/lib/**
+!third_party/gpt_image_playground/src/lib/
+!third_party/gpt_image_playground/src/lib/**
 lib64/
 parts/
 sdist/
