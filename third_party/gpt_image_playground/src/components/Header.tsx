@@ -162,7 +162,7 @@ export default function Header() {
                 src="https://cdn.mengfugui.com/qiwei/2026/07/28/pasted-20260728-140302-pixian-ai-52b14dfc6f8346aa.png"
                 onError={(e) => { const t = e.target as HTMLImageElement; t.onerror = null; t.src = '/image-gen/logo.png' }}
                 alt=""
-                className="w-6 h-6 rounded-md object-cover"
+                className="w-[43px] h-[43px] rounded-lg object-cover"
               />
               {showFavoriteCollectionTitle ? (
                 <>

@@ -437,7 +437,13 @@ export default function InputBar() {
     ? maskDraft ? '遮罩编辑' : '生成图像'
     : '请先配置 API'
   const submitTooltipText = activeAgentIsRunning ? '停止生成' : '尚未完成 API 配置，请在右上角设置中进行'
-  const promptPlaceholder = '描述你想生成的图片，可输入 @ 来指定参考图...'
+  const [promptPlaceholder] = useState(() => {
+    const hints = [
+      '描述想生成的图（可直接粘贴图片，或点 ＋ 上传参考图）',
+      '想引用之前的图？输入 @ 来选择',
+    ]
+    return hints[Math.floor(Math.random() * hints.length)]
+  })
   const submitCurrentMode = useCallback(() => {
     if (appMode === 'agent') {
       void submitAgentMessage()
@@ -492,7 +498,7 @@ export default function InputBar() {
         { label: 'high', value: 'high' },
       ]
   const atImageLimit = inputImages.length >= API_MAX_IMAGES
-  const uploadImageTooltipText = atImageLimit ? `参考图数量已达上限（${API_MAX_IMAGES} 张），无法继续添加` : '上传图片'
+  const uploadImageTooltipText = atImageLimit ? `参考图数量已达上限（${API_MAX_IMAGES} 张），无法继续添加` : '上传参考图（也可直接 Ctrl+V 粘贴到输入框）'
   const transparentOutputHint = useHintTooltip()
   const handleTransparentOutputMenuOpenChange = useCallback((open: boolean) => {
     if (open) transparentOutputHint.hide()
@@ -547,6 +553,13 @@ export default function InputBar() {
       ]
     : []
   const showAtImageMenu = !atImageMenuDismissed && atImageOptions.length > 0
+  // getAtImageQuery 在图片为 0 时直接返回 null（L50），空状态提示要自己判光标是否在 @ 位置
+  const beforeCursorText = visiblePrompt.slice(0, cursorPosition)
+  const lastAtIndex = beforeCursorText.lastIndexOf('@')
+  const atTriggered = lastAtIndex >= 0
+    && !isCursorInSelectedImageMention(prompt, cursorPosition)
+    && !/\s/.test(beforeCursorText.slice(lastAtIndex + 1))
+  const showAtImageEmptyHint = !atImageMenuDismissed && atTriggered && atImageSourceCount === 0
 
 
 
@@ -1653,6 +1666,11 @@ export default function InputBar() {
                     </button>
                   ))}
                 </div>
+              </div>
+            )}
+            {showAtImageEmptyHint && (
+              <div style={{ left: `${menuLeft}px` }} className="absolute bottom-full z-50 mb-2 w-64 overflow-hidden rounded-2xl border border-gray-200/70 bg-white/95 p-2 shadow-xl ring-1 ring-black/5 backdrop-blur-xl dark:border-white/[0.08] dark:bg-gray-900/95 dark:ring-white/10">
+                <div className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">还没有可引用的图。先点旁边的 <span className="font-medium text-gray-700 dark:text-gray-200">＋加号</span> 上传一张，或先生成一轮图，再用 @ 引用。</div>
               </div>
             )}
             <div
