@@ -27,6 +27,9 @@ class ImageGenProvider(Base):
     base_url: Mapped[str] = mapped_column(String(255), nullable=False, comment="根地址，不含 /v1")
     api_key_encrypted: Mapped[str] = mapped_column(Text, nullable=False, default="", comment="Fernet 密文")
     default_model: Mapped[str] = mapped_column(String(128), nullable=False, default="gpt-image-2")
+    agent_model: Mapped[Optional[str]] = mapped_column(
+        String(128), nullable=True, comment="agent /responses 推理模型；空=仅图片，不参与 agent"
+    )
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0, comment="小优先")
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=1500)

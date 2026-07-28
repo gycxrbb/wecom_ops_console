@@ -33,6 +33,7 @@ def _to_out(row) -> dict:
         "provider_kind": row.provider_kind,
         "base_url": row.base_url,
         "default_model": row.default_model,
+        "agent_model": getattr(row, "agent_model", None) or None,
         "priority": row.priority,
         "enabled": row.enabled,
         "timeout_seconds": row.timeout_seconds,

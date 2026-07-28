@@ -10,6 +10,7 @@ class ProviderCreate(BaseModel):
     base_url: str = Field(..., max_length=255)
     api_key: str = Field(..., min_length=1)
     default_model: str = Field("gpt-image-2", max_length=128)
+    agent_model: str | None = Field(None, max_length=128)
     priority: int = 0
     enabled: bool = True
     timeout_seconds: int = 1500
@@ -23,6 +24,7 @@ class ProviderUpdate(BaseModel):
     base_url: str | None = Field(None, max_length=255)
     api_key: str | None = None  # None = 不修改；非空 = 覆盖
     default_model: str | None = Field(None, max_length=128)
+    agent_model: str | None = Field(None, max_length=128)  # None=不改；""=清空（仅图片）；串=设
     priority: int | None = None
     enabled: bool | None = None
     timeout_seconds: int | None = None
@@ -36,6 +38,7 @@ class ProviderOut(BaseModel):
     provider_kind: str
     base_url: str
     default_model: str
+    agent_model: str | None
     priority: int
     enabled: bool
     timeout_seconds: int

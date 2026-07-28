@@ -36,6 +36,7 @@ class ProviderConfig:
     timeout_seconds: int
     max_retries: int
     priority: int
+    agent_model: str | None = None  # 配了才参与 agent /responses（用此推理模型）；None=仅图片
 
 
 class NoProviderConfigured(Exception):
@@ -53,6 +54,7 @@ def _row_to_config(row: ImageGenProvider) -> ProviderConfig:
         timeout_seconds=row.timeout_seconds or 1500,
         max_retries=row.max_retries if (row.max_retries or 0) > 0 else 2,
         priority=row.priority or 0,
+        agent_model=(row.agent_model or None) if hasattr(row, "agent_model") else None,
     )
 
 

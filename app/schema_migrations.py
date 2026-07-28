@@ -539,6 +539,21 @@ def _ensure_crm_ai_phase2_columns(engine: Engine) -> None:
                 conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_spec}"))
 
 
+def ensure_image_gen_agent_model_column(engine: Engine) -> None:
+    """image_gen_providers 加 agent_model 列（agent /responses 推理模型；空=仅图片，不参与 agent）。
+
+    表由 Base.metadata.create_all 创建（image_gen_enabled 时）；本函数给已存在的表补列。
+    """
+    inspector = inspect(engine)
+    if "image_gen_providers" not in inspector.get_table_names():
+        return
+    existing = {c["name"] for c in inspector.get_columns("image_gen_providers")}
+    if "agent_model" in existing:
+        return
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE image_gen_providers ADD COLUMN agent_model VARCHAR(128)"))
+
+
 def ensure_external_docs_schema(engine: Engine) -> None:
     """确保 external_doc_* 系列索引存在。表由 Base.metadata.create_all 创建。"""
     inspector = inspect(engine)

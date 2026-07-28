@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import json
 import logging
 from typing import AsyncIterator, Tuple
 
@@ -45,17 +46,31 @@ async def stream_responses(
     providers: list[ProviderConfig],
     body_bytes: bytes,
 ) -> Tuple[AsyncIterator[bytes] | None, JSONResponse | None]:
-    """遍历 providers，返回 (SSE 字节生成器, None) 或 (None, 错误响应)。"""
+    """遍历 providers，返回 (SSE 字节生成器, None) 或 (None, 错误响应)。
+
+    若 provider 配了 agent_model，把请求体的 model 覆盖为该推理模型（agent /responses 需要
+    推理模型，而图片供应商的 default_model 可能是 image 模型）。
+    """
+    body_obj = None
+    try:
+        body_obj = json.loads(body_bytes)
+    except Exception:
+        body_obj = None
+
     last_error: Exception | Tuple[int, bytes] | None = None
 
     for provider in providers:
+        if body_obj is not None and getattr(provider, "agent_model", None):
+            send_bytes = json.dumps({**body_obj, "model": provider.agent_model}, ensure_ascii=False).encode("utf-8")
+        else:
+            send_bytes = body_bytes
         url = f"{provider.base_url.rstrip('/')}/v1/responses"
         headers = {"Authorization": f"Bearer {provider.api_key}", "Content-Type": "application/json"}
         timeout = httpx.Timeout(connect=20, read=provider.timeout_seconds, write=30, pool=10)
         # trust_env=False：不走系统代理（见 memory #142/#145）
         client = httpx.AsyncClient(timeout=timeout, trust_env=False)
         try:
-            req = client.build_request("POST", url, headers=headers, content=body_bytes)
+            req = client.build_request("POST", url, headers=headers, content=send_bytes)
             resp = await client.send(req, stream=True)
         except _FAILABILITY_TRANSPORT as exc:
             await client.aclose()

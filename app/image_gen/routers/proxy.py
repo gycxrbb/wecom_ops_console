@@ -15,7 +15,7 @@ from app.database import SessionLocal
 from app.security import get_current_user
 
 from ..schemas.proxy import ImageGenerationRequest
-from ..services.direct_orchestrator import orchestrate_direct
+from ..services.direct_orchestrator import orchestrate_direct, orchestrate_edit
 from ..services.image_client import ImageGenerationError
 from ..services.provider_chain import NoProviderConfigured, load_providers
 from ..services.responses_proxy import stream_responses
@@ -73,21 +73,89 @@ async def generate_images(
     }
 
 
-@router.post("/responses")
-async def responses_proxy(request: Request):
-    """agent 模式 Responses API 透传。请求体原样转发到上游 /v1/responses，SSE 流原样回传；
-    首字节前按 provider 优先级 failover。历史由前端调 /history/callback 回调写（透传代理本身不落历史）。"""
+@router.post("/images/edits")
+async def images_edit(request: Request):
+    """参考图编辑代理（OpenAI 兼容 /images/edits）。multipart：image[] + prompt + model + size + n + 可选 mask。
+    后端编排：解析 multipart → /images/edits → 存七牛 → 记历史(mode=edit) → 审计，不阻塞事件循环。"""
     db = SessionLocal()
     try:
-        get_current_user(request, db)
+        user = get_current_user(request, db)
         providers = load_providers(db)
     finally:
         db.close()
     if not providers:
         return _openai_error("no_provider", "未配置可用的生图供应商，请联系管理员", status=503)
 
+    customer_id = _extract_customer_id(request)
+    form = await request.form()
+    prompt = (form.get("prompt") or "").strip() or "(image edit)"
+    model = form.get("model") or None
+    size = form.get("size") or "1024x1024"
+    n_raw = form.get("n")
+    n = int(n_raw) if (n_raw and str(n_raw).isdigit()) else 1
+
+    images: list[tuple[str, bytes, str]] = []
+    for key in ("image", "image[]"):
+        for v in form.getlist(key):
+            if hasattr(v, "read"):  # UploadFile
+                images.append((v.filename or "ref.png", await v.read(), v.content_type or "image/png"))
+    mask_field = form.get("mask")
+    mask: tuple[str, bytes, str] | None = None
+    if mask_field and hasattr(mask_field, "read"):
+        mask = (mask_field.filename or "mask.png", await mask_field.read(), mask_field.content_type or "image/png")
+
+    if not images:
+        return _openai_error("no_image", "参考图生图需要至少上传一张图片", status=400)
+
+    try:
+        result = await orchestrate_edit(
+            operator_user_id=user.id,
+            customer_id=customer_id,
+            prompt=prompt,
+            providers=providers,
+            images=images,
+            model=model,
+            size=size,
+            n=n,
+            mask=mask,
+        )
+    except NoProviderConfigured:
+        return _openai_error("no_provider", "未配置可用的生图供应商，请联系管理员", status=503)
+    except ImageGenerationError as exc:
+        return _openai_error(exc.error_code, str(exc), status=_status_for_code(exc.error_code))
+
+    b64 = base64.b64encode(result.image_bytes).decode("ascii")
+    return {
+        "created": int(time.time()),
+        "data": [{"b64_json": b64, "url": result.public_url, "record_id": result.record_id}],
+        "record_id": result.record_id,
+    }
+
+
+@router.post("/responses")
+async def responses_proxy(request: Request):
+    """agent 模式 Responses API 透传。只用配了 agent_model 的供应商（推理模型），按优先级 failover；
+    请求体的 model 会被覆盖为该供应商的 agent_model。历史由前端 /history/callback 回调写。
+
+    图片供应商（如纯图站的 dmxcode）不配 agent_model → 不参与 agent；管理员需另配一个
+    支持对话的 key 并填 agent 推理模型。
+    """
+    db = SessionLocal()
+    try:
+        get_current_user(request, db)
+        providers = load_providers(db)
+    finally:
+        db.close()
+    agents = [p for p in providers if p.agent_model]
+    if not agents:
+        return _openai_error(
+            "no_agent_provider",
+            "没有配置 agent 推理模型——请在「图片生成管理」给某个供应商填写 agent 推理模型（如 gpt-4o-mini）",
+            status=503,
+        )
+
     body_bytes = await request.body()
-    gen, err = await stream_responses(providers, body_bytes)
+    gen, err = await stream_responses(agents, body_bytes)
     if err is not None:
         return err
     return StreamingResponse(
