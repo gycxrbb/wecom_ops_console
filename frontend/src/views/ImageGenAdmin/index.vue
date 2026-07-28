@@ -5,6 +5,9 @@
         <h1 class="page-title">图片生成管理</h1>
         <p class="page-desc">配置生图供应商（多套按 priority 自动 failover，api_key 加密存储不下发）；查看生图历史与审计。生图入口在「客户档案 → AI 教练 → 图片生成」。</p>
       </div>
+      <el-button type="primary" @click="openPlaygroundSettings">
+        <el-icon><Setting /></el-icon> playground 设置
+      </el-button>
     </div>
 
     <el-card shadow="never" class="table-card">
@@ -21,6 +24,12 @@
             <el-table-column prop="provider_kind" label="类型" width="150" />
             <el-table-column prop="base_url" label="根地址" show-overflow-tooltip />
             <el-table-column prop="default_model" label="默认模型" width="140" />
+            <el-table-column label="agent 模型" width="140">
+              <template #default="scope">
+                <el-tag v-if="scope.row.agent_model" type="warning" size="small">{{ scope.row.agent_model }}</el-tag>
+                <span v-else style="color: var(--text-muted)">—</span>
+              </template>
+            </el-table-column>
             <el-table-column label="API Key" width="160">
               <template #default="scope">{{ scope.row.api_key_masked || '—' }}</template>
             </el-table-column>
@@ -97,6 +106,9 @@
           <el-input v-model="providerForm.api_key" type="password" show-password :placeholder="editingProvider?.id ? '留空则不修改' : '必填'" />
         </el-form-item>
         <el-form-item label="默认模型" prop="default_model"><el-input v-model="providerForm.default_model" placeholder="gpt-image-2" /></el-form-item>
+        <el-form-item label="agent 推理模型">
+          <el-input v-model="providerForm.agent_model" placeholder="留空=仅图片；填则该供应商可跑 agent（如 gpt-4o-mini）" />
+        </el-form-item>
         <el-form-item label="优先级"><el-input-number v-model="providerForm.priority" :min="0" :max="999" /></el-form-item>
         <el-form-item label="超时(秒)"><el-input-number v-model="providerForm.timeout_seconds" :min="30" :max="3600" :step="30" /></el-form-item>
         <el-form-item label="重试次数"><el-input-number v-model="providerForm.max_retries" :min="0" :max="5" /></el-form-item>
@@ -112,11 +124,25 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { Plus } from '@element-plus/icons-vue'
+import { Plus, Setting } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '#/utils/request'
 
 const activeTab = ref('providers')
+
+// 打开 playground 的设置弹窗（新标签页，同源 session cookie 鉴权；openSettings 参数触发自动弹设置）
+function openPlaygroundSettings() {
+  const origin = window.location.origin
+  const params = new URLSearchParams({
+    apiUrl: `${origin}/api/image-gen/v1`,
+    apiKey: 'PLACEHOLDER',
+    model: 'gpt-image-2',
+    apiMode: 'images',
+    embedMode: 'true',
+    openSettings: 'true',
+  })
+  window.open(`/image-gen/index.html?${params.toString()}`, '_blank')
+}
 
 // ── 供应商配置 ──
 const providers = ref<any[]>([])
@@ -134,7 +160,7 @@ const providerRules = {
 function emptyProviderForm() {
   return {
     name: '', provider_kind: 'openai_compatible', base_url: '', api_key: '',
-    default_model: 'gpt-image-2', priority: 0, enabled: true, timeout_seconds: 1500, max_retries: 2,
+    default_model: 'gpt-image-2', agent_model: '', priority: 0, enabled: true, timeout_seconds: 1500, max_retries: 2,
   }
 }
 
@@ -152,7 +178,7 @@ function openProviderDialog(row: any) {
   editingProvider.value = row
   providerForm.value = row
     ? { name: row.name, provider_kind: row.provider_kind, base_url: row.base_url, api_key: '',
-        default_model: row.default_model, priority: row.priority, enabled: row.enabled,
+        default_model: row.default_model, agent_model: row.agent_model || '', priority: row.priority, enabled: row.enabled,
         timeout_seconds: row.timeout_seconds, max_retries: row.max_retries }
     : emptyProviderForm()
   providerDialogVisible.value = true

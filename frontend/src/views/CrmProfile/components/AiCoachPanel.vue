@@ -40,7 +40,7 @@
               <span class="ai-sidebar-menu-text">客户配置</span>
               <span v-if="noteHasContent && !sidebarExpanded" class="ai-sidebar-dot ai-sidebar-dot--green" />
             </div>
-            <div class="ai-sidebar-menu-item" :class="{ 'is-active': sidebarTab === 'image-gen' }" @click="sidebarTab = 'image-gen'" title="图片生成">
+            <div class="ai-sidebar-menu-item" :class="{ 'is-active': sidebarTab === 'image-gen' }" @click="sidebarTab = 'image-gen'" @mouseenter="imageGenWarmup = true" title="图片生成">
               <el-icon class="ai-sidebar-icon" :size="18"><Picture /></el-icon>
               <span class="ai-sidebar-menu-text">图片生成</span>
             </div>
@@ -194,16 +194,15 @@
 
         <!-- Main chat area -->
         <div class="ai-main" @dragenter.prevent="onDragEnter" @dragover.prevent @dragleave="onDragLeave" @drop.prevent="onDrop">
+          <!-- 预热：悬停「图片生成」菜单项时才静默加载 playground（省流量），首次点击时资源已缓存、秒开 -->
+          <iframe v-if="imageGenWarmup" src="/image-gen/index.html" class="ai-image-gen-warmup" aria-hidden="true" tabindex="-1" title="warmup" />
           <!-- 图片生成（覆盖主聊天区，承载 gpt_image_playground iframe） -->
-          <div v-if="sidebarTab === 'image-gen'" class="ai-image-gen-overlay">
-            <div class="ai-image-gen-overlay__header">
-              <span class="ai-image-gen-overlay__title">
-                <el-icon :size="16"><Picture /></el-icon>
-                图片生成
-              </span>
-              <el-button text circle size="small" @click="sidebarTab = null" title="返回对话"><el-icon><Close /></el-icon></el-button>
+          <div v-if="sidebarTab === 'image-gen'" class="ai-image-gen-overlay" :class="{ 'is-fullscreen': imageGenFullscreen }">
+            <div v-if="imageGenSrc && !imageGenLoaded" class="ai-image-gen-loading">
+              <el-icon class="is-loading" :size="26"><Loading /></el-icon>
+              <span>正在加载生图工作台…</span>
             </div>
-            <iframe v-if="imageGenSrc" :src="imageGenSrc" class="ai-image-gen-iframe" frameborder="0" allow="clipboard-write" />
+            <iframe v-if="imageGenSrc" :src="imageGenSrc" class="ai-image-gen-iframe" frameborder="0" allow="clipboard-write" @load="imageGenLoaded = true" />
           </div>
           <!-- Drop zone overlay -->
           <transition name="ai-drop-fade">
@@ -432,7 +431,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, nextTick, watch, onBeforeUnmount } from 'vue'
+import { computed, reactive, ref, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   Clock,
@@ -638,27 +637,42 @@ const sidebarTab = ref<'history' | 'context' | 'notes' | 'image-gen' | null>(nul
 // iframe 里 session cookie 投递不可靠，故父页先向后端 /v1/image-gen/token 拿短期 access token 作 apiKey，
 // playground 以 Bearer 发回，get_current_user 解码鉴权。token 未就绪前不渲染 iframe。
 const imageGenToken = ref('')
+const imageGenLoaded = ref(false)
+const imageGenFullscreen = ref(false)
+const imageGenWarmup = ref(false)
 const imageGenSrc = computed(() => {
   if (typeof window === 'undefined' || !imageGenToken.value) return ''
   const origin = window.location.origin
   const params = new URLSearchParams({
     apiUrl: `${origin}/api/image-gen/v1`,
     apiKey: imageGenToken.value,
-    model: 'gpt-image-2',        // 画廊直出 /images/generations 用
-    agentModel: 'gpt-4o-mini',   // agent /responses 用推理模型（调 tool + image_generation）
+    model: 'gpt-image-2',   // 画廊直出/参考图用；agent /responses 的模型由后端用 agent_model 覆盖
     apiMode: 'images',
+    embedMode: 'true',      // 触发 playground 自动 hybrid（text/image 双生同指向代理，后端按端点路由）
   })
   if (props.customerId) params.set('cid', String(props.customerId))
   return `/image-gen/index.html?${params.toString()}`
 })
 watch(() => sidebarTab.value, async (tab) => {
-  if (tab === 'image-gen' && !imageGenToken.value) {
+  // 每次打开都重新取 token（token 2h 有效，长时间会话会过期 → /responses 401）
+  if (tab === 'image-gen') {
+    imageGenLoaded.value = false // 重置加载态，显示加载动画直到 iframe onLoad
     try {
       const res: any = await request.get('/v1/image-gen/token')
       if (res?.token) imageGenToken.value = res.token
     } catch { /* token 获取失败则不渲染 iframe */ }
   }
 })
+// 接收 playground iframe 的 postMessage：全屏/关闭按钮在嵌入的 playground 模式栏里，父页控制 overlay
+function onImageGenEmbedMessage(e: MessageEvent) {
+  if (e?.data?.type === 'image-gen-embed') {
+    if (e.data.action === 'fullscreen') imageGenFullscreen.value = !imageGenFullscreen.value
+    else if (e.data.action === 'close') sidebarTab.value = null
+  }
+}
+onMounted(() => window.addEventListener('message', onImageGenEmbedMessage))
+onBeforeUnmount(() => window.removeEventListener('message', onImageGenEmbedMessage))
+
 const sidebarExpanded = ref(true)
 let sidebarHoverTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -1348,4 +1362,8 @@ const onDeleteSession = async (targetSessionId: string) => {
 .ai-image-gen-overlay__header { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-bottom: 1px solid var(--el-border-color-light, #ebeef5); flex: 0 0 auto; }
 .ai-image-gen-overlay__title { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; }
 .ai-image-gen-iframe { flex: 1 1 auto; width: 100%; border: 0; background: #fff; }
+.ai-image-gen-overlay.is-fullscreen { position: fixed; inset: 0; z-index: 1000; }
+.ai-image-gen-overlay__actions { display: inline-flex; align-items: center; gap: 2px; }
+.ai-image-gen-loading { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--el-text-color-secondary, #909399); font-size: 14px; }
+.ai-image-gen-warmup { position: absolute; width: 1px; height: 1px; border: 0; left: -9999px; top: -9999px; visibility: hidden; pointer-events: none; }
 </style>
