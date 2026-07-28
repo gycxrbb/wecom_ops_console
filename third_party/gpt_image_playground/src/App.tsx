@@ -80,6 +80,11 @@ export default function App() {
 
     clearAppliedUrlSettings()
 
+    // 宿主：从「图片生成管理」的「playground 设置」按钮跳来时，自动打开设置弹窗
+    if (searchParams.get('openSettings') === 'true') {
+      useStore.getState().setShowSettings(true, 'agent')
+    }
+
     if (customProviderConfigUrl && !customProviderConfigUrlImportStarted) {
       customProviderConfigUrlImportStarted = true
       void loadCustomProviderSettingsFromUrl(customProviderConfigUrl)

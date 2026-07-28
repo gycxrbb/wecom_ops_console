@@ -3056,6 +3056,9 @@ async function executeAgentRound(
         onTextDelta: shouldStreamAssistantMessage
           ? (delta) => {
               if (controller.signal.aborted) return
+              // 过滤模型自吐的停止/控制符（如 gpt-5.4-mini 的 <CPA_DONE>），不显示给教练
+              if (delta) delta = delta.replace(/<[A-Z0-9_]*_DONE>/g, '')
+              if (!delta) return
               if (pendingToolTextSeparator && delta && accumulatedText.trim()) {
                 accumulatedText += '\n\n'
                 appendAgentAssistantMessageContent(conversationId, assistantMessageId, '\n\n')
