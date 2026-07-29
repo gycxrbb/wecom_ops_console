@@ -654,7 +654,7 @@ const imageGenSrc = computed(() => {
   return `/image-gen/index.html?${params.toString()}`
 })
 watch(() => sidebarTab.value, async (tab) => {
-  // 每次打开都重新取 token（token 2h 有效，长时间会话会过期 → /responses 401）
+  // 每次打开都重新取 token（token 24h 有效，长时间会话会过期 → /responses 401）
   if (tab === 'image-gen') {
     imageGenLoaded.value = false // 重置加载态，显示加载动画直到 iframe onLoad
     try {
