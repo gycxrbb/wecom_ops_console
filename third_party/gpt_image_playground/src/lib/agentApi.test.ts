@@ -61,6 +61,7 @@ describe('callAgentResponsesApi', () => {
       apiMode: 'responses',
       streamImages: true,
       streamPartialImages: 2,
+      reasoningEffort: 'xhigh',
     })
 
     const result = await callAgentResponsesApi({
@@ -74,6 +75,7 @@ describe('callAgentResponsesApi', () => {
     const [, init] = fetchMock.mock.calls[0]
     const body = JSON.parse(String((init as RequestInit).body))
     expect(body.stream).toBe(true)
+    expect(body.reasoning).toEqual({ effort: 'xhigh' })
     expect(body.tools[0].partial_images).toBe(2)
     expect(textDeltas).toEqual(['Hel', 'lo'])
     expect(result).toMatchObject({

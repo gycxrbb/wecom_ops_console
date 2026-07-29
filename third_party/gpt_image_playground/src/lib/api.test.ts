@@ -24,7 +24,13 @@ describe('callImageApi', () => {
       }))
 
       await callImageApi({
-        settings: { ...DEFAULT_SETTINGS, apiKey: 'test-key', apiMode: 'responses', codexCli },
+        settings: {
+          ...DEFAULT_SETTINGS,
+          apiKey: 'test-key',
+          apiMode: 'responses',
+          codexCli,
+          profiles: DEFAULT_SETTINGS.profiles.map((profile) => ({ ...profile, reasoningEffort: 'high' })),
+        },
         prompt: 'prompt',
         params: { ...DEFAULT_PARAMS },
         inputImageDataUrls: [],
@@ -33,6 +39,7 @@ describe('callImageApi', () => {
       const [, init] = fetchMock.mock.calls[0]
       const body = JSON.parse(String((init as RequestInit).body))
       expect(body.input).toBe('Use the following text as the complete prompt. Do not rewrite it:\nprompt')
+      expect(body.reasoning).toEqual({ effort: 'high' })
     },
   )
 

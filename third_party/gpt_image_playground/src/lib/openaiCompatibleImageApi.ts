@@ -986,6 +986,7 @@ async function callResponsesImageApiSingle(opts: CallApiOptions, profile: ApiPro
       tools: [createResponsesImageTool(params, inputImageDataUrls.length > 0, profile, opts.maskDataUrl)],
       tool_choice: 'required',
     }
+    if (profile.reasoningEffort) body.reasoning = { effort: profile.reasoningEffort }
     if (profile.streamImages) {
       body.stream = true
     }

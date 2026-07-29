@@ -636,6 +636,7 @@ export async function callAgentResponsesApi(opts: {
       input,
       tools: createAgentTools(params, profile, settings, maskDataUrl),
     }
+    if (profile.reasoningEffort) body.reasoning = { effort: profile.reasoningEffort }
     if (profile.streamImages) {
       body.stream = true
     }
@@ -698,16 +699,18 @@ export async function callAgentConversationTitleApi(opts: {
       content.push({ type: 'input_image', image_url: dataUrl })
     }
 
+    const body: Record<string, unknown> = {
+      model: profile.model || settings.model,
+      instructions: AGENT_TITLE_INSTRUCTIONS,
+      input: [{ role: 'user', content }],
+    }
+    if (profile.reasoningEffort) body.reasoning = { effort: profile.reasoningEffort }
+
     const response = await fetch(buildApiUrl(profile.baseUrl, 'responses', proxyConfig, useApiProxy), {
       method: 'POST',
       headers: createHeaders(profile),
       cache: 'no-store',
-      body: JSON.stringify({
-        model: profile.model || settings.model,
-        instructions: AGENT_TITLE_INSTRUCTIONS,
-        input: [{ role: 'user', content }],
-        max_output_tokens: 32,
-      }),
+      body: JSON.stringify(body),
       signal: controller.signal,
     })
 
@@ -810,6 +813,7 @@ export async function callBatchImageSingle(opts: {
       tools: [tool],
       tool_choice: 'required',
     }
+    if (profile.reasoningEffort) body.reasoning = { effort: profile.reasoningEffort }
     if (profile.streamImages) {
       body.stream = true
     }

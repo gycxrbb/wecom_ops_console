@@ -10,6 +10,13 @@
       </el-button>
     </div>
 
+    <el-alert v-if="upstreamRelease" class="version-alert" type="warning" :closable="false" show-icon>
+      <template #title>
+        生图组件上游有新版本 {{ upstreamRelease.tag }}（当前 v{{ CURRENT_VERSION }}）。
+        <el-link :href="upstreamRelease.url" target="_blank" type="primary" :underline="false">查看更新内容</el-link>
+      </template>
+    </el-alert>
+
     <el-card shadow="never" class="table-card">
       <el-tabs v-model="activeTab">
         <!-- 供应商配置 -->
@@ -144,6 +151,42 @@ function openPlaygroundSettings() {
   window.open(`/image-gen/index.html?${params.toString()}`, '_blank')
 }
 
+// ── 上游版本检查（仅管理员可见；网络不可达时静默失败，不影响管理页）──
+// CURRENT_VERSION 同步自 third_party/gpt_image_playground/package.json，升级 playground 后需手动同步
+const CURRENT_VERSION = '0.7.2'
+const upstreamRelease = ref<{ tag: string; url: string } | null>(null)
+
+function compareVersions(a: string, b: string) {
+  const aParts = a.split('.').map((p) => Number.parseInt(p, 10) || 0)
+  const bParts = b.split('.').map((p) => Number.parseInt(p, 10) || 0)
+  const len = Math.max(aParts.length, bParts.length)
+  for (let i = 0; i < len; i += 1) {
+    const diff = (aParts[i] ?? 0) - (bParts[i] ?? 0)
+    if (diff !== 0) return diff
+  }
+  return 0
+}
+
+async function checkUpstreamVersion() {
+  try {
+    const res = await fetch('https://api.github.com/repos/CookSleep/gpt_image_playground/releases/latest', {
+      headers: { Accept: 'application/vnd.github.v3+json' },
+    })
+    if (!res.ok) return
+    const data = await res.json()
+    const tag: string = data.tag_name ?? ''
+    const version = tag.replace(/^v/, '')
+    if (version && compareVersions(version, CURRENT_VERSION) > 0) {
+      upstreamRelease.value = {
+        tag,
+        url: data.html_url ?? 'https://github.com/CookSleep/gpt_image_playground/releases/latest',
+      }
+    }
+  } catch {
+    /* 网络不可达时静默失败 */
+  }
+}
+
 // ── 供应商配置 ──
 const providers = ref<any[]>([])
 const providersLoading = ref(false)
@@ -253,6 +296,7 @@ async function loadHistory(page?: number) {
 onMounted(() => {
   loadProviders()
   loadHistory(1)
+  checkUpstreamVersion()
 })
 </script>
 

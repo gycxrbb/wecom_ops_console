@@ -8,18 +8,20 @@ import {
   isDefaultConfigOnlyEnabled,
   mergeImportedSettings,
   normalizeSettings,
+  normalizeReasoningEffort,
   normalizeStreamPartialImages,
 } from './apiProfiles'
 
-const URL_SETTING_KEYS = ['settings', 'apiUrl', 'apiKey', 'codexCli', 'apiMode', 'model', 'profileName', 'streamImages', 'streamPartialImages']
+const URL_SETTING_KEYS = ['settings', 'apiUrl', 'apiKey', 'codexCli', 'apiMode', 'model', 'profileName', 'reasoningEffort', 'streamImages', 'streamPartialImages']
 
-function getProfileDedupKey(profile: Pick<AppSettings['profiles'][number], 'provider' | 'baseUrl' | 'apiKey' | 'model' | 'apiMode' | 'codexCli' | 'streamImages' | 'streamPartialImages'>) {
+function getProfileDedupKey(profile: Pick<AppSettings['profiles'][number], 'provider' | 'baseUrl' | 'apiKey' | 'model' | 'apiMode' | 'reasoningEffort' | 'codexCli' | 'streamImages' | 'streamPartialImages'>) {
   return JSON.stringify([
     profile.provider,
     profile.baseUrl.trim().replace(/\/+$/, '').toLowerCase(),
     profile.apiKey.trim(),
     profile.model.trim(),
     profile.apiMode,
+    profile.reasoningEffort,
     profile.codexCli === true,
     profile.streamImages === true,
     profile.streamPartialImages ?? 0,
@@ -108,6 +110,7 @@ function buildDefaultConfigOnlySettingsFromUrlParams(currentSettings: Partial<Ap
         if (matched.responseFormatB64Json === true) patch.responseFormatB64Json = true
         if (isOpenAI) {
           if (matched.apiMode === 'images' || matched.apiMode === 'responses') patch.apiMode = matched.apiMode
+          if (matched.reasoningEffort !== undefined) patch.reasoningEffort = normalizeReasoningEffort(matched.reasoningEffort)
           if (typeof matched.codexCli === 'boolean') patch.codexCli = matched.codexCli
           if (typeof matched.streamImages === 'boolean') patch.streamImages = matched.streamImages
           if (matched.streamPartialImages !== undefined) patch.streamPartialImages = normalizeStreamPartialImages(matched.streamPartialImages)
@@ -127,10 +130,12 @@ function buildDefaultConfigOnlySettingsFromUrlParams(currentSettings: Partial<Ap
   if (modelParam !== null && modelParam.trim()) patch.model = modelParam.trim()
   if (isOpenAI) {
     const apiModeParam = searchParams.get('apiMode')
+    const reasoningEffortParam = searchParams.get('reasoningEffort')
     const codexCliParam = searchParams.get('codexCli')
     const streamImagesParam = searchParams.get('streamImages')
     const streamPartialImagesParam = searchParams.get('streamPartialImages')
     if (apiModeParam === 'images' || apiModeParam === 'responses') patch.apiMode = apiModeParam
+    if (reasoningEffortParam !== null) patch.reasoningEffort = normalizeReasoningEffort(reasoningEffortParam)
     if (codexCliParam !== null) patch.codexCli = codexCliParam.trim().toLowerCase() === 'true'
     if (streamImagesParam !== null) patch.streamImages = streamImagesParam.trim().toLowerCase() === 'true'
     if (streamPartialImagesParam !== null) patch.streamPartialImages = normalizeStreamPartialImages(streamPartialImagesParam)
@@ -163,13 +168,14 @@ export function buildSettingsFromUrlParams(currentSettings: Partial<AppSettings>
   const codexCliParam = searchParams.get('codexCli')
   const apiModeParam = searchParams.get('apiMode')
   const modelParam = searchParams.get('model')
+  const reasoningEffortParam = searchParams.get('reasoningEffort')
   const profileNameParam = searchParams.get('profileName')
   const profileName = profileNameParam?.trim() ?? ''
   const streamImagesParam = searchParams.get('streamImages')
   const streamPartialImagesParam = searchParams.get('streamPartialImages')
   const apiMode: ApiMode | undefined = apiModeParam === 'images' || apiModeParam === 'responses' ? apiModeParam : undefined
 
-  const hasLegacyOpenAIParams = apiUrlParam !== null || apiKeyParam !== null || codexCliParam !== null || apiMode !== undefined || modelParam !== null || profileNameParam !== null || streamImagesParam !== null || streamPartialImagesParam !== null
+  const hasLegacyOpenAIParams = apiUrlParam !== null || apiKeyParam !== null || codexCliParam !== null || apiMode !== undefined || modelParam !== null || profileNameParam !== null || reasoningEffortParam !== null || streamImagesParam !== null || streamPartialImagesParam !== null
   const settings = importedSettings == null
     ? normalizeSettings(currentSettings)
     : activateFirstImportedProfile(mergeImportedSettings(currentSettings, importedSettings), importedSettings)
@@ -185,6 +191,7 @@ export function buildSettingsFromUrlParams(currentSettings: Partial<AppSettings>
     if (apiUrlParam !== null) profile.baseUrl = normalizeBaseUrl(apiUrlParam.trim())
     if (apiKeyParam !== null) profile.apiKey = apiKeyParam.trim()
     if (modelParam !== null && modelParam.trim()) profile.model = modelParam.trim()
+    if (reasoningEffortParam !== null) profile.reasoningEffort = normalizeReasoningEffort(reasoningEffortParam)
     if (profileName) profile.name = profileName
     if (codexCliParam !== null) profile.codexCli = codexCliParam.trim().toLowerCase() === 'true'
     if (streamImagesParam !== null) profile.streamImages = streamImagesParam.trim().toLowerCase() === 'true'
@@ -194,44 +201,14 @@ export function buildSettingsFromUrlParams(currentSettings: Partial<AppSettings>
       getProfileDedupKey(item) === getProfileDedupKey(profile) &&
       (!profileName || item.name.trim() === profileName)
     )
-    const baseProfile = existingProfile ?? profile
-    let finalProfiles = existingProfile ? settings.profiles : [...settings.profiles, profile]
-    const activeProfileId = baseProfile.id
-
-    // 宿主嵌入(embedMode)：自动启用 hybrid。不论 profile 新旧都补一个 text(responses) 双生 + 强制 hybrid，
-    // 避免旧持久化设置缺 twin 导致 agent 配置校验失败、弹「请先完善 Agent API 配置」。
-    // 后端按端点路由：/responses→配了 agent_model 的推理供应商，/images→图片供应商。
-    const extraAgent: Partial<AppSettings> = {}
-    if (searchParams.get('embedMode') === 'true') {
-      // 找/建 text(responses) 双生，并显式绑定 agentText/agentImage profile id，
-      // 覆盖持久化设置里可能残留的旧 id（旧 id 可能指向空 apiKey 的 profile，导致 agent 发送被禁）。
-      let textTwin = finalProfiles.find(
-        (p) => p.apiMode === 'responses' && p.provider === 'openai' && p.baseUrl === baseProfile.baseUrl,
-      )
-      if (!textTwin) {
-        textTwin = createDefaultOpenAIProfile({
-          id: createUrlProfileId(new Set(finalProfiles.map((item) => item.id))),
-          name: baseProfile.name ? `${baseProfile.name}-推理` : 'URL agent 推理',
-          apiMode: 'responses',
-          model: DEFAULT_RESPONSES_MODEL,
-        })
-        finalProfiles = [...finalProfiles, textTwin]
-      }
-      // 始终把 baseUrl/apiKey 同步成最新——持久化的 twin 会残留旧 token，导致 agent /responses 401
-      // （画廊的 image profile 每次从 URL param 拿新 token 所以正常，twin 不走 URL param 必须显式同步）
-      textTwin.baseUrl = baseProfile.baseUrl
-      textTwin.apiKey = baseProfile.apiKey
-      textTwin.streamImages = true // 让 agent /responses 走 SSE 流式，前端能实时看到推理过程
-      extraAgent.agentApiConfigMode = 'hybrid'
-      extraAgent.agentTextProfileId = textTwin.id
-      extraAgent.agentImageProfileId = baseProfile.id
+    if (existingProfile) {
+      return normalizeSettings({ ...settings, activeProfileId: existingProfile.id })
     }
 
     return normalizeSettings({
       ...settings,
-      profiles: finalProfiles,
-      activeProfileId,
-      ...extraAgent,
+      profiles: [...settings.profiles, profile],
+      activeProfileId: profile.id,
     })
   }
 
