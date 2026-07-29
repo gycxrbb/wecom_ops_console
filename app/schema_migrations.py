@@ -554,6 +554,37 @@ def ensure_image_gen_agent_model_column(engine: Engine) -> None:
         conn.execute(text("ALTER TABLE image_gen_providers ADD COLUMN agent_model VARCHAR(128)"))
 
 
+def ensure_image_gen_history_task_columns(engine: Engine) -> None:
+    """image_gen_history 加 updated_at + image_b64 列，支撑 agent 生图任务化(running 状态 + 刷新后回查 b64)。
+
+    表由 Base.metadata.create_all 创建；本函数给已存在的表补列。image_b64 按 dialect 选
+    LONGTEXT(MySQL，大图 9MB+ 会超 TEXT 64KB) 或 TEXT(SQLite)。status 列定义不变，只是新增 running 字符串值。
+    """
+    inspector = inspect(engine)
+    if "image_gen_history" not in inspector.get_table_names():
+        return
+    existing = {c["name"] for c in inspector.get_columns("image_gen_history")}
+    with engine.begin() as conn:
+        if "updated_at" not in existing:
+            conn.execute(text("ALTER TABLE image_gen_history ADD COLUMN updated_at DATETIME"))
+        if "image_b64" not in existing:
+            dialect = conn.dialect.name
+            coltype = "LONGTEXT" if dialect == "mysql" else "TEXT"
+            conn.execute(text(f"ALTER TABLE image_gen_history ADD COLUMN image_b64 {coltype}"))
+
+
+def cleanup_image_gen_running_rows(engine: Engine) -> None:
+    """启动时把残留 running 任务行(进程重启前未完成)标 failed+interrupted，避免前端轮询永远拿不到终态。"""
+    inspector = inspect(engine)
+    if "image_gen_history" not in inspector.get_table_names():
+        return
+    with engine.begin() as conn:
+        conn.execute(text(
+            "UPDATE image_gen_history SET status='failed', error_code='interrupted', "
+            "error_message='服务重启，任务中断，请重试' WHERE status='running'"
+        ))
+
+
 def ensure_external_docs_schema(engine: Engine) -> None:
     """确保 external_doc_* 系列索引存在。表由 Base.metadata.create_all 创建。"""
     inspector = inspect(engine)

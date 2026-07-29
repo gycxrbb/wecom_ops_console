@@ -23,7 +23,7 @@ def issue_image_gen_token(request: Request, db: Session = Depends(get_db)):
     get_current_user 解码 JWT 鉴权。真实 inferera key 仍在后端 DB，不下发。
     """
     user = get_current_user(request, db)
-    token = create_access_token({"sub": str(user.id)}, expires_delta=timedelta(hours=2))
+    token = create_access_token({"sub": str(user.id)}, expires_delta=timedelta(hours=24))
     return {"token": token}
 
 
@@ -56,12 +56,15 @@ def list_history(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ):
-    get_current_user(request, db)
+    user = get_current_user(request, db)
+    # 用户隔离：非管理员只能看自己的生图历史；管理员（ImageGenAdmin 审计）可看全部
+    operator_user_id = None if getattr(user, "role", None) == "admin" else user.id
     rows, total = history_service.list_history(
         db,
         customer_id=customer_id,
         mode=mode,
         status=status,
+        operator_user_id=operator_user_id,
         page=page,
         page_size=page_size,
     )
@@ -75,8 +78,11 @@ def list_history(
 
 @router.get("/history/{record_id}")
 def get_history(record_id: str, request: Request, db: Session = Depends(get_db)):
-    get_current_user(request, db)
+    user = get_current_user(request, db)
     row = history_service.get_history(db, record_id)
     if not row:
+        raise HTTPException(404, "记录不存在")
+    # 用户隔离：非管理员只能查自己的记录（不暴露他人记录的存在性）
+    if getattr(user, "role", None) != "admin" and row.operator_user_id != user.id:
         raise HTTPException(404, "记录不存在")
     return _to_out(row)

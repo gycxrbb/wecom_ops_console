@@ -54,6 +54,19 @@ def _extract_image_source(data: dict) -> dict:
     raise ImageGenerationError("api_error", "上游响应中未找到图片数据")
 
 
+def _timeout_error(exc: Exception, read_seconds: int) -> ImageGenerationError:
+    """把 httpx 各类超时转成带准确原因的 ImageGenerationError（避免笼统报「>1500s」误导排查）。"""
+    if isinstance(exc, httpx.WriteTimeout):
+        return ImageGenerationError("api_timeout", "上传参考图超时（>180s）——图片过大或上传带宽不足")
+    if isinstance(exc, httpx.ConnectTimeout):
+        return ImageGenerationError("api_timeout", "连接供应商超时（>20s）——供应商不可达")
+    if isinstance(exc, httpx.PoolTimeout):
+        return ImageGenerationError("api_timeout", "连接池超时（并发过多）")
+    if isinstance(exc, httpx.ReadTimeout):
+        return ImageGenerationError("api_timeout", f"生图读取超时（>{read_seconds}s）——上游生成耗时过长")
+    return ImageGenerationError("api_timeout", f"请求超时: {exc}")
+
+
 async def generate_with_provider(
     provider: ProviderConfig,
     *,
@@ -73,8 +86,8 @@ async def generate_with_provider(
     started = time.perf_counter()
     try:
         resp = await _post(provider, url, headers, payload)
-    except httpx.TimeoutException:
-        raise ImageGenerationError("api_timeout", f"生图超时（>{provider.timeout_seconds}s）")
+    except httpx.TimeoutException as exc:
+        raise _timeout_error(exc, provider.timeout_seconds) from exc
     except httpx.HTTPStatusError as exc:
         body = ""
         try:
@@ -138,8 +151,8 @@ async def edit_with_provider(
     started = time.perf_counter()
     try:
         resp = await _post(provider, url, headers, data=data, files=files)
-    except httpx.TimeoutException:
-        raise ImageGenerationError("api_timeout", f"生图超时（>{provider.timeout_seconds}s）")
+    except httpx.TimeoutException as exc:
+        raise _timeout_error(exc, provider.timeout_seconds) from exc
     except httpx.HTTPStatusError as exc:
         body = ""
         try:
@@ -178,7 +191,7 @@ async def edit_with_provider(
 
 async def _new_client(provider: ProviderConfig) -> httpx.AsyncClient:
     # trust_env=False：忽略系统代理环境变量（对齐项目 AI 链路修复，见 bug.md SSL 证书问题）
-    timeout = httpx.Timeout(connect=20, read=provider.timeout_seconds, write=30, pool=10)
+    timeout = httpx.Timeout(connect=20, read=provider.timeout_seconds, write=180, pool=10)
     return httpx.AsyncClient(timeout=timeout, trust_env=False)
 
 

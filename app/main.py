@@ -30,7 +30,7 @@ from .middleware.ip_rate_limit import IPRateLimitMiddleware, cleanup_buckets as 
 from .routers.auth import router as auth_router
 from .routers.pages import router as pages_router
 from .routers.api import router as api_router
-from .schema_migrations import ensure_schedule_schema, ensure_asset_folders_schema, ensure_plan_schema, ensure_user_profile_schema, ensure_external_docs_schema, ensure_rag_schema, ensure_speech_category_schema, ensure_crm_ai_feedback_schema, ensure_crm_ai_message_p1_columns, ensure_prompt_snapshot_is_current, ensure_auto_ranking_config_schema, ensure_image_gen_agent_model_column
+from .schema_migrations import ensure_schedule_schema, ensure_asset_folders_schema, ensure_plan_schema, ensure_user_profile_schema, ensure_external_docs_schema, ensure_rag_schema, ensure_speech_category_schema, ensure_crm_ai_feedback_schema, ensure_crm_ai_message_p1_columns, ensure_prompt_snapshot_is_current, ensure_auto_ranking_config_schema, ensure_image_gen_agent_model_column, ensure_image_gen_history_task_columns, cleanup_image_gen_running_rows
 from .routers.api_folders import router as folders_router
 from .routers.api_operation_plans import router as operation_plans_router
 from .routers.api_profile import router as profile_router
@@ -79,6 +79,8 @@ async def lifespan(app: FastAPI):
     ensure_auto_ranking_config_schema(engine)
     ensure_prompt_snapshot_is_current(engine)
     ensure_image_gen_agent_model_column(engine)
+    ensure_image_gen_history_task_columns(engine)
+    cleanup_image_gen_running_rows(engine)
     db = SessionLocal()
     try:
         seed_all(db)
@@ -273,5 +275,9 @@ if FRONTEND_DIR.exists():
     async def serve_spa(full_path: str):
         file_path = FRONTEND_DIR / full_path
         if full_path and file_path.exists() and file_path.is_file():
-            return FileResponse(str(file_path))
-        return FileResponse(str(FRONTEND_DIR / 'index.html'))
+            # HTML 入口走 no-cache，确保升级后浏览器总能拿到最新 index.html（避免被 HTTP 缓存
+            # 锁在旧版，进而被旧 Service Worker 继续拦截）。带 hash 的 JS/CSS 等静态资产用默认缓存即可。
+            headers = {'Cache-Control': 'no-cache'} if full_path.endswith('.html') else None
+            return FileResponse(str(file_path), headers=headers)
+        # SPA fallback：始终返回 index.html 且 no-cache
+        return FileResponse(str(FRONTEND_DIR / 'index.html'), headers={'Cache-Control': 'no-cache'})

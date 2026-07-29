@@ -45,11 +45,13 @@ async def orchestrate_direct(
     size: str = "auto",
     n: int = 1,
     quality: str = "auto",
+    record_id: str | None = None,
+    write_history: bool = True,
 ) -> DirectResult:
     if not providers:
         raise NoProviderConfigured("没有可用的生图供应商，请联系管理员配置")
 
-    record_id = new_record_id()
+    record_id = record_id or new_record_id()
     params = {"size": size, "n": n, "quality": quality, "requested_model": model}
     start_audit(
         call_id=record_id,
@@ -68,21 +70,23 @@ async def orchestrate_direct(
                 provider, prompt=prompt, model=model, size=size, n=n, quality=quality
             )
             gen_ms = int((time.perf_counter() - started) * 1000)
-            # 存储七牛 + 历史放后台 fire-and-forget，不阻塞响应（前端用 b64 显示图，url 由后台填入历史行）。
-            # 否则大图(9MB+)七牛上传慢/重试时，前端要干等几分钟才看到图。
-            asyncio.create_task(write_success(
-                record_id=record_id,
-                operator_user_id=operator_user_id,
-                customer_id=customer_id,
-                mode="direct",
-                prompt=prompt,
-                params=params,
-                model=meta["model"],
-                provider_name=provider.name,
-                image_bytes=image_bytes,
-                gen_ms=gen_ms,
-                audit_call_id=record_id,
-            ))
+            if write_history:
+                # 画廊同步：存储七牛 + 历史放后台 fire-and-forget，不阻塞响应（前端用 b64 显示图，url 由后台填入历史行）。
+                # 否则大图(9MB+)七牛上传慢/重试时，前端要干等几分钟才看到图。
+                asyncio.create_task(write_success(
+                    record_id=record_id,
+                    operator_user_id=operator_user_id,
+                    customer_id=customer_id,
+                    mode="direct",
+                    prompt=prompt,
+                    params=params,
+                    model=meta["model"],
+                    provider_name=provider.name,
+                    image_bytes=image_bytes,
+                    gen_ms=gen_ms,
+                    audit_call_id=record_id,
+                ))
+            # write_history=False：agent 任务化，落库(七牛+UPDATE running 行)由调用方负责，这里只生图返回
             finish_audit(
                 call_id=record_id,
                 model=meta["model"],
@@ -113,20 +117,21 @@ async def orchestrate_direct(
     gen_ms = int((time.perf_counter() - started) * 1000)
     err = last_error or RuntimeError("image generation failed")
     code = getattr(err, "error_code", "image_gen_failed")
-    await write_failure(
-        record_id=record_id,
-        operator_user_id=operator_user_id,
-        customer_id=customer_id,
-        mode="direct",
-        prompt=prompt,
-        params=params,
-        model=model or last_provider.default_model,
-        provider_name=last_provider.name,
-        error_code=code,
-        error_message=str(err),
-        gen_ms=gen_ms,
-        audit_call_id=record_id,
-    )
+    if write_history:
+        await write_failure(
+            record_id=record_id,
+            operator_user_id=operator_user_id,
+            customer_id=customer_id,
+            mode="direct",
+            prompt=prompt,
+            params=params,
+            model=model or last_provider.default_model,
+            provider_name=last_provider.name,
+            error_code=code,
+            error_message=str(err),
+            gen_ms=gen_ms,
+            audit_call_id=record_id,
+        )
     finish_audit(
         call_id=record_id,
         model=model or last_provider.default_model,

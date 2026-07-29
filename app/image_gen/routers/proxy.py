@@ -6,6 +6,7 @@ P0：直出 /images/generations（后端编排：生图→存七牛→记历史�
 from __future__ import annotations
 
 import base64
+import json
 import time
 
 from fastapi import APIRouter, Request
@@ -134,11 +135,15 @@ async def images_edit(request: Request):
 
 @router.post("/responses")
 async def responses_proxy(request: Request):
-    """agent 模式 Responses API 透传。只用配了 agent_model 的供应商（推理模型），按优先级 failover；
-    请求体的 model 会被覆盖为该供应商的 agent_model。历史由前端 /history/callback 回调写。
+    """agent 模式 Responses API 透传，统一入口按请求类型路由到不同 key：
 
-    图片供应商（如纯图站的 dmxcode）不配 agent_model → 不参与 agent；管理员需另配一个
-    支持对话的 key 并填 agent 推理模型。
+    - 对话轮(含 function tool 的 agent 主循环)→ 走配了 agent_model 的「对话专用」供应商，
+      请求体 model 被覆盖为 agent_model(推理模型)。
+    - 生图轮(playground hybrid 的 callBatchImageSingle：tools 只含 image_generation 且
+      tool_choice=required)→ 走未配 agent_model 的「生图专用」供应商，不覆盖 model(用请求体
+      里的图像模型)，由生图 key 真正出图。
+
+    对话 key 与生图 key 各司其职，agent 仍是统一 /responses 入口。历史由前端 /history/callback 回调写。
     """
     db = SessionLocal()
     try:
@@ -146,16 +151,13 @@ async def responses_proxy(request: Request):
         providers = load_providers(db)
     finally:
         db.close()
-    agents = [p for p in providers if p.agent_model]
-    if not agents:
-        return _openai_error(
-            "no_agent_provider",
-            "没有配置 agent 推理模型——请在「图片生成管理」给某个供应商填写 agent 推理模型（如 gpt-4o-mini）",
-            status=503,
-        )
 
     body_bytes = await request.body()
-    gen, err = await stream_responses(agents, body_bytes)
+    candidates, missing_error = _select_responses_providers(providers, body_bytes)
+    if missing_error is not None:
+        return missing_error
+
+    gen, err = await stream_responses(candidates, body_bytes)
     if err is not None:
         return err
     return StreamingResponse(
@@ -187,3 +189,46 @@ def _status_for_code(code: str) -> int:
     if code == "api_error":
         return 502
     return 500
+
+
+def _is_image_generation_only_turn(body_bytes: bytes) -> bool:
+    """识别 playground hybrid 的生图轮：tools 只含 image_generation 内置工具且 tool_choice=required。
+
+    对应 callBatchImageSingle 构造的请求（单图/批量生图都走 image_generation tool，无 function tool）。
+    对话轮 tools 含 function（generate_image_batch/get_customer_profile/...）或 tool_choice 非 required，不命中。
+    """
+    try:
+        body = json.loads(body_bytes)
+    except Exception:
+        return False
+    if not isinstance(body, dict):
+        return False
+    tools = body.get("tools")
+    if not isinstance(tools, list) or not tools:
+        return False
+    if body.get("tool_choice") != "required":
+        return False
+    return all(isinstance(t, dict) and t.get("type") == "image_generation" for t in tools)
+
+
+def _select_responses_providers(providers, body_bytes: bytes):
+    """按 /responses 请求类型挑选供应商：生图轮走生图专用 key(无 agent_model)，对话轮走对话 key(有 agent_model)。
+
+    返回 (candidates, None) 或 (None, error_response)。stream_responses 仅对配了 agent_model 的
+    供应商覆盖 model——所以生图 key(无 agent_model)天然用请求体里的图像模型，不会被改成对话模型。
+    """
+    if _is_image_generation_only_turn(body_bytes):
+        image_providers = [p for p in providers if not p.agent_model]
+        if image_providers:
+            return image_providers, None
+        # 未单独配置生图 key：退回全部供应商（stream_responses 只对配了 agent_model 的覆盖 model）
+        return providers, None
+
+    agents = [p for p in providers if p.agent_model]
+    if not agents:
+        return None, _openai_error(
+            "no_agent_provider",
+            "没有配置 agent 推理模型——请在「图片生成管理」给某个供应商填写 agent 推理模型（如 gpt-4o-mini）",
+            status=503,
+        )
+    return agents, None

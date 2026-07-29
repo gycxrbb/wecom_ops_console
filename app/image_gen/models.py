@@ -58,14 +58,16 @@ class ImageGenHistory(Base):
     model: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     provider_name: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    status: Mapped[str] = mapped_column(String(16), nullable=False, default="success", comment="success | failed")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="success", comment="success | failed | running(任务化在途)")
     storage_provider: Mapped[str] = mapped_column(String(32), nullable=False, default="")
     storage_key: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     public_url: Mapped[str] = mapped_column(String(512), nullable=False, default="")
     error_code: Mapped[str] = mapped_column(String(32), nullable=False, default="")
     error_message: Mapped[str] = mapped_column(Text, nullable=False, default="")
     audit_call_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, comment="关联 crm_ai_invocations.call_id")
+    image_b64: Mapped[str] = mapped_column(Text, nullable=False, default="", comment="任务化成功时的 base64，供刷新后轮询返回；画廊同步不用")
     created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (
         Index("idx_image_gen_history_operator_created", "operator_user_id", "created_at"),
