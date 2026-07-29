@@ -129,6 +129,7 @@ certs/
 .kiro/
 .tasks/
 .vscode/
+.playwright-mcp/
 AGENTS.md
 CLAUDE.md
 bug.md
