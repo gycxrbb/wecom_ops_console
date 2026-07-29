@@ -50,7 +50,7 @@ import { collectAgentRoundOutputImageSlots, extractAgentReferenceIds, getAgentCu
 import { showBrowserNotification } from './lib/browserNotification'
 import { IMAGE_FETCH_CORS_HINT } from './lib/imageApiShared'
 import { getFalErrorMessage, getFalQueuedImageResult } from './lib/falAiImageApi'
-import { getCustomQueuedImageResult } from './lib/openaiCompatibleImageApi'
+import { getCustomQueuedImageResult, pollAgentImageTaskResult, submitAgentImageTask } from './lib/openaiCompatibleImageApi'
 import { validateMaskMatchesImage } from './lib/canvasImage'
 import { orderInputImagesForMask } from './lib/mask'
 import { getChangedParams, normalizeParamsForSettings } from './lib/paramCompatibility'
@@ -69,9 +69,11 @@ import { addImageSizeParam, createTaskDonePatch, createTaskErrorPatch, deriveAge
 
 const FAL_RECOVERY_POLL_MS = 10_000
 const CUSTOM_RECOVERY_POLL_MS = 10_000
+const AGENT_RECOVERY_POLL_MS = 3_000
 const SUPPORT_PROMPT_IMAGE_THRESHOLD = 50
 const falRecoveryTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const customRecoveryTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const agentRecoveryTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const openAIWatchdogTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const agentRoundControllers = new Map<string, AbortController>()
 const agentRecoveryContinuations = new Set<string>()
@@ -480,6 +482,10 @@ export const useStore = create<AppState>()(
       // Mode
       appMode: 'gallery',
       setAppMode: (appMode) => {
+        if (appMode === 'prompts') {
+          set({ appMode })
+          return
+        }
         if (appMode === 'gallery') {
           const state = get()
           const agentInputDrafts = saveActiveAgentInputDrafts(state)
@@ -1254,6 +1260,22 @@ function scheduleCustomRecovery(taskId: string, delayMs = CUSTOM_RECOVERY_POLL_M
   customRecoveryTimers.set(taskId, timer)
 }
 
+function clearAgentRecoveryTimer(taskId: string) {
+  const timer = agentRecoveryTimers.get(taskId)
+  if (timer) clearTimeout(timer)
+  agentRecoveryTimers.delete(taskId)
+}
+
+function scheduleAgentRecovery(taskId: string, delayMs = AGENT_RECOVERY_POLL_MS) {
+  if (agentRecoveryTimers.has(taskId)) return
+  if (!useStore.getState().tasks.some((task) => task.id === taskId)) return
+  const timer = setTimeout(() => {
+    agentRecoveryTimers.delete(taskId)
+    recoverAgentImageTask(taskId)
+  }, delayMs)
+  agentRecoveryTimers.set(taskId, timer)
+}
+
 async function readImageSizeParam(dataUrl: string): Promise<Partial<TaskParams> | undefined> {
   if (typeof Image === 'undefined') return undefined
 
@@ -1429,6 +1451,13 @@ export async function initStore() {
       scheduleFalRecovery(task.id, 0)
     }
     if (
+      task.customTaskId &&
+      (task.apiProvider ?? 'openai') === 'openai' &&
+      (task.status === 'running' || task.customRecoverable)
+    ) {
+      // 后端任务化的 agent image（openai provider）走专用恢复，避开 customRecovery 对 openai profile 死循环
+      scheduleAgentRecovery(task.id, 0)
+    } else if (
       task.customTaskId &&
       (task.status === 'running' || task.customRecoverable)
     ) {
@@ -2796,47 +2825,72 @@ async function executeAgentRound(
       signal: AbortSignal
       onPartialImage?: (event: { image: string; partialImageIndex?: number }) => void | Promise<void>
     }) => {
-      const result = await callImageApi({
-        settings: imageRequestSettings,
-        prompt: replaceImageMentionsForApi(opts.prompt, opts.referenceImageDataUrls.length),
-        params: opts.taskParams,
-        inputImageDataUrls: opts.referenceImageDataUrls,
-        onPartialImage: opts.onPartialImage
-          ? (partial) => {
-              void opts.onPartialImage?.({ image: partial.image, partialImageIndex: partial.partialImageIndex ?? partial.requestIndex })
-            }
-          : undefined,
-        onFalRequestEnqueued: (request) => {
-          updateTaskInStore(opts.taskId, {
-            falRequestId: request.requestId,
-            falEndpoint: request.endpoint,
-            falRecoverable: false,
-          })
-        },
-        onCustomTaskEnqueued: (request) => {
-          updateTaskInStore(opts.taskId, {
-            customTaskId: request.taskId,
-            customRecoverable: false,
-          })
-        },
+      // 有参考图：任务化第一期不支持编辑，走画廊同步 /images/edits（刷新会中断，少数场景）
+      if (opts.referenceImageDataUrls.length > 0) {
+        const result = await callImageApi({
+          settings: imageRequestSettings,
+          prompt: replaceImageMentionsForApi(opts.prompt, opts.referenceImageDataUrls.length),
+          params: opts.taskParams,
+          inputImageDataUrls: opts.referenceImageDataUrls,
+          onPartialImage: opts.onPartialImage
+            ? (partial) => {
+                void opts.onPartialImage?.({ image: partial.image, partialImageIndex: partial.partialImageIndex ?? partial.requestIndex })
+              }
+            : undefined,
+          onFalRequestEnqueued: (request) => {
+            updateTaskInStore(opts.taskId, {
+              falRequestId: request.requestId,
+              falEndpoint: request.endpoint,
+              falRecoverable: false,
+            })
+          },
+          onCustomTaskEnqueued: (request) => {
+            updateTaskInStore(opts.taskId, {
+              customTaskId: request.taskId,
+              customRecoverable: false,
+            })
+          },
+        })
+        if (opts.signal.aborted) throw createAgentAbortError()
+        const dataUrl = result.images[0]
+        return {
+          image: dataUrl ? {
+            dataUrl,
+            actualParams: result.actualParamsList?.[0] ?? result.actualParams,
+            revisedPrompt: result.revisedPrompts?.[0] ?? opts.prompt,
+          } satisfies AgentApiResultImage : null,
+          error: result.failedRequests?.[0]?.error ?? (dataUrl ? null : '接口未返回图片数据'),
+          rawResponsePayload: JSON.stringify({
+            imageCount: result.images.length,
+            actualParams: result.actualParams,
+            actualParamsList: result.actualParamsList,
+            revisedPrompts: result.revisedPrompts,
+            rawImageUrls: result.rawImageUrls,
+            failedRequests: result.failedRequests,
+          }, null, 2),
+        }
+      }
+
+      // 无参考图：后端任务化（提交 task_id + 轮询），刷新可恢复
+      const backendTaskId = await submitAgentImageTask(imageProfile.apiKey, {
+        prompt: replaceImageMentionsForApi(opts.prompt, 0),
+        model: imageProfile.model,
+        size: opts.taskParams.size,
+        n: opts.taskParams.n,
+        quality: opts.taskParams.quality,
       })
+      // 立即落 customTaskId（刷新恢复的种子；markInterruptedOpenAIRunningTasks 对 customTaskId 豁免）
+      updateTaskInStore(opts.taskId, { customTaskId: backendTaskId, customRecoverable: false })
+      const polled = await pollAgentImageTaskResult(imageProfile.apiKey, backendTaskId, opts.signal)
       if (opts.signal.aborted) throw createAgentAbortError()
-      const dataUrl = result.images[0]
       return {
-        image: dataUrl ? {
-          dataUrl,
-          actualParams: result.actualParamsList?.[0] ?? result.actualParams,
-          revisedPrompt: result.revisedPrompts?.[0] ?? opts.prompt,
+        image: polled.image ? {
+          dataUrl: polled.image,
+          actualParams: { size: opts.taskParams.size, quality: opts.taskParams.quality, n: 1 },
+          revisedPrompt: opts.prompt,
         } satisfies AgentApiResultImage : null,
-        error: result.failedRequests?.[0]?.error ?? (dataUrl ? null : '接口未返回图片数据'),
-        rawResponsePayload: JSON.stringify({
-          imageCount: result.images.length,
-          actualParams: result.actualParams,
-          actualParamsList: result.actualParamsList,
-          revisedPrompts: result.revisedPrompts,
-          rawImageUrls: result.rawImageUrls,
-          failedRequests: result.failedRequests,
-        }, null, 2),
+        error: polled.error,
+        rawResponsePayload: polled.rawResponsePayload,
       }
     }
 
@@ -4222,6 +4276,11 @@ async function recoverCustomTask(taskId: string) {
   const { settings, tasks } = useStore.getState()
   const task = tasks.find((item) => item.id === taskId)
   if (!task || !task.customTaskId || task.status === 'done') return
+  // 后端任务化的 agent image（openai provider）走专用 recoverAgentImageTask，这里让出
+  if ((task.apiProvider ?? 'openai') === 'openai') {
+    scheduleAgentRecovery(taskId)
+    return
+  }
 
   const profile = getCustomRecoveryProfile(settings, task)
   const customProvider = task.apiProvider ? getCustomProviderDefinition(settings, task.apiProvider) : null
@@ -4237,6 +4296,72 @@ async function recoverCustomTask(taskId: string) {
   } catch (err) {
     clearCustomRecoveryTimer(taskId)
     if (!useStore.getState().tasks.some((item) => item.id === taskId)) return
+    updateTaskInStore(taskId, {
+      ...createTaskErrorPatch(task, err instanceof Error ? err.message : String(err), Date.now()),
+      ...getRawErrorPayload(err),
+      customRecoverable: false,
+    })
+    if (isAgentTask(task)) void continueRecoveredAgentRound(taskId)
+  }
+}
+
+async function completeRecoveredAgentImageTask(task: TaskRecord, image: string) {
+  const latest = useStore.getState().tasks.find((item) => item.id === task.id)
+  if (!latest || latest.status === 'done' || latest.error === AGENT_STOPPED_MESSAGE) return
+  if (latest.status !== 'running' && !latest.customRecoverable) return
+
+  const { outputIds, outputDataUrls, outputImageSizes, transparentOriginalImageIds } = await storeTaskOutputImages(task, [image])
+  const actualParamsList = await resolveImageSizeParamsList(outputDataUrls, undefined, outputImageSizes)
+  const latestBeforeUpdate = useStore.getState().tasks.find((item) => item.id === task.id)
+  if (!latestBeforeUpdate || latestBeforeUpdate.status === 'done' || latestBeforeUpdate.error === AGENT_STOPPED_MESSAGE || (latestBeforeUpdate.status !== 'running' && !latestBeforeUpdate.customRecoverable)) {
+    await deleteUnreferencedImageIds([...outputIds, ...(transparentOriginalImageIds ?? [])])
+    return
+  }
+
+  updateTaskInStore(task.id, {
+    outputImages: outputIds,
+    transparentOriginalImages: transparentOriginalImageIds,
+    actualParams: firstActualParams(actualParamsList),
+    actualParamsByImage: mapActualParamsByImage(outputIds, actualParamsList),
+    revisedPromptByImage: undefined,
+    ...createTaskDonePatch(task, Date.now()),
+    customRecoverable: false,
+  })
+  useStore.getState().showToast('图片已生成（任务已恢复）', 'success')
+  if (!isAgentTask(task)) showTaskCompletionNotification('图像生成完成', '图片已生成（任务已恢复）。')
+  else void continueRecoveredAgentRound(task.id)
+}
+
+async function recoverAgentImageTask(taskId: string) {
+  const { settings, tasks } = useStore.getState()
+  const task = tasks.find((item) => item.id === taskId)
+  if (!task || !task.customTaskId || task.status === 'done') return
+  if ((task.apiProvider ?? 'openai') !== 'openai') return
+
+  const imageProfile = getAgentImageApiProfile(settings)
+  if (!imageProfile?.apiKey) {
+    scheduleAgentRecovery(taskId)
+    return
+  }
+
+  try {
+    const result = await pollAgentImageTaskResult(imageProfile.apiKey, task.customTaskId)
+    clearAgentRecoveryTimer(taskId)
+    if (!result.image) {
+      if (useStore.getState().tasks.some((item) => item.id === taskId)) {
+        updateTaskInStore(taskId, {
+          ...createTaskErrorPatch(task, result.error || '生图失败', Date.now()),
+          customRecoverable: false,
+        })
+        if (isAgentTask(task)) void continueRecoveredAgentRound(taskId)
+      }
+      return
+    }
+    await completeRecoveredAgentImageTask(task, result.image)
+  } catch (err) {
+    clearAgentRecoveryTimer(taskId)
+    if (!useStore.getState().tasks.some((item) => item.id === taskId)) return
+    if (err instanceof DOMException && err.name === 'AbortError') return
     updateTaskInStore(taskId, {
       ...createTaskErrorPatch(task, err instanceof Error ? err.message : String(err), Date.now()),
       ...getRawErrorPayload(err),

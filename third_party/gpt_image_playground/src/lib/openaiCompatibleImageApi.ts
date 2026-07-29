@@ -873,6 +873,89 @@ export async function getCustomQueuedImageResult(
   return pollCustomTaskResult(profile, customProvider.poll, taskId, mime)
 }
 
+// ---------------------------------------------------------------------------
+// agent 生图任务化（宿主后端 /api/v1/image-gen/agent/image-tasks：提交 task_id + 轮询，刷新可恢复）
+// 仅用于 agent hybrid 无参考图的直出生图；带参考图的编辑仍走上面的画廊同步链路。
+// 鉴权用父页注入的 JWT（imageProfile.apiKey），路径相对 origin，不依赖 profile.baseUrl。
+// ---------------------------------------------------------------------------
+
+const AGENT_IMAGE_TASK_PATH = '/api/v1/image-gen/agent/image-tasks'
+const AGENT_IMAGE_TASK_POLL_INTERVAL_MS = 3000
+const AGENT_IMAGE_TASK_TIMEOUT_SECONDS = 600
+
+export async function submitAgentImageTask(
+  apiKey: string,
+  body: { prompt: string; model?: string | null; size?: string; n?: number; quality?: string },
+): Promise<string> {
+  const response = await fetch(AGENT_IMAGE_TASK_PATH, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    cache: 'no-store',
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) throw new Error(await getApiErrorMessage(response))
+  const payload = await response.json() as { task_id?: string; taskId?: string; status?: string }
+  const taskId = payload.task_id ?? payload.taskId
+  if (!taskId) throw new Error('任务提交未返回 task_id')
+  return taskId
+}
+
+export interface AgentImageTaskPollResult {
+  image: string | null
+  error: string | null
+  rawResponsePayload: string
+}
+
+export async function pollAgentImageTaskResult(
+  apiKey: string,
+  taskId: string,
+  signal?: AbortSignal,
+  timeoutSeconds = AGENT_IMAGE_TASK_TIMEOUT_SECONDS,
+): Promise<AgentImageTaskPollResult> {
+  const deadline = Date.now() + timeoutSeconds * 1000
+  let first = true
+  while (true) {
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+    if (first) {
+      first = false
+    } else if (signal) {
+      await sleep(AGENT_IMAGE_TASK_POLL_INTERVAL_MS, signal)
+    } else {
+      await new Promise((resolve) => setTimeout(resolve, AGENT_IMAGE_TASK_POLL_INTERVAL_MS))
+    }
+    if (Date.now() > deadline) throw new Error('生图任务超时（>10min）')
+
+    let payload: { status?: string; data?: Array<{ b64_json?: string; url?: string; record_id?: string }>; error?: { code?: string; message?: string } }
+    try {
+      const response = await fetch(`${AGENT_IMAGE_TASK_PATH}/${encodeURIComponent(taskId)}`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${apiKey}` },
+        cache: 'no-store',
+        signal,
+      })
+      if (!response.ok) {
+        if (isRetryablePollingStatus(response.status)) continue
+        throw new Error(await getApiErrorMessage(response))
+      }
+      payload = await response.json()
+    } catch (err) {
+      if (!signal?.aborted && isRecoverablePollingError(err)) continue
+      throw err
+    }
+
+    const rawResponsePayload = JSON.stringify(payload, null, 2)
+    if (payload.status === 'failed') {
+      return { image: null, error: payload.error?.message || '生图失败', rawResponsePayload }
+    }
+    if (payload.status === 'success') {
+      const b64 = payload.data?.[0]?.b64_json
+      if (!b64) return { image: null, error: '任务完成但未返回图片数据', rawResponsePayload }
+      return { image: normalizeBase64Image(b64, 'image/png'), error: null, rawResponsePayload }
+    }
+    // running → 继续轮询
+  }
+}
+
 async function callCustomHttpImageApi(opts: CallApiOptions, profile: ApiProfile, customProvider: CustomProviderDefinition): Promise<CallApiResult> {
   const { params, inputImageDataUrls } = opts
   const isEdit = inputImageDataUrls.length > 0

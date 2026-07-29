@@ -139,7 +139,7 @@ export function normalizePersistedState(
   )
     ? persistedState.activeAgentConversationId
     : agentConversations[0]?.id ?? null
-  const appMode = persistedState.appMode === 'agent' ? 'agent' : 'gallery'
+  const appMode = persistedState.appMode === 'agent' ? 'agent' : persistedState.appMode === 'prompts' ? 'prompts' : 'gallery'
   const galleryInputDraft = settings.persistInputOnRestart
     ? normalizeAgentInputDraft(persistedState.galleryInputDraft ?? {
         prompt: persistedState.prompt,

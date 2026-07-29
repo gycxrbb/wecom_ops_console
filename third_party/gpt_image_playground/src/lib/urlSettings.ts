@@ -214,3 +214,55 @@ export function buildSettingsFromUrlParams(currentSettings: Partial<AppSettings>
 
   return importedSettings == null ? {} : settings
 }
+
+const EMBED_AGENT_TEXT_PROFILE_ID = 'embed-agent-text'
+
+/**
+ * embedMode(iframe 嵌入)下，把父页传入的 URL apiKey(短期 JWT token)同时注入 agent 的
+ * responses profile。否则 agent /responses 沿用 localStorage 旧 profile(apiKey 非 token)，
+ * 叠加 iframe 里 session cookie 不可靠 → 后端 get_current_user 401。
+ *
+ - 画廊用 active(images+token)；agent 对话用新建的 text(responses+token)；hybrid 生图复用 active。
+ * 三路 Bearer 都是 token，后端解码 JWT 鉴权通过。真实推理 key 仍在后端 DB(provider_chain)。
+ - 仅当 apiKey 是有效 token(非空、非 PLACEHOLDER)时生效——PLACEHOLDER 是「图片生成管理」
+ *  新标签页配置入口(ImageGenAdmin)，靠同源 session cookie 鉴权，不注入、不覆盖其配置。
+ */
+export function applyEmbedModeAgentProfiles(
+  currentSettings: Partial<AppSettings> | unknown,
+  searchParams: URLSearchParams,
+): Partial<AppSettings> {
+  if (searchParams.get('embedMode') !== 'true') return currentSettings as Partial<AppSettings>
+  const apiKeyParam = searchParams.get('apiKey')
+  if (!apiKeyParam || apiKeyParam === 'PLACEHOLDER') return currentSettings as Partial<AppSettings>
+
+  const normalized = normalizeSettings(currentSettings)
+  const active = normalized.profiles.find((profile) => profile.id === normalized.activeProfileId) ?? normalized.profiles[0]
+  if (!active) return currentSettings as Partial<AppSettings>
+
+  const token = apiKeyParam.trim()
+  // image profile：复用 URL 注入的 active，强制 apiKey=token（画廊 + hybrid 生图共用）。
+  const imageProfile = { ...active, apiKey: token }
+  // text profile：responses 模式 + token，供 agent 对话(/responses)鉴权。固定 id 避免累积。
+  const textProfile = createDefaultOpenAIProfile({
+    id: EMBED_AGENT_TEXT_PROFILE_ID,
+    name: '嵌入-Agent',
+    apiMode: 'responses',
+    baseUrl: active.baseUrl,
+    apiKey: token,
+  })
+
+  const profiles = [
+    ...normalized.profiles.filter((profile) => profile.id !== EMBED_AGENT_TEXT_PROFILE_ID && profile.id !== active.id),
+    imageProfile,
+    textProfile,
+  ]
+
+  return normalizeSettings({
+    ...normalized,
+    profiles,
+    activeProfileId: active.id,
+    agentApiConfigMode: 'hybrid',
+    agentTextProfileId: EMBED_AGENT_TEXT_PROFILE_ID,
+    agentImageProfileId: active.id,
+  })
+}

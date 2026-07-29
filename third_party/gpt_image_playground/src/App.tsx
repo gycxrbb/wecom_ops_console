@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { initStore } from './store'
 import { useStore } from './store'
-import { activateFirstImportedProfile, buildSettingsFromUrlParams, clearUrlSettingParams, hasUrlSettingParams } from './lib/urlSettings'
+import { activateFirstImportedProfile, applyEmbedModeAgentProfiles, buildSettingsFromUrlParams, clearUrlSettingParams, hasUrlSettingParams } from './lib/urlSettings'
 import { isDefaultConfigOnlyEnabled, mergeImportedSettings } from './lib/apiProfiles'
 import { getCustomProviderConfigUrl, loadCustomProviderSettingsFromUrl } from './lib/customProviderConfigUrl'
 import { useDockerApiUrlMigrationNotice } from './hooks/useDockerApiUrlMigrationNotice'
@@ -10,6 +10,7 @@ import Header from './components/Header'
 import SearchBar from './components/SearchBar'
 import TaskGrid from './components/TaskGrid'
 import AgentWorkspace from './components/AgentWorkspace'
+import PromptLibraryView from './components/prompts/PromptLibraryView'
 import InputBar from './components/InputBar'
 import DetailModal from './components/DetailModal'
 import Lightbox from './components/Lightbox'
@@ -38,8 +39,10 @@ export default function App() {
     const defaultConfigOnly = isDefaultConfigOnlyEnabled()
 
     const applyUrlSettings = (baseSettings: Partial<AppSettings>) => {
-      const nextSettings = buildSettingsFromUrlParams(baseSettings, searchParams)
-      return Object.keys(nextSettings).length ? nextSettings : baseSettings
+      const fromUrl = buildSettingsFromUrlParams(baseSettings, searchParams)
+      const merged = Object.keys(fromUrl).length ? fromUrl : baseSettings
+      // embedMode 下把 URL token 注入 agent 的 responses profile（须在 clearAppliedUrlSettings 清掉 URL 参数前执行）
+      return applyEmbedModeAgentProfiles(merged, searchParams)
     }
 
     const clearAppliedUrlSettings = () => {
@@ -74,7 +77,7 @@ export default function App() {
       return
     }
 
-    const nextSettings = buildSettingsFromUrlParams(useStore.getState().settings, searchParams)
+    const nextSettings = applyUrlSettings(useStore.getState().settings)
 
     setSettings(nextSettings)
 
@@ -117,6 +120,8 @@ export default function App() {
       <Header />
       {appMode === 'agent' ? (
         <AgentWorkspace />
+      ) : appMode === 'prompts' ? (
+        <PromptLibraryView />
       ) : (
         <main data-home-main data-drag-select-surface className="pb-48">
           <div className="safe-area-x max-w-7xl mx-auto">
@@ -125,7 +130,7 @@ export default function App() {
           </div>
         </main>
       )}
-      <InputBar />
+      {appMode !== 'prompts' && <InputBar />}
       <DetailModal />
       <Lightbox />
       <SettingsModal />
