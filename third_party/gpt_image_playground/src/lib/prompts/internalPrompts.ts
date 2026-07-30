@@ -40,7 +40,7 @@ export async function fetchInternalPrompts(apiKey: string, category?: string): P
 
 export async function submitInternalPrompt(
   apiKey: string,
-  body: { title: string; body: string; category: string; tags: string[]; cover_url: string },
+  body: { title: string; body: string; category: string; tags: string[]; cover_url: string; scope: string },
 ): Promise<void> {
   const res = await fetch(INTERNAL_PROMPTS_PATH, {
     method: 'POST',

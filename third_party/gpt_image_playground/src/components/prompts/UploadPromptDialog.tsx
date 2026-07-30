@@ -20,6 +20,7 @@ export default function UploadPromptDialog({ onClose, onSubmitted }: Props) {
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [category, setCategory] = useState<string>(PROFESSIONS[0])
+  const [scope, setScope] = useState<'shared' | 'private'>('shared')
   const [tagsText, setTagsText] = useState('')
   const [coverUrl, setCoverUrl] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -46,6 +47,7 @@ export default function UploadPromptDialog({ onClose, onSubmitted }: Props) {
         category,
         tags: tagsText.split(/[,，]/).map((t) => t.trim()).filter(Boolean),
         cover_url: coverUrl,
+        scope,
       })
       onSubmitted()
     } catch {
@@ -82,6 +84,20 @@ export default function UploadPromptDialog({ onClose, onSubmitted }: Props) {
                   className={`rounded-full px-3 py-1 text-xs transition-colors ${category === p ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-white/[0.06] dark:text-gray-300'}`}
                 >
                   {p}
+                </button>
+              ))}
+            </div>
+          </Field>
+          <Field label="可见范围">
+            <div className="flex flex-wrap gap-1.5">
+              {([['shared', '共享（全员可见）'], ['private', '仅自己']] as const).map(([val, label]) => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => setScope(val)}
+                  className={`rounded-full px-3 py-1 text-xs transition-colors ${scope === val ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-white/[0.06] dark:text-gray-300'}`}
+                >
+                  {label}
                 </button>
               ))}
             </div>
