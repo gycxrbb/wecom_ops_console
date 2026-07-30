@@ -585,6 +585,18 @@ def cleanup_image_gen_running_rows(engine: Engine) -> None:
         ))
 
 
+def ensure_image_gen_prompt_cover_url(engine: Engine) -> None:
+    """image_gen_prompts 加 cover_url 列（内部上传提示词的封面图 URL，存七牛）。"""
+    inspector = inspect(engine)
+    if "image_gen_prompts" not in inspector.get_table_names():
+        return
+    existing = {c["name"] for c in inspector.get_columns("image_gen_prompts")}
+    if "cover_url" in existing:
+        return
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE image_gen_prompts ADD COLUMN cover_url VARCHAR(512)"))
+
+
 def ensure_external_docs_schema(engine: Engine) -> None:
     """确保 external_doc_* 系列索引存在。表由 Base.metadata.create_all 创建。"""
     inspector = inspect(engine)

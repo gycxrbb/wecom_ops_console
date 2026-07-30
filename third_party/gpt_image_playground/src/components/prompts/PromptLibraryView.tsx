@@ -1,34 +1,52 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import PromptCard from './PromptCard'
 import PromptDetailDialog from './PromptDetailDialog'
-import { ALL_SOURCES_OPTION, PROMPT_SOURCES } from '../../lib/prompts/sources'
+import UploadPromptDialog from './UploadPromptDialog'
+import { ALL_PROFESSION_OPTION, ALL_SOURCES_OPTION, PROFESSION_FILTERS, PROMPT_SOURCES } from '../../lib/prompts/sources'
 import { collectTags, filterPrompts, loadAllSources, type Prompt } from '../../lib/prompts/promptsService'
+import { fetchInternalPrompts } from '../../lib/prompts/internalPrompts'
 import { usePromptsStore } from '../../lib/prompts/usePromptsStore'
 import { useStore } from '../../store'
+import { getActiveApiProfile } from '../../lib/apiProfiles'
+import { PlusIcon } from '../icons'
 
 const PAGE_SIZE = 20
 
 export default function PromptLibraryView() {
   const showToast = useStore((s) => s.showToast)
+  const settings = useStore((s) => s.settings)
   const [tab, setTab] = useState<'library' | 'favorites'>('library')
   const [keyword, setKeyword] = useState('')
   const [debouncedKeyword, setDebouncedKeyword] = useState('')
   const [selectedTags, setSelectedTags] = useState<string[]>([])
   const [selectedSource, setSelectedSource] = useState<string>(ALL_SOURCES_OPTION)
-  const [all, setAll] = useState<Prompt[]>([])
+  const [selectedProfession, setSelectedProfession] = useState<string>(ALL_PROFESSION_OPTION)
+  const [remote, setRemote] = useState<Prompt[]>([])
+  const [internal, setInternal] = useState<Prompt[]>([])
   const [loading, setLoading] = useState(true)
   const [loaded, setLoaded] = useState(false)
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const [selected, setSelected] = useState<Prompt | null>(null)
+  const [showUpload, setShowUpload] = useState(false)
   const favoriteIds = usePromptsStore((s) => s.favoriteIds)
 
-  // 首次进入：并发拉取所有数据源；单源失败不阻断其余。
+  const rawApiKey = getActiveApiProfile(settings).apiKey
+  const apiKey = rawApiKey && rawApiKey !== 'PLACEHOLDER' ? rawApiKey : ''
+
+  const reloadInternal = () => {
+    if (!apiKey) return
+    fetchInternalPrompts(apiKey)
+      .then(setInternal)
+      .catch(() => { /* 内部加载失败静默（远程仍可用） */ })
+  }
+
+  // 首次进入：并发拉取所有数据源 + 内部上传；单源失败不阻断其余。
   useEffect(() => {
     let cancelled = false
     loadAllSources()
       .then(({ prompts, failedSources }) => {
         if (cancelled) return
-        setAll(prompts)
+        setRemote(prompts)
         setLoaded(true)
         if (failedSources.length === PROMPT_SOURCES.length) {
           showToast('提示词库加载失败，请检查网络后重试', 'error')
@@ -36,16 +54,12 @@ export default function PromptLibraryView() {
           showToast(`${failedSources.length} 个数据源加载失败，已显示可用部分`, 'info')
         }
       })
-      .catch(() => {
-        if (!cancelled) showToast('提示词库加载失败', 'error')
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [showToast])
+      .catch(() => { if (!cancelled) showToast('提示词库加载失败', 'error') })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    reloadInternal()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showToast, apiKey])
 
   // 搜索防抖 300ms
   useEffect(() => {
@@ -53,14 +67,17 @@ export default function PromptLibraryView() {
     return () => clearTimeout(timer)
   }, [keyword])
 
+  // 内部上传置顶，再接远程
+  const all = useMemo(() => [...internal, ...remote], [internal, remote])
+
   const baseList = useMemo(() => {
     if (tab === 'favorites') return all.filter((p) => favoriteIds.includes(p.id))
     return all
   }, [all, tab, favoriteIds])
 
   const filtered = useMemo(
-    () => filterPrompts(baseList, { keyword: debouncedKeyword, tags: selectedTags, sourceId: selectedSource }),
-    [baseList, debouncedKeyword, selectedTags, selectedSource],
+    () => filterPrompts(baseList, { keyword: debouncedKeyword, tags: selectedTags, sourceId: selectedSource, profession: selectedProfession }),
+    [baseList, debouncedKeyword, selectedTags, selectedSource, selectedProfession],
   )
 
   const tags = useMemo(() => collectTags(baseList), [baseList])
@@ -68,11 +85,10 @@ export default function PromptLibraryView() {
   // 筛选条件变化时重置分页
   useEffect(() => {
     setVisibleCount(PAGE_SIZE)
-  }, [debouncedKeyword, selectedTags, selectedSource, tab])
+  }, [debouncedKeyword, selectedTags, selectedSource, selectedProfession, tab])
 
   const visible = filtered.slice(0, visibleCount)
 
-  // playground 用 html{overflow-y:scroll} 做页面级滚动，监听 window 触发加载更多
   useEffect(() => {
     const onScroll = () => {
       if (visibleCount >= filtered.length) return
@@ -91,11 +107,22 @@ export default function PromptLibraryView() {
   return (
     <main className="pb-48">
       <div className="safe-area-x mx-auto w-full max-w-7xl px-4 py-6 sm:px-6">
-        <div className="mb-5 text-center">
-          <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">提示词中心</h1>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            当前共 {filtered.length} 条提示词{tab === 'favorites' ? '（我的收藏）' : ''}
-          </p>
+        <div className="mb-5 flex items-center justify-center gap-3">
+          <div className="text-center">
+            <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">提示词中心</h1>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              当前共 {filtered.length} 条{tab === 'favorites' ? '（我的收藏）' : ''}
+            </p>
+          </div>
+          {apiKey && (
+            <button
+              type="button"
+              onClick={() => setShowUpload(true)}
+              className="inline-flex items-center gap-1 rounded-full bg-blue-500 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition-colors hover:bg-blue-600"
+            >
+              <PlusIcon className="h-3.5 w-3.5" /> 上传提示词
+            </button>
+          )}
         </div>
 
         {/* Tabs */}
@@ -115,7 +142,14 @@ export default function PromptLibraryView() {
         <div className="grid items-start gap-5 lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-6">
           {/* 筛选区 */}
           <aside className="max-h-72 overflow-y-auto border-b border-gray-200 pb-4 lg:sticky lg:top-0 lg:max-h-[calc(100vh-9rem)] lg:border-b-0 lg:border-r lg:pr-5 dark:border-white/[0.08]">
-            <div className="mb-2 text-xs font-semibold uppercase tracking-widest text-gray-400">分类</div>
+            <div className="mb-2 text-xs font-semibold uppercase tracking-widest text-gray-400">职业</div>
+            <div className="flex flex-wrap gap-1.5">
+              <FilterChip active={selectedProfession === ALL_PROFESSION_OPTION} onClick={() => setSelectedProfession(ALL_PROFESSION_OPTION)}>全部</FilterChip>
+              {PROFESSION_FILTERS.map((p) => (
+                <FilterChip key={p} active={selectedProfession === p} onClick={() => setSelectedProfession(p)}>{p}</FilterChip>
+              ))}
+            </div>
+            <div className="mb-2 mt-5 text-xs font-semibold uppercase tracking-widest text-gray-400">来源</div>
             <div className="flex flex-wrap gap-1.5">
               <FilterChip active={selectedSource === ALL_SOURCES_OPTION} onClick={() => setSelectedSource(ALL_SOURCES_OPTION)}>全部</FilterChip>
               {PROMPT_SOURCES.map((s) => (
@@ -164,6 +198,12 @@ export default function PromptLibraryView() {
         </div>
       </div>
       <PromptDetailDialog prompt={selected} onClose={() => setSelected(null)} />
+      {showUpload && (
+        <UploadPromptDialog
+          onClose={() => setShowUpload(false)}
+          onSubmitted={() => { setShowUpload(false); reloadInternal(); showToast('提示词已上传', 'success') }}
+        />
+      )}
     </main>
   )
 }

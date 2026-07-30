@@ -63,7 +63,12 @@ export default function PromptDetailDialog({ prompt, onClose }: Props) {
           )}
           <div className="space-y-4 p-5">
             <div className="flex flex-wrap gap-1.5">
-              <span className="rounded-full bg-blue-50 px-2.5 py-0.5 text-xs text-blue-600 dark:bg-blue-900/30 dark:text-blue-300">{sourceName(prompt.sourceId)}</span>
+              {(prompt.profession || []).map((p) => (
+                <span key={p} className="rounded-full bg-blue-500 px-2.5 py-0.5 text-xs font-medium text-white">{p}</span>
+              ))}
+              <span className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs text-gray-500 dark:bg-white/[0.06] dark:text-gray-400">
+                {prompt.internal ? (prompt.contributor?.display_name ? `贡献者：${prompt.contributor.display_name}` : '内部上传') : sourceName(prompt.sourceId)}
+              </span>
               {(prompt.tags || []).map((tag) => (
                 <span key={tag} className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs text-gray-500 dark:bg-white/[0.06] dark:text-gray-400">{tag}</span>
               ))}

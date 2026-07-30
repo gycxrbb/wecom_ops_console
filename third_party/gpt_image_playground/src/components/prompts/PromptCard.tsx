@@ -41,8 +41,13 @@ export default function PromptCard({ item, onOpen }: Props) {
           <div className="flex h-full w-full items-center justify-center text-xs text-gray-400">无预览</div>
         )}
         <span className="absolute left-2 top-2 max-w-[calc(100%-1rem)] truncate rounded-full bg-black/50 px-2 py-0.5 text-[10px] text-white backdrop-blur-sm">
-          {sourceName(item.sourceId)}
+          {item.internal ? (item.contributor?.display_name ? `@${item.contributor.display_name}` : '内部上传') : sourceName(item.sourceId)}
         </span>
+        {item.profession && item.profession.length > 0 && (
+          <span className="absolute right-2 top-2 rounded-full bg-blue-500/90 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
+            {item.profession[0]}
+          </span>
+        )}
       </button>
       <div className="flex flex-1 flex-col gap-2 p-3">
         <button type="button" onClick={onOpen} className="line-clamp-2 text-left text-sm font-medium text-gray-800 hover:text-blue-600 dark:text-gray-100 dark:hover:text-blue-400">

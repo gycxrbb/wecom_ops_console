@@ -10,6 +10,7 @@ from app.route_helper import UnifiedResponseRoute
 
 from .routers import agent as agent_router
 from .routers import history as history_router
+from .routers import prompts as prompts_router
 from .routers import providers as providers_router
 from .routers import proxy as proxy_router
 
@@ -35,6 +36,7 @@ raw_api = APIRouter(
     tags=["image-gen-agent"],
 )
 raw_api.include_router(agent_router.router)
+raw_api.include_router(prompts_router.router)
 
 router.include_router(unified_api)
 router.include_router(raw_proxy)

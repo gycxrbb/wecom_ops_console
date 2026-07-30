@@ -12,6 +12,11 @@ export const REGISTRY_BASE =
 
 export const ALL_SOURCES_OPTION = 'all'
 
+// 职业分类（前端 chip + 筛选用）。"通用"=无职业映射的兜底桶。
+export const ALL_PROFESSION_OPTION = 'all'
+export const PROFESSIONS = ['健康教练', '运营', '开发', '管理层'] as const
+export const PROFESSION_FILTERS = [...PROFESSIONS, '通用'] as const
+
 // 6 个内置源（id 对应 registry 的 <id>.json 文件名）
 export const PROMPT_SOURCES: PromptSource[] = [
   { id: 'banana-prompt-quicker', name: 'Banana Prompt Quicker', homepage: 'https://github.com/glidea/banana-prompt-quicker' },
