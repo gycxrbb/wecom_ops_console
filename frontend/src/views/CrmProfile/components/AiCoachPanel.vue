@@ -654,13 +654,15 @@ const imageGenSrc = computed(() => {
   return `/image-gen/index.html?${params.toString()}`
 })
 watch(() => sidebarTab.value, async (tab) => {
-  // 每次打开都重新取 token（token 24h 有效，长时间会话会过期 → /responses 401）
   if (tab === 'image-gen') {
     imageGenLoaded.value = false // 重置加载态，显示加载动画直到 iframe onLoad
-    try {
-      const res: any = await request.get('/v1/image-gen/token')
-      if (res?.token) imageGenToken.value = res.token
-    } catch { /* token 获取失败则不渲染 iframe */ }
+    // token 已由 onMounted 预取则直接复用（秒开）；未就绪则现取兜底
+    if (!imageGenToken.value) {
+      try {
+        const res: any = await request.get('/v1/image-gen/token')
+        if (res?.token) imageGenToken.value = res.token
+      } catch { /* token 获取失败则不渲染 iframe */ }
+    }
   }
 })
 // 接收 playground iframe 的 postMessage：全屏/关闭按钮在嵌入的 playground 模式栏里，父页控制 overlay
@@ -670,7 +672,14 @@ function onImageGenEmbedMessage(e: MessageEvent) {
     else if (e.data.action === 'close') sidebarTab.value = null
   }
 }
-onMounted(() => window.addEventListener('message', onImageGenEmbedMessage))
+onMounted(() => {
+  window.addEventListener('message', onImageGenEmbedMessage)
+  // 预取 token + 空闲预热 playground：点「图片生成」时资源已就绪、秒开
+  // （代价：每个客户档案多 ~300KB 预加载；token 24h，长会话过期需重进客户档案刷新）
+  request.get('/v1/image-gen/token').then((res: any) => { if (res?.token) imageGenToken.value = res.token }).catch(() => {})
+  const scheduleIdle = (window as any).requestIdleCallback || ((cb: () => void) => window.setTimeout(cb, 1500))
+  scheduleIdle(() => { imageGenWarmup.value = true })
+})
 onBeforeUnmount(() => window.removeEventListener('message', onImageGenEmbedMessage))
 
 const sidebarExpanded = ref(true)
