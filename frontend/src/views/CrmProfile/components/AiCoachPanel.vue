@@ -197,7 +197,7 @@
           <!-- 预热：悬停「图片生成」菜单项时才静默加载 playground（省流量），首次点击时资源已缓存、秒开 -->
           <iframe v-if="imageGenWarmup" src="/image-gen/index.html" class="ai-image-gen-warmup" aria-hidden="true" tabindex="-1" title="warmup" />
           <!-- 图片生成（覆盖主聊天区，承载 gpt_image_playground iframe） -->
-          <div v-if="sidebarTab === 'image-gen'" class="ai-image-gen-overlay" :class="{ 'is-fullscreen': imageGenFullscreen }">
+          <div v-if="sidebarTab === 'image-gen'" class="ai-image-gen-overlay">
             <div v-if="imageGenSrc && !imageGenLoaded" class="ai-image-gen-loading">
               <el-icon class="is-loading" :size="26"><Loading /></el-icon>
               <span>正在加载生图工作台…</span>
@@ -638,7 +638,6 @@ const sidebarTab = ref<'history' | 'context' | 'notes' | 'image-gen' | null>(nul
 // playground 以 Bearer 发回，get_current_user 解码鉴权。token 未就绪前不渲染 iframe。
 const imageGenToken = ref('')
 const imageGenLoaded = ref(false)
-const imageGenFullscreen = ref(false)
 const imageGenWarmup = ref(false)
 const imageGenSrc = computed(() => {
   if (typeof window === 'undefined' || !imageGenToken.value) return ''
@@ -668,7 +667,7 @@ watch(() => sidebarTab.value, async (tab) => {
 // 接收 playground iframe 的 postMessage：全屏/关闭按钮在嵌入的 playground 模式栏里，父页控制 overlay
 function onImageGenEmbedMessage(e: MessageEvent) {
   if (e?.data?.type === 'image-gen-embed') {
-    if (e.data.action === 'fullscreen') imageGenFullscreen.value = !imageGenFullscreen.value
+    if (e.data.action === 'fullscreen') toggleFullscreen()
     else if (e.data.action === 'close') sidebarTab.value = null
   }
 }
@@ -1371,7 +1370,6 @@ const onDeleteSession = async (targetSessionId: string) => {
 .ai-image-gen-overlay__header { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-bottom: 1px solid var(--el-border-color-light, #ebeef5); flex: 0 0 auto; }
 .ai-image-gen-overlay__title { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; }
 .ai-image-gen-iframe { flex: 1 1 auto; width: 100%; border: 0; background: #fff; }
-.ai-image-gen-overlay.is-fullscreen { position: fixed; inset: 0; z-index: 1000; }
 .ai-image-gen-overlay__actions { display: inline-flex; align-items: center; gap: 2px; }
 .ai-image-gen-loading { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--el-text-color-secondary, #909399); font-size: 14px; }
 .ai-image-gen-warmup { position: absolute; width: 1px; height: 1px; border: 0; left: -9999px; top: -9999px; visibility: hidden; pointer-events: none; }
