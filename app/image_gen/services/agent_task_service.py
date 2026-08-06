@@ -140,23 +140,15 @@ async def _finalize_success(
     quality: str,
     requested_model: str | None,
 ) -> None:
-    def _do() -> None:
+    # 1. 先 UPDATE success（带 b64，前端轮询到 success 立刻显示图），不等七牛存储
+    image_b64 = base64.b64encode(result.image_bytes).decode("ascii")
+
+    def _mark_success() -> None:
         db = SessionLocal()
         try:
-            t0 = time.perf_counter()
-            storage_result = storage_facade.upload(
-                UploadPayload(
-                    content=result.image_bytes,
-                    filename=f"{record_id}.png",
-                    mime_type="image/png",
-                    object_key=f"image_gen/{record_id}.png",
-                )
-            )
-            storage_ms = int((time.perf_counter() - t0) * 1000)
-            image_b64 = base64.b64encode(result.image_bytes).decode("ascii")
             params_with_timing = {
                 "size": size, "n": n, "quality": quality, "requested_model": requested_model,
-                "timing": {"gen_ms": gen_ms, "storage_ms": storage_ms},
+                "timing": {"gen_ms": gen_ms, "storage_ms": 0},
             }
             db.query(ImageGenHistory).filter(
                 ImageGenHistory.record_id == record_id,
@@ -166,11 +158,8 @@ async def _finalize_success(
                     "status": "success",
                     "model": result.model,
                     "provider_name": result.provider_name,
-                    "latency_ms": gen_ms + storage_ms,
+                    "latency_ms": gen_ms,
                     "params_json": json.dumps(params_with_timing, ensure_ascii=False),
-                    "storage_provider": storage_result.provider,
-                    "storage_key": storage_result.object_key,
-                    "public_url": storage_result.public_url,
                     "image_b64": image_b64,
                     "error_code": "",
                     "error_message": "",
@@ -179,9 +168,69 @@ async def _finalize_success(
             )
             db.commit()
             _log.info(
-                "image_gen agent task %s success: gen=%dms storage=%dms provider=%s model=%s",
-                record_id, gen_ms, storage_ms, result.provider_name, result.model,
+                "image_gen agent task %s success (b64 ready, storage background): gen=%dms provider=%s model=%s",
+                record_id, gen_ms, result.provider_name, result.model,
             )
+        finally:
+            db.close()
+
+    await asyncio.to_thread(_mark_success)
+
+    # 2. 七牛存储后台 fire-and-forget，完成后 UPDATE url（前端不依赖 url 显示，b64 已就绪）
+    asyncio.create_task(_upload_and_update_url_after_success(
+        record_id=record_id, image_bytes=result.image_bytes, gen_ms=gen_ms,
+        size=size, n=n, quality=quality, requested_model=requested_model,
+    ))
+
+
+async def _upload_and_update_url_after_success(
+    *,
+    record_id: str,
+    image_bytes: bytes,
+    gen_ms: int,
+    size: str,
+    n: int,
+    quality: str,
+    requested_model: str | None,
+) -> None:
+    """后台：上传七牛 + UPDATE url/storage 字段。失败仅告警（b64 已落库，前端显示不受影响）。"""
+    def _do() -> None:
+        db = SessionLocal()
+        try:
+            t0 = time.perf_counter()
+            storage_result = storage_facade.upload(
+                UploadPayload(
+                    content=image_bytes,
+                    filename=f"{record_id}.png",
+                    mime_type="image/png",
+                    object_key=f"image_gen/{record_id}.png",
+                )
+            )
+            storage_ms = int((time.perf_counter() - t0) * 1000)
+            params_with_timing = {
+                "size": size, "n": n, "quality": quality, "requested_model": requested_model,
+                "timing": {"gen_ms": gen_ms, "storage_ms": storage_ms},
+            }
+            db.query(ImageGenHistory).filter(
+                ImageGenHistory.record_id == record_id,
+                ImageGenHistory.status == "success",
+            ).update(
+                {
+                    "latency_ms": gen_ms + storage_ms,
+                    "params_json": json.dumps(params_with_timing, ensure_ascii=False),
+                    "storage_provider": storage_result.provider,
+                    "storage_key": storage_result.object_key,
+                    "public_url": storage_result.public_url,
+                },
+                synchronize_session=False,
+            )
+            db.commit()
+            _log.info(
+                "image_gen agent task %s storage done: storage=%dms url=%s",
+                record_id, storage_ms, storage_result.public_url,
+            )
+        except Exception:
+            _log.warning("image_gen agent task %s background storage failed", record_id, exc_info=True)
         finally:
             db.close()
 
