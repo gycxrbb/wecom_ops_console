@@ -67,16 +67,25 @@ def serialize_folder(folder: models.AssetFolder, asset_count: int = 0, child_cou
 
 @router.get('')
 def list_folders(request: Request, db: Session = Depends(get_db)):
-    get_user_or_401(request, db)
+    user = get_user_or_401(request, db)
     ensure_system_folders(db)
-    folders = db.query(models.AssetFolder).order_by(models.AssetFolder.sort_order, models.AssetFolder.id).all()
+    folder_owner_filter = (models.AssetFolder.owner_id == user.id) | (models.AssetFolder.owner_id.is_(None))
+    material_owner_filter = (models.Material.owner_id == user.id) | (models.Material.owner_id.is_(None))
+    folders = (
+        db.query(models.AssetFolder)
+        .filter(folder_owner_filter)
+        .order_by(models.AssetFolder.sort_order, models.AssetFolder.id)
+        .all()
+    )
     counts = dict(
         db.query(models.Material.folder_id, func.count(models.Material.id))
+        .filter(material_owner_filter)
         .group_by(models.Material.folder_id)
         .all()
     )
     child_counts = dict(
         db.query(models.AssetFolder.parent_id, func.count(models.AssetFolder.id))
+        .filter(folder_owner_filter)
         .group_by(models.AssetFolder.parent_id)
         .all()
     )
@@ -122,6 +131,8 @@ def rename_folder(folder_id: int, body: FolderRename, request: Request, db: Sess
         raise HTTPException(404, '文件夹不存在')
     if is_system_folder(folder):
         raise HTTPException(400, '系统文件夹不支持重命名')
+    if folder.owner_id is not None and folder.owner_id != user.id:
+        raise HTTPException(403, '无权操作该文件夹')
     name = body.name.strip()
     if not name:
         raise HTTPException(400, '文件夹名称不能为空')
@@ -149,6 +160,8 @@ def delete_folder(folder_id: int, request: Request, db: Session = Depends(get_db
         raise HTTPException(404, '文件夹不存在')
     if is_system_folder(folder):
         raise HTTPException(400, '系统文件夹不支持删除')
+    if folder.owner_id is not None and folder.owner_id != user.id:
+        raise HTTPException(403, '无权操作该文件夹')
     count = db.query(func.count(models.Material.id)).filter(models.Material.folder_id == folder_id).scalar()
     if count > 0:
         raise HTTPException(400, f'该文件夹下还有 {count} 个素材，请先移动或删除')
@@ -170,6 +183,8 @@ def move_folder(folder_id: int, body: FolderMove, request: Request, db: Session 
         raise HTTPException(404, '文件夹不存在')
     if is_system_folder(folder):
         raise HTTPException(400, '系统文件夹不支持移动')
+    if folder.owner_id is not None and folder.owner_id != user.id:
+        raise HTTPException(403, '无权操作该文件夹')
 
     parent_id = body.parent_id
     if parent_id == folder_id:
@@ -180,6 +195,8 @@ def move_folder(folder_id: int, body: FolderMove, request: Request, db: Session 
         parent = db.query(models.AssetFolder).filter(models.AssetFolder.id == parent_id).first()
         if not parent:
             raise HTTPException(404, '目标父文件夹不存在')
+        if parent.owner_id is not None and parent.owner_id != user.id:
+            raise HTTPException(403, '无权移动到该文件夹')
         cursor = parent
         while cursor is not None:
             if cursor.id == folder_id:

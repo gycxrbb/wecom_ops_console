@@ -700,6 +700,20 @@ async def _perform_job_send_inner(db: Session, schedule: models.Schedule, run_mo
 def get_user_or_401(request: Request, db: Session):
     return get_current_user(request, db)
 
+
+def visible_material_filter(query, user):
+    """列表查询过滤：仅返回本人或系统级(owner_id 为空)素材，admin 不例外。"""
+    return query.filter((models.Material.owner_id == user.id) | (models.Material.owner_id.is_(None)))
+
+
+def assert_can_write_material(user, material):
+    """写操作鉴权：仅 owner 可改自己的素材；系统级(owner_id 为空)素材仅 admin 可改。"""
+    if material.owner_id == user.id:
+        return
+    if material.owner_id is None and user.role == 'admin':
+        return
+    raise HTTPException(403, '无权操作该素材')
+
 @router.get('/health')
 def health_check(db: Session = Depends(get_db)):
     """无需鉴权的健康检查端点，供 Docker healthcheck / 监控使用。"""
@@ -831,8 +845,11 @@ def delete_template(template_id: int, request: Request, db: Session = Depends(ge
 
 @router.get('/assets')
 def list_assets(request: Request, folder_id: str = None, db: Session = Depends(get_db)):
-    get_user_or_401(request, db)
-    query = db.query(models.Material).filter(models.Material.enabled == 1).order_by(models.Material.id.desc())
+    user = get_user_or_401(request, db)
+    require_permission(user, 'asset')
+    query = db.query(models.Material).filter(models.Material.enabled == 1)
+    query = visible_material_filter(query, user)
+    query = query.order_by(models.Material.id.desc())
     if folder_id == 'uncategorized':
         query = query.filter(models.Material.folder_id == None)
     elif folder_id is not None and folder_id.isdigit():
@@ -959,20 +976,24 @@ async def upload_asset(request: Request, file: UploadFile = File(...), folder_id
 
 @router.get('/assets/{asset_id}/download')
 def download_asset(asset_id: int, request: Request, db: Session = Depends(get_db)):
-    get_user_or_401(request, db)
+    user = get_user_or_401(request, db)
     asset = db.query(models.Material).filter(models.Material.id == asset_id).first()
     if not asset:
         raise HTTPException(404, '资产不存在')
+    if asset.owner_id not in (user.id, None):
+        raise HTTPException(403, '无权访问该素材')
     payload = storage_facade.download_bytes(build_storage_result_from_material(asset))
     headers = {'Content-Disposition': f'attachment; filename="{asset.name}"'}
     return StreamingResponse(BytesIO(payload), media_type=asset.mime_type, headers=headers)
 
 @router.get('/assets/{asset_id}/preview')
 def preview_asset(asset_id: int, request: Request, db: Session = Depends(get_db)):
-    get_user_or_401(request, db)
+    user = get_user_or_401(request, db)
     asset = db.query(models.Material).filter(models.Material.id == asset_id).first()
     if not asset:
         raise HTTPException(404, '资产不存在')
+    if asset.owner_id not in (user.id, None):
+        raise HTTPException(403, '无权访问该素材')
     if asset.material_type != 'image':
         raise HTTPException(400, '当前素材不支持图片预览')
     payload = storage_facade.download_bytes(build_storage_result_from_material(asset))
@@ -986,6 +1007,7 @@ def delete_asset(asset_id: int, request: Request, db: Session = Depends(get_db))
     asset = db.query(models.Material).filter(models.Material.id == asset_id).first()
     if not asset:
         raise HTTPException(404, '资产不存在')
+    assert_can_write_material(user, asset)
     try:
         storage_facade.delete(build_storage_result_from_material(asset))
         asset.deleted_from_storage_at = datetime.utcnow()
@@ -1023,6 +1045,7 @@ async def rename_asset(asset_id: int, request: Request, db: Session = Depends(ge
     asset = db.query(models.Material).filter(models.Material.id == asset_id).first()
     if not asset:
         raise HTTPException(404, '素材不存在')
+    assert_can_write_material(user, asset)
     body = await request.json()
     name = str(body.get('name', '')).strip()
     if not name:
@@ -1040,6 +1063,7 @@ async def update_asset_tags(asset_id: int, request: Request, db: Session = Depen
     asset = db.query(models.Material).filter(models.Material.id == asset_id).first()
     if not asset:
         raise HTTPException(404, '素材不存在')
+    assert_can_write_material(user, asset)
     body = await request.json()
     tags = body.get('tags', [])
     if not isinstance(tags, list):
@@ -1052,16 +1076,20 @@ async def update_asset_tags(asset_id: int, request: Request, db: Session = Depen
 
 @router.patch('/assets/{asset_id}/move')
 async def move_asset(asset_id: int, request: Request, db: Session = Depends(get_db)):
-    get_user_or_401(request, db)
+    user = get_user_or_401(request, db)
+    require_permission(user, 'asset')
     asset = db.query(models.Material).filter(models.Material.id == asset_id).first()
     if not asset:
         raise HTTPException(404, '素材不存在')
+    assert_can_write_material(user, asset)
     body = await request.json()
     folder_id = body.get('folder_id')
     if folder_id is not None:
         folder = db.query(models.AssetFolder).filter(models.AssetFolder.id == int(folder_id)).first()
         if not folder:
             raise HTTPException(404, '文件夹不存在')
+        if folder.owner_id is not None and folder.owner_id != user.id:
+            raise HTTPException(403, '无权移动到该文件夹')
     asset.folder_id = int(folder_id) if folder_id is not None else None
     db.commit()
     return serialize_material(asset)
@@ -1074,6 +1102,7 @@ async def update_asset_rag_meta(asset_id: int, request: Request, db: Session = D
     asset = db.query(models.Material).filter(models.Material.id == asset_id).first()
     if not asset:
         raise HTTPException(404, '素材不存在')
+    assert_can_write_material(user, asset)
     body = await request.json()
     from ..schemas.material_rag import RagMetaUpdate
     rag_data = RagMetaUpdate(**body)
