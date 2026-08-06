@@ -4,8 +4,9 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
+from app import models
 from app.database import get_db
 from app.security import create_access_token, get_current_user
 
@@ -27,11 +28,12 @@ def issue_image_gen_token(request: Request, db: Session = Depends(get_db)):
     return {"token": token}
 
 
-def _to_out(row) -> dict:
+def _to_out(row, operator_name: str = "") -> dict:
     return {
         "id": row.id,
         "record_id": row.record_id,
         "operator_user_id": row.operator_user_id,
+        "operator_name": operator_name,
         "customer_id": row.customer_id,
         "mode": row.mode,
         "prompt": row.prompt,
@@ -51,25 +53,39 @@ def list_history(
     request: Request,
     db: Session = Depends(get_db),
     customer_id: int | None = Query(None),
+    operator_user_id: int | None = Query(None),
     mode: str | None = Query(None),
     status: str | None = Query(None),
+    date_from: datetime | None = Query(None),
+    date_to: datetime | None = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ):
     user = get_current_user(request, db)
-    # 用户隔离：非管理员只能看自己的生图历史；管理员（ImageGenAdmin 审计）可看全部
-    operator_user_id = None if getattr(user, "role", None) == "admin" else user.id
+    # 用户隔离：非管理员强制只看自己；管理员可看全部，或通过 operator_user_id 筛某人
+    if getattr(user, "role", None) == "admin":
+        effective_operator = operator_user_id
+    else:
+        effective_operator = user.id
     rows, total = history_service.list_history(
         db,
         customer_id=customer_id,
         mode=mode,
         status=status,
-        operator_user_id=operator_user_id,
+        operator_user_id=effective_operator,
+        date_from=date_from,
+        date_to=date_to,
         page=page,
         page_size=page_size,
     )
+    # 批量预取操作者显示名，避免逐行 join
+    op_ids = {r.operator_user_id for r in rows if r.operator_user_id}
+    op_map: dict[int, str] = {}
+    if op_ids:
+        users = db.query(models.User).filter(models.User.id.in_(op_ids)).all()
+        op_map = {u.id: u.display_name or u.username for u in users}
     return {
-        "items": [_to_out(r) for r in rows],
+        "items": [_to_out(r, op_map.get(r.operator_user_id, "")) for r in rows],
         "total": total,
         "page": page,
         "page_size": page_size,

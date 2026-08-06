@@ -11,6 +11,7 @@ import json
 import logging
 import time
 import uuid
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -153,6 +154,8 @@ def list_history(
     mode: str | None = None,
     status: str | None = None,
     operator_user_id: int | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
     page: int = 1,
     page_size: int = 20,
 ) -> tuple[list[ImageGenHistory], int]:
@@ -165,6 +168,10 @@ def list_history(
         q = q.filter(ImageGenHistory.status == status)
     if operator_user_id is not None:
         q = q.filter(ImageGenHistory.operator_user_id == operator_user_id)
+    if date_from is not None:
+        q = q.filter(ImageGenHistory.created_at >= date_from)
+    if date_to is not None:
+        q = q.filter(ImageGenHistory.created_at <= date_to)
     total = q.count()
     rows = (
         q.order_by(ImageGenHistory.created_at.desc())
