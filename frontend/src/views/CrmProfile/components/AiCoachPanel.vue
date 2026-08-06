@@ -202,7 +202,7 @@
               <el-icon class="is-loading" :size="26"><Loading /></el-icon>
               <span>正在加载生图工作台…</span>
             </div>
-            <iframe v-if="imageGenSrc" :src="imageGenSrc" class="ai-image-gen-iframe" frameborder="0" allow="clipboard-write" @load="imageGenLoaded = true" />
+            <iframe v-if="imageGenSrc" :src="imageGenSrc" class="ai-image-gen-iframe" frameborder="0" allow="clipboard-write" @load="onImageGenLoad" />
           </div>
           <!-- Drop zone overlay -->
           <transition name="ai-drop-fade">
@@ -650,8 +650,13 @@ const imageGenSrc = computed(() => {
     embedMode: 'true',      // 触发 playground 自动 hybrid（text/image 双生同指向代理，后端按端点路由）
   })
   if (props.customerId) params.set('cid', String(props.customerId))
+  // 传入当前用户名，playground 显示用户消息时用（替代硬编码"用户"）
+  const loginUser = useUserStore().user
+  const imageGenUserName = loginUser?.display_name || loginUser?.username || ''
+  if (imageGenUserName) params.set('userName', imageGenUserName)
   return `/image-gen/index.html?${params.toString()}`
 })
+let imageGenLoadTimer: ReturnType<typeof setTimeout> | null = null
 watch(() => sidebarTab.value, async (tab) => {
   if (tab === 'image-gen') {
     imageGenLoaded.value = false // 重置加载态，显示加载动画直到 iframe onLoad
@@ -662,8 +667,15 @@ watch(() => sidebarTab.value, async (tab) => {
         if (res?.token) imageGenToken.value = res.token
       } catch { /* token 获取失败则不渲染 iframe */ }
     }
+    // 超时兜底：iframe 切走再切回时 onLoad 可能不重新触发，2.5s 后强制隐藏 loading，避免卡死
+    if (imageGenLoadTimer) clearTimeout(imageGenLoadTimer)
+    imageGenLoadTimer = setTimeout(() => { imageGenLoaded.value = true }, 2500)
   }
 })
+function onImageGenLoad() {
+  if (imageGenLoadTimer) { clearTimeout(imageGenLoadTimer); imageGenLoadTimer = null }
+  imageGenLoaded.value = true
+}
 // 接收 playground iframe 的 postMessage：全屏/关闭按钮在嵌入的 playground 模式栏里，父页控制 overlay
 function onImageGenEmbedMessage(e: MessageEvent) {
   if (e?.data?.type === 'image-gen-embed') {
@@ -673,11 +685,11 @@ function onImageGenEmbedMessage(e: MessageEvent) {
 }
 onMounted(() => {
   window.addEventListener('message', onImageGenEmbedMessage)
-  // 预取 token + 空闲预热 playground：点「图片生成」时资源已就绪、秒开
-  // （代价：每个客户档案多 ~300KB 预加载；token 24h，长会话过期需重进客户档案刷新）
+  // 预取 token + 立即预热 playground（隐藏 1x1 iframe 后台加载 JS bundle，不阻塞客户档案首屏渲染）
+  // JS 跨客户档案走 HTTP 缓存，仅首次 ~300KB；用户点「图片生成」时 JS 已缓存，秒开
+  // （原 requestIdleCallback fallback 1500ms 太晚，点 tab 时 JS 还没缓存会首次下载 2-3s）
   request.get('/v1/image-gen/token').then((res: any) => { if (res?.token) imageGenToken.value = res.token }).catch(() => {})
-  const scheduleIdle = (window as any).requestIdleCallback || ((cb: () => void) => window.setTimeout(cb, 1500))
-  scheduleIdle(() => { imageGenWarmup.value = true })
+  imageGenWarmup.value = true
 })
 onBeforeUnmount(() => window.removeEventListener('message', onImageGenEmbedMessage))
 
@@ -1371,6 +1383,6 @@ const onDeleteSession = async (targetSessionId: string) => {
 .ai-image-gen-overlay__title { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; }
 .ai-image-gen-iframe { flex: 1 1 auto; width: 100%; border: 0; background: #fff; }
 .ai-image-gen-overlay__actions { display: inline-flex; align-items: center; gap: 2px; }
-.ai-image-gen-loading { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--el-text-color-secondary, #909399); font-size: 14px; }
+.ai-image-gen-loading { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--el-text-color-secondary, #909399); font-size: 14px; background: var(--el-bg-color, #fff); z-index: 2; }
 .ai-image-gen-warmup { position: absolute; width: 1px; height: 1px; border: 0; left: -9999px; top: -9999px; visibility: hidden; pointer-events: none; }
 </style>

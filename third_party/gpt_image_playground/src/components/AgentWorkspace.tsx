@@ -109,7 +109,25 @@ function getPageScrollTop() {
   return window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0
 }
 
+// running round 的阶段文案：根据 responseOutput 里的 function_call 推断 agent 当前在干什么，让教练知道它没卡死
+function describeRunningAgentAction(responseOutput: AgentRound['responseOutput']): string {
+  const items = (responseOutput ?? []) as Array<{ type?: string; name?: string; call_id?: string }>
+  const profileCall = items.find((it) => it.type === 'function_call' && it.name === 'get_customer_profile')
+  if (profileCall) {
+    const hasOutput = items.some((it) => it.type === 'function_call_output' && it.call_id === profileCall.call_id)
+    return hasOutput ? '已读取客户画像，正在构思…' : '正在读取客户画像…'
+  }
+  const imageCall = items.find((it) => it.type === 'function_call' && (it.name === 'generate_image' || it.name === 'generate_image_batch'))
+  if (imageCall) {
+    const hasOutput = items.some((it) => it.type === 'function_call_output' && it.call_id === imageCall.call_id)
+    return hasOutput ? '正在生成图片…' : '正在准备生图…'
+  }
+  return ''
+}
+
 export default function AgentWorkspace() {
+  // 嵌入模式下父页通过 URL ?userName= 传入当前用户名，替代硬编码"用户"
+  const embedUserName = typeof window !== 'undefined' ? (new URLSearchParams(window.location.search).get('userName')?.trim() || '我') : '我'
   const conversations = useStore((s) => s.agentConversations)
   const conversationsLoaded = useStore((s) => s.agentConversationsLoaded)
   const activeConversationId = useStore((s) => s.activeAgentConversationId)
@@ -734,7 +752,7 @@ export default function AgentWorkspace() {
               }}
               className="text-sm font-semibold text-gray-700 dark:text-gray-300 truncate flex-1 text-center px-2 hover:bg-gray-100 dark:hover:bg-white/[0.04] rounded transition-colors"
             >
-              {conversation?.title || 'Agent'}
+              {conversation?.title || '生图助手'}
             </button>
             <button type="button" onClick={createConversation} className="p-2 text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/[0.04] rounded-lg transition-colors" title="新对话">
               <EditIcon className="w-5 h-5" />
@@ -800,7 +818,7 @@ export default function AgentWorkspace() {
                       >
                     <div className="mb-2 flex items-center justify-between gap-4 text-sm text-gray-500 dark:text-gray-400">
                       <span className="font-medium">
-                         <span className={isAssistant ? 'text-blue-600 dark:text-blue-400 font-semibold' : 'text-gray-700 dark:text-gray-200 font-semibold'}>{isAssistant ? 'Agent' : '用户'}</span> <span className="opacity-60 font-normal ml-1">· 第 {round?.index ?? '?'} 轮</span>
+                         <span className={isAssistant ? 'text-blue-600 dark:text-blue-400 font-semibold' : 'text-gray-700 dark:text-gray-200 font-semibold'}>{isAssistant ? '生图助手' : embedUserName}</span>
                       </span>
                     </div>
                     
@@ -853,7 +871,7 @@ export default function AgentWorkspace() {
                           <>
                             {assistantBlocks.length > 0 ? assistantBlocks.map((block, index) => {
                               if (block.type === 'web-search') return <AgentWebSearchStatusLines key={block.key} statuses={[block.status]} />
-                              if (block.type === 'text') return <div key={block.key} className={index > 0 ? 'mt-3' : undefined}><MarkdownRenderer content={block.content ?? message.content} streaming={isStreamingAssistant} /></div>
+                              if (block.type === 'text') return <div key={block.key} className={index > 0 ? 'mt-3' : undefined}><MarkdownRenderer content={(block.content ?? message.content).replace(/<[A-Z0-9_]*_DONE>/g, '').trim()} streaming={isStreamingAssistant} /></div>
                               if (block.type === 'batch-params') {
                                 return (
                                   <div key={block.key} className={index > 0 ? 'mt-3' : undefined}>
@@ -1012,15 +1030,17 @@ export default function AgentWorkspace() {
               return (
                 <>
                   {renderedMessages}
-                  {runningRounds.map((round) => (
+                  {runningRounds.map((round) => {
+                    const actionText = describeRunningAgentAction(round.responseOutput)
+                    return (
                     <div key={`running-${round.id}`} className="flex w-full justify-start mb-6">
                       <article className="flex min-w-[16rem] max-w-[95%] flex-col rounded-2xl rounded-tl-sm border border-gray-200 bg-white/70 p-4 dark:border-white/[0.08] dark:bg-white/[0.03] md:max-w-[85%] lg:max-w-[75%]">
                         <div className="mb-2 text-sm text-gray-500 dark:text-gray-400">
-                          <span className="text-blue-600 dark:text-blue-400 font-semibold">Agent</span> <span className="ml-1 font-normal opacity-60">· 第 {round.index} 轮</span>
+                          <span className="text-blue-600 dark:text-blue-400 font-semibold">生图助手</span>
                         </div>
                         <div className="flex items-center gap-3 text-sm text-gray-500 dark:text-gray-400">
                           <span className="inline-flex items-center gap-1.5">
-                            <span>正在生成回复</span>
+                            <span>{actionText || '生图助手正在思考…'}</span>
                             <span className="flex gap-1">
                               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current" />
                               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current [animation-delay:150ms]" />
@@ -1030,7 +1050,8 @@ export default function AgentWorkspace() {
                         </div>
                       </article>
                     </div>
-                  ))}
+                  )
+                  })}
                 </>
               )
             })()

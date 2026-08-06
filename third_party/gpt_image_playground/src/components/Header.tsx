@@ -148,7 +148,7 @@ export default function Header() {
                 }}
                 className="text-sm font-semibold text-gray-700 dark:text-gray-300 truncate hover:bg-gray-100 dark:hover:bg-white/[0.04] px-2 py-1 rounded transition-colors"
               >
-                {activeConversation.title || 'Agent'}
+                {activeConversation.title || '生图助手'}
               </button>
             </div>
           )}
