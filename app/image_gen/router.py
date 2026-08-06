@@ -10,6 +10,10 @@ from app.route_helper import UnifiedResponseRoute
 
 from .routers import agent as agent_router
 from .routers import history as history_router
+from .routers import playground_assets as playground_assets_router
+from .routers import playground_conversations as playground_conversations_router
+from .routers import playground_history as playground_history_router
+from .routers import playground_tasks as playground_tasks_router
 from .routers import prompts as prompts_router
 from .routers import providers as providers_router
 from .routers import proxy as proxy_router
@@ -29,6 +33,10 @@ raw_proxy = APIRouter(
     tags=["image-gen-proxy"],
 )
 raw_proxy.include_router(proxy_router.router)
+raw_proxy.include_router(playground_history_router.router)
+raw_proxy.include_router(playground_conversations_router.router)
+raw_proxy.include_router(playground_tasks_router.router)
+raw_proxy.include_router(playground_assets_router.router)
 
 # agent 辅助端点（playground fetch 调用，裸 JSON，不包装）：customer-profile / history-callback
 raw_api = APIRouter(

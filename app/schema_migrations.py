@@ -554,6 +554,22 @@ def ensure_image_gen_agent_model_column(engine: Engine) -> None:
         conn.execute(text("ALTER TABLE image_gen_providers ADD COLUMN agent_model VARCHAR(128)"))
 
 
+def ensure_image_gen_provider_purpose(engine: Engine) -> None:
+    """image_gen_providers 加 purpose 列（image_only | chat_only | dual），并回填老数据。
+
+    配了 agent_model 的 provider 视为 dual（既能生图又能跑 agent）；其余默认 image_only。
+    生图/对话路由按 purpose 过滤，避免 failover 打到对话专用渠道。
+    """
+    _add_columns_if_missing(engine, "image_gen_providers", {"purpose": "VARCHAR(16) NOT NULL DEFAULT 'image_only'"})
+    # 回填：配了 agent_model 的视为 dual（保持老语义"可跑 agent"= 双用）
+    with engine.begin() as conn:
+        conn.execute(text(
+            "UPDATE image_gen_providers SET purpose = 'dual' "
+            "WHERE agent_model IS NOT NULL AND agent_model <> '' "
+            "AND (purpose IS NULL OR purpose = 'image_only')"
+        ))
+
+
 def ensure_image_gen_history_task_columns(engine: Engine) -> None:
     """image_gen_history 加 updated_at + image_b64 列，支撑 agent 生图任务化(running 状态 + 刷新后回查 b64)。
 
@@ -1033,6 +1049,77 @@ def ensure_crm_ai_invocation_schema(engine: Engine) -> None:
             _ensure_named_index(conn, "crm_ai_guardrail_events", "ix_crm_ai_guardrails_call_id", ("call_id",))
         if "rag_retrieval_logs" in existing_tables:
             _ensure_named_index(conn, "rag_retrieval_logs", "ix_rag_retrieval_logs_call_id", ("call_id",))
+
+
+def ensure_playground_schema(engine: Engine) -> None:
+    """Create playground_conversations / playground_tasks / playground_assets tables.
+
+    playground 对话/任务/图片上云用（借鉴 CrmAiSession 范式）。data_json 在 MySQL 下
+    提升为 LONGTEXT，避免长对话（rounds+messages）超 TEXT 64KB。索引统一在此建（ORM 模型
+    不写 index/unique，避免 create_all 与本函数建出同名/异名重复索引）。
+    """
+    is_mysql = engine.dialect.name.lower() == "mysql"
+    text_type = "LONGTEXT" if is_mysql else "TEXT"
+    autoincrement_kw = "AUTO_INCREMENT" if is_mysql else "AUTOINCREMENT"
+    with engine.begin() as conn:
+        conn.execute(text(f"""
+            CREATE TABLE IF NOT EXISTS playground_conversations (
+                id INTEGER PRIMARY KEY {autoincrement_kw},
+                conversation_id VARCHAR(64) NOT NULL,
+                owner_user_id INTEGER NOT NULL,
+                title VARCHAR(256) NOT NULL DEFAULT '',
+                auto_title VARCHAR(256),
+                data_json {text_type} NOT NULL,
+                last_active_at DATETIME,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                deleted_at DATETIME
+            )
+        """))
+        conn.execute(text(f"""
+            CREATE TABLE IF NOT EXISTS playground_tasks (
+                id INTEGER PRIMARY KEY {autoincrement_kw},
+                task_id VARCHAR(64) NOT NULL,
+                owner_user_id INTEGER NOT NULL,
+                conversation_id VARCHAR(64),
+                data_json {text_type} NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS playground_assets (
+                image_id VARCHAR(64) PRIMARY KEY,
+                owner_user_id INTEGER NOT NULL,
+                source VARCHAR(16) NOT NULL DEFAULT 'upload',
+                object_key VARCHAR(255) NOT NULL DEFAULT '',
+                public_url VARCHAR(512) NOT NULL DEFAULT '',
+                thumb_url VARCHAR(512) NOT NULL DEFAULT '',
+                width INTEGER DEFAULT 0,
+                height INTEGER DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+
+    # ORM create_all 可能已用 TEXT 建表，MySQL 下把 data_json 提升为 LONGTEXT（幂等）
+    if is_mysql:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE playground_conversations MODIFY COLUMN data_json LONGTEXT NOT NULL"))
+            conn.execute(text("ALTER TABLE playground_tasks MODIFY COLUMN data_json LONGTEXT NOT NULL"))
+
+    inspector = inspect(engine)
+    existing_tables = inspector.get_table_names()
+    idx_specs = [
+        ("ux_playground_conversations_cid", "playground_conversations", ("conversation_id",), True),
+        ("ix_playground_conversations_owner_active", "playground_conversations", ("owner_user_id", "last_active_at"), False),
+        ("ux_playground_tasks_tid", "playground_tasks", ("task_id",), True),
+        ("ix_playground_tasks_owner_created", "playground_tasks", ("owner_user_id", "created_at"), False),
+        ("ix_playground_tasks_conv", "playground_tasks", ("conversation_id",), False),
+        ("ix_playground_assets_owner_created", "playground_assets", ("owner_user_id", "created_at"), False),
+    ]
+    with engine.begin() as conn:
+        for idx_name, table, columns, unique in idx_specs:
+            if table in existing_tables:
+                _ensure_named_index(conn, table, idx_name, columns, unique=unique)
 
 
 def _add_columns_if_missing(engine: Engine, table_name: str, column_specs: dict[str, str]) -> None:

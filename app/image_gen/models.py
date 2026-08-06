@@ -30,6 +30,9 @@ class ImageGenProvider(Base):
     agent_model: Mapped[Optional[str]] = mapped_column(
         String(128), nullable=True, comment="agent /responses 推理模型；空=仅图片，不参与 agent"
     )
+    purpose: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="image_only", comment="image_only | chat_only | dual"
+    )
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0, comment="小优先")
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=1500)
@@ -95,3 +98,53 @@ class ImageGenPrompt(Base):
     )
 
     __table_args__ = (Index("idx_image_gen_prompts_scope", "scope", "enabled"),)
+
+
+class PlaygroundConversation(Base):
+    """playground agent 对话（整条文档化存储，借鉴 CrmAiSession）。
+
+    data_json 存整个 AgentConversation（rounds+messages，image 仅存 id 引用）；
+    schema_migrations 保证 MySQL 下 data_json 为 LONGTEXT，避免长对话超 TEXT 64KB。
+    """
+
+    __tablename__ = "playground_conversations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    conversation_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    owner_user_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    auto_title: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
+    data_json: Mapped[str] = mapped_column(Text, nullable=False)
+    last_active_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+
+class PlaygroundTask(Base):
+    """playground 生图任务（直出 + agent），整条 TaskRecord 文档化存储。"""
+
+    __tablename__ = "playground_tasks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    task_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    owner_user_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    conversation_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    data_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now())
+
+
+class PlaygroundAsset(Base):
+    """playground 图片资产（image_id(hash) ↔ 七牛 URL 映射）。P4 图片上云启用。"""
+
+    __tablename__ = "playground_assets"
+
+    image_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_user_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    source: Mapped[str] = mapped_column(String(16), nullable=False, default="upload")
+    object_key: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    public_url: Mapped[str] = mapped_column(String(512), nullable=False, default="")
+    thumb_url: Mapped[str] = mapped_column(String(512), nullable=False, default="")
+    width: Mapped[int] = mapped_column(Integer, default=0)
+    height: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now())

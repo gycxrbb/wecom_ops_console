@@ -87,8 +87,20 @@ export async function ensureImageCached(id: string): Promise<string | undefined>
   if (cached) return cached
   const rec = await getImage(id)
   if (rec) {
-    cacheImage(id, rec.dataUrl)
-    return rec.dataUrl
+    const url = rec.url || rec.dataUrl
+    cacheImage(id, url)
+    return url
+  }
+  // 本地 miss（重启/清缓存）→ 查后端 url（图片已上云）
+  try {
+    const { getServerAssetUrl } = await import('./serverStorage')
+    const asset = await getServerAssetUrl(id)
+    if (asset?.public_url) {
+      cacheImage(id, asset.public_url)
+      return asset.public_url
+    }
+  } catch {
+    // 后端不可达时静默
   }
   return undefined
 }
@@ -98,19 +110,39 @@ export async function ensureImageThumbnailCached(id: string): Promise<ImageThumb
   if (cached) return cached
 
   const rec = await getStoredFreshImageThumbnail(id)
-  if (!rec?.thumbnailDataUrl) {
-    scheduleThumbnailBackfill([id], 'visible')
-    return undefined
+  if (rec?.thumbnailDataUrl) {
+    const thumbnail = {
+      dataUrl: rec.thumbnailDataUrl,
+      width: rec.width,
+      height: rec.height,
+      thumbnailVersion: rec.thumbnailVersion,
+    }
+    cacheThumbnail(id, thumbnail)
+    return thumbnail
   }
 
-  const thumbnail = {
-    dataUrl: rec.thumbnailDataUrl,
-    width: rec.width,
-    height: rec.height,
-    thumbnailVersion: rec.thumbnailVersion,
+  // 本地 canvas 缩略图 miss：查图片是否已上云（url），有则用 url 作缩略图（原图，浏览器缩放显示）
+  try {
+    let url: string | undefined
+    const image = await getImage(id)
+    if (image?.url) url = image.url
+    if (!url) {
+      const { getServerAssetUrl } = await import('./serverStorage')
+      const asset = await getServerAssetUrl(id)
+      url = asset?.public_url
+    }
+    if (url) {
+      const thumbnail: ImageThumbnail = { dataUrl: url, thumbnailVersion: CURRENT_THUMBNAIL_VERSION }
+      cacheThumbnail(id, thumbnail)
+      return thumbnail
+    }
+  } catch {
+    // 后端不可达时静默
   }
-  cacheThumbnail(id, thumbnail)
-  return thumbnail
+
+  // 本地 + 后端都 miss：调度后台 canvas 生成缩略图（原逻辑）
+  scheduleThumbnailBackfill([id], 'visible')
+  return undefined
 }
 
 export function subscribeImageThumbnail(id: string, callback: (thumbnail: ImageThumbnail) => void) {

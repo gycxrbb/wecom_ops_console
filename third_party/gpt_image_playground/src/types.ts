@@ -303,6 +303,8 @@ export interface AgentConversation {
 export interface StoredImage {
   id: string
   dataUrl: string
+  /** 七牛 URL（上云后；显示侧优先用此，dataUrl 作本地缓存/Canvas 兜底） */
+  url?: string
   /** 图片首次存储时间（ms） */
   createdAt?: number
   /** 图片来源：用户上传 / API 生成 / 遮罩 */

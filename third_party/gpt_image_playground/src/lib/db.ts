@@ -264,6 +264,8 @@ export async function storeImage(dataUrl: string, source: NonNullable<StoredImag
 
 export async function storeImageWithSize(dataUrl: string, source: NonNullable<StoredImage['source']> = 'upload'): Promise<StoreImageResult> {
   const id = await hashDataUrl(dataUrl)
+  // 异步上云（脱离 base64）：不阻塞本地持久化/显示，失败静默
+  void uploadImageToCloud(id, dataUrl, source)
   const existing = await getImage(id)
   if (!existing) {
     const thumbnail = await safeCreateImageThumbnail(dataUrl)
@@ -344,5 +346,22 @@ async function safeCreateImageThumbnail(dataUrl: string): Promise<Partial<Omit<S
     return await createImageThumbnail(dataUrl)
   } catch {
     return {}
+  }
+}
+
+/** 把图片异步上传到七牛（脱离 base64），成功后回写 image.url 并刷新内存缓存。 */
+async function uploadImageToCloud(id: string, dataUrl: string, source: NonNullable<StoredImage['source']>): Promise<void> {
+  try {
+    const { ensureServerAsset } = await import('./serverStorage')
+    const url = await ensureServerAsset(id, dataUrl, source)
+    if (!url) return
+    const rec = await getImage(id)
+    if (rec && !rec.url) {
+      await putImage({ ...rec, url })
+      const { cacheImage } = await import('./imageCache')
+      cacheImage(id, url)
+    }
+  } catch (e) {
+    console.warn('upload image to cloud failed', e)
   }
 }

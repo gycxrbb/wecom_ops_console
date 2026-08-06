@@ -972,6 +972,13 @@ async function flushAgentConversationsToIndexedDB() {
       await replaceStoredAgentConversations(conversations)
       lastStoredAgentConversations = conversations
     } while (agentConversationPersistQueued || useStore.getState().agentConversations !== lastStoredAgentConversations)
+    // flush 到 IndexedDB 后，触发后端增量同步（debounce 1s，diff upsert/delete）
+    try {
+      const { scheduleServerSync } = await import('./lib/serverStorage')
+      scheduleServerSync()
+    } catch {
+      // serverStorage 不可用时静默，不影响本地持久化
+    }
   } finally {
     agentConversationPersistRunning = false
   }
@@ -984,6 +991,21 @@ useStore.subscribe((state) => {
     return
   }
   void flushAgentConversationsToIndexedDB()
+})
+
+// tasks 变化 → debounce 同步后端（playground 任务上云）
+let lastSyncedTasksRef = useStore.getState().tasks
+useStore.subscribe((state) => {
+  if (state.tasks === lastSyncedTasksRef) return
+  lastSyncedTasksRef = state.tasks
+  void (async () => {
+    try {
+      const { scheduleServerTaskSync } = await import('./lib/serverStorage')
+      scheduleServerTaskSync()
+    } catch {
+      // serverStorage 不可用时静默
+    }
+  })()
 })
 
 // ===== Actions =====
@@ -1390,11 +1412,39 @@ async function recoverFalTask(taskId: string) {
 /** 初始化：从 IndexedDB 加载任务，按需恢复输入图片，并清理孤立图片 */
 export async function initStore() {
   const legacyAgentConversations = normalizeAgentConversations(useStore.getState().agentConversations)
-  const storedTasks = await getAllTasks()
+  let storedTasks = await getAllTasks()
+  // 远端拉取任务（playground 任务上云）：合并到本地；首次上云时上传本地全部
+  try {
+    const serverStorage = await import('./lib/serverStorage')
+    const remoteTasks = await serverStorage.pullServerTasks()
+    if (remoteTasks.length > 0) {
+      const localTaskIds = new Set(storedTasks.map((t) => t.id))
+      storedTasks = [...storedTasks, ...remoteTasks.filter((t) => !localTaskIds.has(t.id))]
+    } else if (storedTasks.length > 0) {
+      // 首次上云：本地有任务但后端为空，后台全量上传（不阻塞启动）
+      void Promise.all(storedTasks.map((t) => serverStorage.upsertServerTask(t))).catch(() => {})
+    }
+  } catch (e) {
+    console.warn('playground task cloud sync init failed', e)
+  }
   const storedAgentConversations = normalizeAgentConversations(await getAllAgentConversations())
   let loadedAgentConversations = mergePersistedAgentConversations(storedAgentConversations, legacyAgentConversations)
   const currentAgentConversations = normalizeAgentConversations(useStore.getState().agentConversations)
   loadedAgentConversations = mergePersistedAgentConversations(loadedAgentConversations, currentAgentConversations)
+  // 远端拉取对话（playground 对话上云）：合并到本地；首次上云时把本地全部上传到后端
+  try {
+    const serverStorage = await import('./lib/serverStorage')
+    const remote = await serverStorage.pullServerConversations()
+    if (remote.length > 0) {
+      loadedAgentConversations = mergePersistedAgentConversations(loadedAgentConversations, remote)
+    } else if (loadedAgentConversations.length > 0) {
+      // 首次上云：本地有对话但后端为空，后台全量上传（不阻塞启动）
+      void Promise.all(loadedAgentConversations.map((c) => serverStorage.upsertServerConversation(c))).catch(() => {})
+    }
+    serverStorage.initServerSyncCache(loadedAgentConversations)
+  } catch (e) {
+    console.warn('playground conversation cloud sync init failed', e)
+  }
   const activeAgentConversationId = useStore.getState().activeAgentConversationId && loadedAgentConversations.some((conversation) => conversation.id === useStore.getState().activeAgentConversationId)
     ? useStore.getState().activeAgentConversationId
     : loadedAgentConversations[0]?.id ?? null
@@ -1440,6 +1490,13 @@ export async function initStore() {
     .filter((task, index) => normalizedFavorites.changed || interruptedTaskIds.has(task.id) || task.rawResponsePayload !== markedTasks[index]?.rawResponsePayload)
     .map((task) => putTask(task)))
   useStore.getState().setTasks(tasks)
+  // 标记当前任务为已同步，避免启动时重复上传（后续变更由 tasks subscribe 触发增量同步）
+  try {
+    const serverStorage = await import('./lib/serverStorage')
+    serverStorage.initServerTaskSyncCache(tasks)
+  } catch {
+    // serverStorage 不可用时静默
+  }
   showSupportPromptForExistingLocalData(tasks)
   for (const task of tasks) {
     if (
@@ -3841,6 +3898,10 @@ export async function deleteFavoriteCollection(collectionId: string, deleteTasks
 
 /** 重试失败的任务：创建新任务并执行 */
 export async function retryTask(task: TaskRecord) {
+  // 防重复点击：已有任务进行中则不重复提交（避免连续点击产生多个重复任务 + 多次上游生图）
+  if (useStore.getState().tasks.some((t) => t.status === 'running')) {
+    return
+  }
   const { settings } = useStore.getState()
   const activeProfile = getActiveApiProfile(settings)
   const normalizedParams = normalizeParamsForSettings(task.params, settings, { hasInputImages: task.inputImageIds.length > 0 })
@@ -3852,6 +3913,7 @@ export async function retryTask(task: TaskRecord) {
     ? createTransparentOutputMeta(task.prompt.trim())
     : null
   const taskId = genId()
+  const isAgentTask = Boolean(task.agentConversationId && task.agentRoundId)
   const newTask: TaskRecord = {
     id: taskId,
     prompt: task.prompt,
@@ -3872,11 +3934,28 @@ export async function retryTask(task: TaskRecord) {
     createdAt: Date.now(),
     finishedAt: null,
     elapsed: null,
+    // agent 模式：保留对话归属，新图挂在同一轮（否则成孤儿，agent 对话里看不到）
+    sourceMode: task.sourceMode,
+    agentConversationId: task.agentConversationId,
+    agentRoundId: task.agentRoundId,
+    agentMessageId: task.agentMessageId,
+    agentToolCallId: task.agentToolCallId,
+    agentBatchCallId: task.agentBatchCallId,
+    agentBatchItemId: task.agentBatchItemId,
+    agentToolAction: task.agentToolAction,
   }
 
   const latestTasks = useStore.getState().tasks
   useStore.getState().setTasks([newTask, ...latestTasks])
   await putTask(newTask)
+
+  // agent 模式：把新 task 挂到原轮次的 outputTaskIds，否则 AgentWorkspace 不显示
+  if (isAgentTask) {
+    updateAgentConversation(task.agentConversationId as string, (current) => ({
+      ...current,
+      rounds: current.rounds.map((r) => (r.id === task.agentRoundId ? { ...r, outputTaskIds: [...r.outputTaskIds, taskId] } : r)),
+    }))
+  }
 
   executeTask(taskId)
 }
