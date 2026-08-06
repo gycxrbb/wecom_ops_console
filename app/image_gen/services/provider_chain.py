@@ -37,6 +37,7 @@ class ProviderConfig:
     max_retries: int
     priority: int
     agent_model: str | None = None  # 配了才参与 agent /responses（用此推理模型）；None=仅图片
+    purpose: str = "image_only"  # image_only | chat_only | dual
 
 
 class NoProviderConfigured(Exception):
@@ -55,6 +56,7 @@ def _row_to_config(row: ImageGenProvider) -> ProviderConfig:
         max_retries=row.max_retries if (row.max_retries or 0) > 0 else 2,
         priority=row.priority or 0,
         agent_model=(row.agent_model or None) if hasattr(row, "agent_model") else None,
+        purpose=getattr(row, "purpose", None) or "image_only",
     )
 
 
@@ -78,3 +80,13 @@ def load_providers(db: Session, *, force: bool = False) -> list[ProviderConfig]:
 
 def invalidate_cache() -> None:
     _cache["providers"] = (0.0, [])
+
+
+def is_image_capable(p: "ProviderConfig") -> bool:
+    """该 provider 能生图（生图专用 / 双用）。生图路由用它过滤，避免 failover 打到对话专用渠道。"""
+    return p.purpose in ("image_only", "dual")
+
+
+def is_chat_capable(p: "ProviderConfig") -> bool:
+    """该 provider 能跑 agent 对话（对话专用 / 双用）。"""
+    return p.purpose in ("chat_only", "dual")

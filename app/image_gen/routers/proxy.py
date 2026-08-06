@@ -18,7 +18,7 @@ from app.security import get_current_user
 from ..schemas.proxy import ImageGenerationRequest
 from ..services.direct_orchestrator import orchestrate_direct, orchestrate_edit
 from ..services.image_client import ImageGenerationError
-from ..services.provider_chain import NoProviderConfigured, load_providers
+from ..services.provider_chain import NoProviderConfigured, is_image_capable, is_chat_capable, load_providers
 from ..services.responses_proxy import stream_responses
 
 router = APIRouter()
@@ -38,7 +38,7 @@ async def generate_images(
     db = SessionLocal()
     try:
         user = get_current_user(request, db)
-        providers = load_providers(db)
+        providers = [p for p in load_providers(db) if is_image_capable(p)]
     finally:
         db.close()
 
@@ -81,7 +81,7 @@ async def images_edit(request: Request):
     db = SessionLocal()
     try:
         user = get_current_user(request, db)
-        providers = load_providers(db)
+        providers = [p for p in load_providers(db) if is_image_capable(p)]
     finally:
         db.close()
     if not providers:
@@ -148,6 +148,9 @@ async def responses_proxy(request: Request):
     db = SessionLocal()
     try:
         get_current_user(request, db)
+        # /responses 需要全部 provider：_select_responses_providers 会按 purpose 内部分流
+        # （生图轮走 is_image_capable，对话轮走 is_chat_capable）。这里预过滤 is_image_capable
+        # 会把对话专用 provider 排除，导致对话轮报"没有对话专用/双用供应商"。
         providers = load_providers(db)
     finally:
         db.close()
@@ -218,17 +221,20 @@ def _select_responses_providers(providers, body_bytes: bytes):
     供应商覆盖 model——所以生图 key(无 agent_model)天然用请求体里的图像模型，不会被改成对话模型。
     """
     if _is_image_generation_only_turn(body_bytes):
-        image_providers = [p for p in providers if not p.agent_model]
+        image_providers = [p for p in providers if is_image_capable(p)]
         if image_providers:
             return image_providers, None
-        # 未单独配置生图 key：退回全部供应商（stream_responses 只对配了 agent_model 的覆盖 model）
-        return providers, None
+        return None, _openai_error(
+            "no_image_provider",
+            "没有配置生图专用/双用供应商——请在「图片生成管理」把至少一个供应商用途设为「生图专用」或「双用」",
+            status=503,
+        )
 
-    agents = [p for p in providers if p.agent_model]
+    agents = [p for p in providers if is_chat_capable(p)]
     if not agents:
         return None, _openai_error(
             "no_agent_provider",
-            "没有配置 agent 推理模型——请在「图片生成管理」给某个供应商填写 agent 推理模型（如 gpt-4o-mini）",
+            "没有配置对话专用/双用供应商——请在「图片生成管理」把至少一个供应商用途设为「对话专用」或「双用」，并填写 agent 推理模型",
             status=503,
         )
     return agents, None

@@ -37,6 +37,13 @@
                 <span v-else style="color: var(--text-muted)">—</span>
               </template>
             </el-table-column>
+            <el-table-column label="用途" width="100">
+              <template #default="scope">
+                <el-tag :type="scope.row.purpose === 'image_only' ? 'success' : scope.row.purpose === 'chat_only' ? 'warning' : 'primary'" size="small">
+                  {{ scope.row.purpose === 'image_only' ? '生图专用' : scope.row.purpose === 'chat_only' ? '对话专用' : '双用' }}
+                </el-tag>
+              </template>
+            </el-table-column>
             <el-table-column label="API Key" width="160">
               <template #default="scope">{{ scope.row.api_key_masked || '—' }}</template>
             </el-table-column>
@@ -45,8 +52,9 @@
                 <el-tag :type="scope.row.enabled ? 'success' : 'info'" size="small">{{ scope.row.enabled ? '是' : '否' }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="140" fixed="right">
+            <el-table-column label="操作" width="200" fixed="right">
               <template #default="scope">
+                <el-button link type="primary" :loading="scope.row._testing" @click="testProvider(scope.row)">测试</el-button>
                 <el-button link type="primary" @click="openProviderDialog(scope.row)">编辑</el-button>
                 <el-button link type="danger" @click="deleteProvider(scope.row)">删除</el-button>
               </template>
@@ -57,18 +65,28 @@
         <!-- 生图历史 -->
         <el-tab-pane label="生图历史" name="history">
           <div class="toolbar">
-            <el-select v-model="historyFilter.status" placeholder="状态" clearable style="width: 120px" @change="loadHistory(1)">
+            <el-select v-model="historyFilter.operatorUserId" placeholder="用户" clearable filterable style="width: 140px" @change="loadHistory(1)">
+              <el-option v-for="u in operatorOptions" :key="u.id" :label="u.display_name || u.username" :value="u.id" />
+            </el-select>
+            <el-select v-model="historyFilter.status" placeholder="状态" clearable style="width: 110px" @change="loadHistory(1)">
               <el-option label="成功" value="success" />
               <el-option label="失败" value="failed" />
             </el-select>
-            <el-select v-model="historyFilter.mode" placeholder="模式" clearable style="width: 120px" @change="loadHistory(1)">
+            <el-select v-model="historyFilter.mode" placeholder="模式" clearable style="width: 110px" @change="loadHistory(1)">
               <el-option label="直出" value="direct" />
               <el-option label="agent" value="agent" />
             </el-select>
+            <el-date-picker v-model="historyDateRange" type="daterange" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 280px" @change="loadHistory(1)" />
             <el-button @click="loadHistory()">刷新</el-button>
           </div>
           <el-table :data="history" v-loading="historyLoading" style="width: 100%">
             <el-table-column prop="created_at" label="时间" width="160" />
+            <el-table-column label="用户" width="100">
+              <template #default="scope">{{ scope.row.operator_name || '—' }}</template>
+            </el-table-column>
+            <el-table-column label="客户" width="90">
+              <template #default="scope">{{ scope.row.customer_id || '—' }}</template>
+            </el-table-column>
             <el-table-column label="状态" width="80">
               <template #default="scope">
                 <el-tag :type="scope.row.status === 'success' ? 'success' : 'danger'" size="small">{{ scope.row.status === 'success' ? '成功' : '失败' }}</el-tag>
@@ -90,6 +108,11 @@
                 <span v-else>—</span>
               </template>
             </el-table-column>
+            <el-table-column label="操作" width="80" fixed="right">
+              <template #default="scope">
+                <el-button link type="primary" @click="openDetail(scope.row)">详情</el-button>
+              </template>
+            </el-table-column>
           </el-table>
           <div class="ig-pagination">
             <el-pagination background layout="prev, pager, next, total" :total="historyTotal" :page-size="historyPageSize" :current-page="historyPage" @current-change="loadHistory" />
@@ -97,6 +120,33 @@
         </el-tab-pane>
       </el-tabs>
     </el-card>
+
+    <!-- 生图记录详情 -->
+    <el-dialog v-model="detailDialogVisible" title="生图记录详情" width="720px" append-to-body>
+      <div v-if="detailRow" class="ig-detail">
+        <div v-if="detailRow.public_url" class="ig-detail__image">
+          <el-image :src="detailRow.public_url" :preview-src-list="[detailRow.public_url]" fit="contain" />
+        </div>
+        <el-descriptions :column="2" border size="small">
+          <el-descriptions-item label="状态">
+            <el-tag :type="detailRow.status === 'success' ? 'success' : 'danger'" size="small">{{ detailRow.status === 'success' ? '成功' : '失败' }}</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="模式">{{ detailRow.mode }}</el-descriptions-item>
+          <el-descriptions-item label="用户">{{ detailRow.operator_name || detailRow.operator_user_id || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="客户">{{ detailRow.customer_id || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="模型">{{ detailRow.model || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="供应商">{{ detailRow.provider_name || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="耗时">{{ detailRow.latency_ms ? (detailRow.latency_ms / 1000).toFixed(1) + 's' : '—' }}</el-descriptions-item>
+          <el-descriptions-item label="时间">{{ detailRow.created_at || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="record_id" :span="2">{{ detailRow.record_id }}</el-descriptions-item>
+          <el-descriptions-item label="提示词" :span="2"><pre class="ig-detail__prompt">{{ detailRow.prompt || '—' }}</pre></el-descriptions-item>
+          <el-descriptions-item v-if="detailParams" label="参数" :span="2"><pre class="ig-detail__params">{{ detailParams }}</pre></el-descriptions-item>
+          <el-descriptions-item v-if="detailRow.error_code" label="错误" :span="2">
+            <pre class="ig-detail__error">{{ detailRow.error_code }}: {{ detailRow.error_message }}</pre>
+          </el-descriptions-item>
+        </el-descriptions>
+      </div>
+    </el-dialog>
 
     <!-- 供应商新增/编辑 -->
     <el-dialog v-model="providerDialogVisible" :title="editingProvider?.id ? '编辑供应商' : '新增供应商'" width="520px" append-to-body>
@@ -113,8 +163,15 @@
           <el-input v-model="providerForm.api_key" type="password" show-password :placeholder="editingProvider?.id ? '留空则不修改' : '必填'" />
         </el-form-item>
         <el-form-item label="默认模型" prop="default_model"><el-input v-model="providerForm.default_model" placeholder="gpt-image-2" /></el-form-item>
-        <el-form-item label="agent 推理模型">
-          <el-input v-model="providerForm.agent_model" placeholder="留空=仅图片；填则该供应商可跑 agent（如 gpt-4o-mini）" />
+        <el-form-item label="用途" prop="purpose">
+          <el-select v-model="providerForm.purpose" style="width: 100%">
+            <el-option label="生图专用" value="image_only" />
+            <el-option label="对话专用" value="chat_only" />
+            <el-option label="双用（既能生图又能对话）" value="dual" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="providerForm.purpose !== 'image_only'" label="agent 推理模型">
+          <el-input v-model="providerForm.agent_model" placeholder="对话专用/双用必填，如 gpt-4o-mini" />
         </el-form-item>
         <el-form-item label="优先级"><el-input-number v-model="providerForm.priority" :min="0" :max="999" /></el-form-item>
         <el-form-item label="超时(秒)"><el-input-number v-model="providerForm.timeout_seconds" :min="30" :max="3600" :step="30" /></el-form-item>
@@ -130,7 +187,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { Plus, Setting } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '#/utils/request'
@@ -203,7 +260,7 @@ const providerRules = {
 function emptyProviderForm() {
   return {
     name: '', provider_kind: 'openai_compatible', base_url: '', api_key: '',
-    default_model: 'gpt-image-2', agent_model: '', priority: 0, enabled: true, timeout_seconds: 1500, max_retries: 2,
+    default_model: 'gpt-image-2', agent_model: '', purpose: 'image_only', priority: 0, enabled: true, timeout_seconds: 1500, max_retries: 2,
   }
 }
 
@@ -217,11 +274,27 @@ async function loadProviders() {
   }
 }
 
+async function testProvider(row: any) {
+  row._testing = true
+  try {
+    const res: any = await request.post(`/v1/image-gen/providers/${row.id}/test`, {}, { timeout: 120000 })
+    if (res?.success) {
+      ElMessage.success(`${row.name} 可用（${res.kind === 'image' ? '生图' : '对话'}，${(res.latency_ms / 1000).toFixed(1)}s）`)
+    } else {
+      ElMessage.error(`${row.name} 不可用：${res?.message || '未知错误'}`)
+    }
+  } catch (e: any) {
+    ElMessage.error(`${row.name} 测试请求失败：${e?.message || e}`)
+  } finally {
+    row._testing = false
+  }
+}
+
 function openProviderDialog(row: any) {
   editingProvider.value = row
   providerForm.value = row
     ? { name: row.name, provider_kind: row.provider_kind, base_url: row.base_url, api_key: '',
-        default_model: row.default_model, agent_model: row.agent_model || '', priority: row.priority, enabled: row.enabled,
+        default_model: row.default_model, agent_model: row.agent_model || '', purpose: row.purpose || 'image_only', priority: row.priority, enabled: row.enabled,
         timeout_seconds: row.timeout_seconds, max_retries: row.max_retries }
     : emptyProviderForm()
   providerDialogVisible.value = true
@@ -241,6 +314,7 @@ async function saveProvider() {
   try {
     const body: any = { ...providerForm.value }
     if (!body.api_key) delete body.api_key // 留空 = 不修改
+    if (body.purpose === 'image_only') body.agent_model = '' // 生图专用不带 agent 推理模型
     if (editingProvider.value?.id) {
       await request.put(`/v1/image-gen/providers/${editingProvider.value.id}`, body)
       ElMessage.success('已更新')
@@ -272,7 +346,29 @@ const historyLoading = ref(false)
 const historyTotal = ref(0)
 const historyPage = ref(1)
 const historyPageSize = ref(20)
-const historyFilter = ref({ status: '', mode: '' })
+const historyFilter = ref<{ status: string; mode: string; operatorUserId: number | '' }>({ status: '', mode: '', operatorUserId: '' })
+const historyDateRange = ref<[string, string] | null>(null)
+const operatorOptions = ref<any[]>([])
+
+const detailDialogVisible = ref(false)
+const detailRow = ref<any>(null)
+const detailParams = computed(() => {
+  const raw = detailRow.value?.params_json
+  if (!raw) return ''
+  try {
+    const obj = typeof raw === 'string' ? JSON.parse(raw) : raw
+    return JSON.stringify(obj, null, 2)
+  } catch {
+    return String(raw)
+  }
+})
+
+async function loadOperators() {
+  try {
+    const data: any = await request.get('/v1/users')
+    operatorOptions.value = data?.items || data || []
+  } catch { /* 下拉为空即可 */ }
+}
 
 async function loadHistory(page?: number) {
   if (page) historyPage.value = page
@@ -284,6 +380,9 @@ async function loadHistory(page?: number) {
         page_size: historyPageSize.value,
         status: historyFilter.value.status || undefined,
         mode: historyFilter.value.mode || undefined,
+        operator_user_id: historyFilter.value.operatorUserId || undefined,
+        date_from: historyDateRange.value?.[0] || undefined,
+        date_to: historyDateRange.value?.[1] || undefined,
       },
     })
     history.value = data?.items || []
@@ -293,8 +392,14 @@ async function loadHistory(page?: number) {
   }
 }
 
+function openDetail(row: any) {
+  detailRow.value = row
+  detailDialogVisible.value = true
+}
+
 onMounted(() => {
   loadProviders()
+  loadOperators()
   loadHistory(1)
   checkUpstreamVersion()
 })
@@ -304,4 +409,9 @@ onMounted(() => {
 .toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .ig-hint { margin-left: 8px; color: var(--text-muted); font-size: 12px; }
 .ig-pagination { margin-top: 12px; display: flex; justify-content: flex-end; }
+.ig-detail__image { margin-bottom: 12px; text-align: center; }
+.ig-detail__image :deep(.el-image) { max-width: 100%; max-height: 360px; border-radius: 8px; }
+.ig-detail__prompt { white-space: pre-wrap; word-break: break-word; margin: 0; font-family: inherit; font-size: 13px; }
+.ig-detail__params { white-space: pre-wrap; word-break: break-word; margin: 0; font-size: 12px; color: var(--text-muted); }
+.ig-detail__error { white-space: pre-wrap; word-break: break-word; margin: 0; font-size: 12px; color: var(--el-color-danger); }
 </style>

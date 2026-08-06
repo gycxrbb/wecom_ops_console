@@ -42,6 +42,22 @@ def _openai_error(code: str, message: str, status: int) -> JSONResponse:
     )
 
 
+def _is_image_generation_only_turn_body(body_obj) -> bool:
+    """识别 playground hybrid 的生图轮：tools 只含 image_generation 且 tool_choice=required。
+
+    生图轮不覆盖 model（用请求体里的图像模型）；仅对话轮覆盖为 agent_model。
+    （与 proxy._is_image_generation_only_turn 同逻辑，独立一份避免 service→router 循环 import）
+    """
+    if not isinstance(body_obj, dict):
+        return False
+    tools = body_obj.get("tools")
+    if not isinstance(tools, list) or not tools:
+        return False
+    if body_obj.get("tool_choice") != "required":
+        return False
+    return all(isinstance(t, dict) and t.get("type") == "image_generation" for t in tools)
+
+
 async def stream_responses(
     providers: list[ProviderConfig],
     body_bytes: bytes,
@@ -59,8 +75,11 @@ async def stream_responses(
 
     last_error: Exception | Tuple[int, bytes] | None = None
 
+    is_image_only_turn = _is_image_generation_only_turn_body(body_obj)
     for provider in providers:
-        if body_obj is not None and getattr(provider, "agent_model", None):
+        # 对话轮 + 配了 agent_model 的 provider：覆盖 model 为推理模型
+        # 生图轮（image_generation tool）：不覆盖，用请求体里的图像模型
+        if body_obj is not None and getattr(provider, "agent_model", None) and not is_image_only_turn:
             send_bytes = json.dumps({**body_obj, "model": provider.agent_model}, ensure_ascii=False).encode("utf-8")
         else:
             send_bytes = body_bytes
