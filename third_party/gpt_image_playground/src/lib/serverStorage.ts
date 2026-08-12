@@ -9,6 +9,7 @@
  */
 import { useStore } from '../store'
 import { getActiveApiProfile } from './apiProfiles'
+import { hostApiBase } from './urlSettings'
 import type { AgentConversation, TaskRecord } from '../types'
 
 function getApiKey(): string {
@@ -20,8 +21,10 @@ async function authedFetch(path: string, init?: RequestInit): Promise<Response> 
   // 10s 超时：后端慢/不可达时及时失败（被调用方 catch），避免 initStore 卡住阻塞启动
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 10000)
+  // embedMode 嵌入第三方宿主时，把写死的 /api 前缀换成宿主代理前缀（CRM 是 /wecom-ai）
+  const resolvedPath = hostApiBase() && path.startsWith('/api') ? hostApiBase() + path.slice('/api'.length) : path
   try {
-    const res = await fetch(`${window.location.origin}${path}`, {
+    const res = await fetch(`${window.location.origin}${resolvedPath}`, {
       ...init,
       signal: controller.signal,
       headers: { Authorization: `Bearer ${getApiKey()}`, ...(init?.headers || {}) },

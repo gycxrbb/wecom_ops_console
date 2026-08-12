@@ -1,6 +1,7 @@
 import { DEFAULT_STREAM_PARTIAL_IMAGES, type ApiProfile, type CustomProviderDefinition, type CustomProviderPollMapping, type CustomProviderResultMapping, type CustomProviderSubmitMapping, type ImageApiResponse, type ImageResponseItem, type ResponsesApiResponse, type ResponsesOutputItem, type TaskParams } from '../types'
 import { dataUrlToBlob, imageDataUrlToPngBlob, maskDataUrlToPngBlob } from './canvasImage'
 import { buildApiUrl, readClientDevProxyConfig, shouldUseApiProxy } from './devProxy'
+import { hostApiBase } from './urlSettings'
 import {
   assertImageInputPayloadSize,
   assertMaskEditFileSize,
@@ -879,7 +880,7 @@ export async function getCustomQueuedImageResult(
 // 鉴权用父页注入的 JWT（imageProfile.apiKey），路径相对 origin，不依赖 profile.baseUrl。
 // ---------------------------------------------------------------------------
 
-const AGENT_IMAGE_TASK_PATH = '/api/v1/image-gen/agent/image-tasks'
+const AGENT_IMAGE_TASK_PATH = '/v1/image-gen/agent/image-tasks'
 const AGENT_IMAGE_TASK_POLL_INTERVAL_MS = 3000
 const AGENT_IMAGE_TASK_TIMEOUT_SECONDS = 600
 
@@ -887,7 +888,7 @@ export async function submitAgentImageTask(
   apiKey: string,
   body: { prompt: string; model?: string | null; size?: string; n?: number; quality?: string },
 ): Promise<string> {
-  const response = await fetch(AGENT_IMAGE_TASK_PATH, {
+  const response = await fetch(hostApiBase() + AGENT_IMAGE_TASK_PATH, {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     cache: 'no-store',
@@ -927,7 +928,7 @@ export async function pollAgentImageTaskResult(
 
     let payload: { status?: string; data?: Array<{ b64_json?: string; url?: string; record_id?: string }>; error?: { code?: string; message?: string } }
     try {
-      const response = await fetch(`${AGENT_IMAGE_TASK_PATH}/${encodeURIComponent(taskId)}`, {
+      const response = await fetch(`${hostApiBase()}${AGENT_IMAGE_TASK_PATH}/${encodeURIComponent(taskId)}`, {
         method: 'GET',
         headers: { Authorization: `Bearer ${apiKey}` },
         cache: 'no-store',

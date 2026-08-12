@@ -1,8 +1,12 @@
 // 内部上传提示词：与后端 /api/v1/image-gen/prompts 交互（Bearer JWT 鉴权，同 agent 端点）。
 // 内部 prompt 的 profession = 上传时选的 category（单职业）；远程 prompt 的 profession 来自 AI 预计算。
 import type { Prompt } from './promptsService'
+import { hostApiBase } from '../urlSettings'
 
-const INTERNAL_PROMPTS_PATH = '/api/v1/image-gen/prompts'
+// embedMode 嵌入第三方宿主时走宿主代理前缀（CRM 是 /wecom-ai），非嵌入保持 /api
+function internalPromptsPath(): string {
+  return hostApiBase() + '/v1/image-gen/prompts'
+}
 
 type InternalPromptItem = {
   id: number
@@ -17,7 +21,8 @@ type InternalPromptItem = {
 }
 
 export async function fetchInternalPrompts(apiKey: string, category?: string): Promise<Prompt[]> {
-  const url = category ? `${INTERNAL_PROMPTS_PATH}?category=${encodeURIComponent(category)}` : INTERNAL_PROMPTS_PATH
+  const base = internalPromptsPath()
+  const url = category ? `${base}?category=${encodeURIComponent(category)}` : base
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${apiKey}` },
     cache: 'no-store',
@@ -42,7 +47,7 @@ export async function submitInternalPrompt(
   apiKey: string,
   body: { title: string; body: string; category: string; tags: string[]; cover_url: string; scope: string },
 ): Promise<void> {
-  const res = await fetch(INTERNAL_PROMPTS_PATH, {
+  const res = await fetch(internalPromptsPath(), {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     cache: 'no-store',
@@ -54,7 +59,7 @@ export async function submitInternalPrompt(
 export async function uploadPromptCover(apiKey: string, file: File): Promise<string> {
   const form = new FormData()
   form.append('file', file)
-  const res = await fetch(`${INTERNAL_PROMPTS_PATH}/covers`, {
+  const res = await fetch(`${internalPromptsPath()}/covers`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}` },
     cache: 'no-store',

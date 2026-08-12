@@ -22,6 +22,7 @@ import { DEFAULT_AGENT_MAX_TOOL_ROUNDS, DEFAULT_PARAMS } from './types'
 import { DEFAULT_SETTINGS, getActiveApiProfile, getAgentImageApiProfile, getAgentTextApiProfile, getCustomProviderDefinition, mergeImportedSettings, normalizeSettings, validateApiProfile } from './lib/apiProfiles'
 import { dismissAllTooltips } from './lib/tooltipDismiss'
 import { remapImageMentionsForOrder, replaceImageMentionsForApi } from './lib/promptImageMentions'
+import { hostApiBase } from './lib/urlSettings'
 import {
   getAllTasks,
   putTask as dbPutTask,
@@ -2716,7 +2717,7 @@ async function executeAgentRound(
       const _dataUrl = image.dataUrl || ''
       const _b64 = _dataUrl.includes(',') ? _dataUrl.split(',').slice(1).join(',') : _dataUrl
       if (_b64) {
-        fetch(`${window.location.origin}/api/v1/image-gen/history/callback`, {
+        fetch(`${window.location.origin}${hostApiBase()}/v1/image-gen/history/callback`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${_hostToken}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -3382,7 +3383,7 @@ async function executeAgentRound(
             output = JSON.stringify({ error: 'no customer context (cid missing in host)' })
           } else {
             try {
-              const r = await fetch(`${window.location.origin}/api/v1/image-gen/customer-profile/${encodeURIComponent(cid)}`, {
+              const r = await fetch(`${window.location.origin}${hostApiBase()}/v1/image-gen/customer-profile/${encodeURIComponent(cid)}`, {
                 headers: { Authorization: `Bearer ${hostToken}` },
               })
               const data = r.ok ? await r.json().catch(() => ({} as Record<string, unknown>)) : {}

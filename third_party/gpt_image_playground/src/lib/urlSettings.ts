@@ -266,3 +266,22 @@ export function applyEmbedModeAgentProfiles(
     agentImageProfileId: active.id,
   })
 }
+
+/**
+ * 宿主后端 base 前缀（embedMode 嵌入模式）。
+ *
+ * playground 里有两类请求直接走 `${window.location.origin}` + 写死路径，绕过了 profile.baseUrl：
+ *   - serverStorage.ts 的 authedFetch（对话/任务/素材上云，/api/image-gen/v1/...）
+ *   - store.ts / openaiCompatibleImageApi.ts / internalPrompts.ts 的 agent 辅助端点（/api/v1/image-gen/...）
+ *
+ * 在企微项目里 origin 就是企微后端，/api 写死没问题。但嵌入到第三方宿主（如孟富贵 CRM）时，
+ * 宿主的 /api 已被占用（CRM 的 /api 代理到 CRM 自己的后端），这些请求会被截走 → 404。
+ *
+ * 解决：embedMode=true 时改用宿主提供的专用代理前缀（CRM 是 /wecom-ai，rewite 到企微 /api），
+ * 非嵌入模式保持 /api，不影响企微原项目独立运行。所有写死路径统一调 hostApiBase() 拼。
+ */
+export function hostApiBase(): string {
+  if (typeof window === 'undefined') return '/api'
+  return new URLSearchParams(window.location.search).get('embedMode') === 'true' ? '/wecom-ai' : '/api'
+}
+
