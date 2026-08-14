@@ -2,11 +2,20 @@
 cd /www/wwwroot/wecom-ops-console     
 git remote set-url origin https://ghproxy.cn/https://github.com/gycxrbb/wecom_ops_console.git 
 git pull
+git -c http.proxy=http://127.0.0.1:11080 pull
 git update-ref -d refs/remotes/origin/master && git fetch && git pull  
 git remote set-url origin https://github.com/gycxrbb/wecom_ops_console.git 
 
 # 生产环境
 cd /home/xr/wecom-ops-console
+ssh -N `
+  -R 11080:127.0.0.1:7897 `
+  -o ServerAliveInterval=30 `
+  -o ServerAliveCountMax=3 `
+  -o ExitOnForwardFailure=yes `
+  root@39.106.212.142
+
+git -c http.proxy=http://127.0.0.1:11080 -c https.proxy=http://127.0.0.1:11080 pull origin master
 git pull
 docker compose -f docker-compose.prod.yml build
 docker compose -f docker-compose.prod.yml up -d

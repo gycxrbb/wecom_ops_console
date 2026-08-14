@@ -155,12 +155,17 @@ async def orchestrate_edit(
     size: str = "1024x1024",
     n: int = 1,
     mask: tuple[str, bytes, str] | None = None,
+    record_id: str | None = None,
+    write_history: bool = True,
 ) -> DirectResult:
-    """参考图编辑编排（直出同步）：选供应商 → /images/edits → 存七牛 → 记历史 → 审计。"""
+    """参考图编辑编排：选供应商 → /images/edits → 存七牛 → 记历史 → 审计。
+
+    write_history=False：编辑任务化，落库(七牛+UPDATE running 行)由调用方负责，这里只生图返回。
+    """
     if not providers:
         raise NoProviderConfigured("没有可用的生图供应商，请联系管理员配置")
 
-    record_id = new_record_id()
+    record_id = record_id or new_record_id()
     params = {
         "size": size, "n": n, "requested_model": model, "mode": "edit",
         "ref_images": len(images), "has_mask": mask is not None,
@@ -180,12 +185,13 @@ async def orchestrate_edit(
                 provider, prompt=prompt, images=images, model=model, size=size, n=n, mask=mask,
             )
             gen_ms = int((time.perf_counter() - started) * 1000)
-            # 存储七牛 + 历史放后台，不阻塞响应（同 orchestrate_direct）
-            asyncio.create_task(write_success(
-                record_id=record_id, operator_user_id=operator_user_id, customer_id=customer_id,
-                mode="edit", prompt=prompt, params=params, model=meta["model"],
-                provider_name=provider.name, image_bytes=image_bytes, gen_ms=gen_ms, audit_call_id=record_id,
-            ))
+            if write_history:
+                # 存储七牛 + 历史放后台，不阻塞响应（同 orchestrate_direct）
+                asyncio.create_task(write_success(
+                    record_id=record_id, operator_user_id=operator_user_id, customer_id=customer_id,
+                    mode="edit", prompt=prompt, params=params, model=meta["model"],
+                    provider_name=provider.name, image_bytes=image_bytes, gen_ms=gen_ms, audit_call_id=record_id,
+                ))
             finish_audit(
                 call_id=record_id, model=meta["model"], provider_name=provider.name,
                 latency_ms=gen_ms, prompt_chars=meta.get("prompt_chars", 0), status="success",
@@ -202,12 +208,13 @@ async def orchestrate_edit(
     gen_ms = int((time.perf_counter() - started) * 1000)
     err = last_error or RuntimeError("image edit failed")
     code = getattr(err, "error_code", "image_gen_failed")
-    await write_failure(
-        record_id=record_id, operator_user_id=operator_user_id, customer_id=customer_id,
-        mode="edit", prompt=prompt, params=params, model=model or last_provider.default_model,
-        provider_name=last_provider.name, error_code=code, error_message=str(err),
-        gen_ms=gen_ms, audit_call_id=record_id,
-    )
+    if write_history:
+        await write_failure(
+            record_id=record_id, operator_user_id=operator_user_id, customer_id=customer_id,
+            mode="edit", prompt=prompt, params=params, model=model or last_provider.default_model,
+            provider_name=last_provider.name, error_code=code, error_message=str(err),
+            gen_ms=gen_ms, audit_call_id=record_id,
+        )
     finish_audit(
         call_id=record_id, model=model or last_provider.default_model,
         provider_name=last_provider.name, latency_ms=gen_ms, prompt_chars=len(prompt),

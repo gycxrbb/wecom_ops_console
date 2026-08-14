@@ -1,8 +1,12 @@
-"""agent 生图任务化：提交(INSERT running) → 后台 asyncio 生图+存储+UPDATE → 查询。
+"""生图任务化（agent / direct / edit 通用）：提交(INSERT running) → 后台 asyncio 生图+存储+UPDATE → 查询。
 
-复用 orchestrate_direct(write_history=False，只生图不落库)、storage_facade(七牛)、ImageGenHistory(任务表)。
-落库两阶段：提交时 INSERT running 行(同步 await，保证轮询一定能查到)；后台跑完 UPDATE 成 success/failed。
+复用 orchestrate_direct / orchestrate_edit(write_history=False，只生图不落库)、storage_facade(七牛)、
+ImageGenHistory(任务表)。落库两阶段：提交时 INSERT running 行(同步 await，保证轮询一定能查到)；
+后台跑完 UPDATE 成 success/failed。
 与画廊 write_success(一次性 INSERT) 完全隔离——画廊同步路径不受影响。
+
+edits 任务的参考图/mask 以 bytes 暂存在内存(后台任务闭包持有)，任务表只存数量；提交请求的
+multipart 在路由层解析后直接传入，不落盘。
 
 进程重启时，在途的 asyncio task 丢失，启动由 cleanup_image_gen_running_rows 把残留 running 行标 failed。
 """
@@ -20,7 +24,7 @@ from app.services.storage.base import UploadPayload
 from app.services.storage.facade import storage_facade
 
 from ..models import ImageGenHistory
-from .direct_orchestrator import DirectResult, orchestrate_direct
+from .direct_orchestrator import DirectResult, orchestrate_direct, orchestrate_edit
 from .history_service import new_record_id
 from .image_client import ImageGenerationError
 from .provider_chain import NoProviderConfigured, ProviderConfig
@@ -75,6 +79,119 @@ async def submit_agent_image_task(
         quality=quality,
     ))
     return record_id
+
+
+async def submit_edit_image_task(
+    *,
+    operator_user_id: int | None,
+    customer_id: int | None,
+    prompt: str,
+    providers: list[ProviderConfig],
+    images: list[tuple[str, bytes, str]],
+    model: str | None = None,
+    size: str = "1024x1024",
+    n: int = 1,
+    mask: tuple[str, bytes, str] | None = None,
+) -> str:
+    """提交参考图编辑任务（画廊 /images/edits 任务化）：INSERT running 行 + 派后台 task。
+
+    参考图/mask bytes 由后台任务闭包持有（内存暂存）；任务表 params_json 只记数量。
+    """
+    record_id = new_record_id()
+    params_json = json.dumps(
+        {
+            "size": size, "n": n, "requested_model": model, "mode": "edit",
+            "ref_images": len(images), "has_mask": mask is not None,
+        },
+        ensure_ascii=False,
+    )
+
+    def _insert() -> None:
+        db = SessionLocal()
+        try:
+            db.add(ImageGenHistory(
+                record_id=record_id,
+                operator_user_id=operator_user_id,
+                customer_id=customer_id,
+                mode="edit",
+                prompt=prompt,
+                params_json=params_json,
+                model=model or "",
+                status="running",
+            ))
+            db.commit()
+        finally:
+            db.close()
+
+    await asyncio.to_thread(_insert)
+    asyncio.create_task(_run_edit_image_task(
+        record_id=record_id,
+        operator_user_id=operator_user_id,
+        customer_id=customer_id,
+        prompt=prompt,
+        providers=providers,
+        images=images,
+        model=model,
+        size=size,
+        n=n,
+        mask=mask,
+    ))
+    return record_id
+
+
+async def _run_edit_image_task(
+    *,
+    record_id: str,
+    operator_user_id: int | None,
+    customer_id: int | None,
+    prompt: str,
+    providers: list[ProviderConfig],
+    images: list[tuple[str, bytes, str]],
+    model: str | None,
+    size: str,
+    n: int,
+    mask: tuple[str, bytes, str] | None,
+) -> None:
+    """后台执行：编辑生图 → 先 UPDATE success(b64) → 七牛 url 后台补。"""
+    started = time.perf_counter()
+    try:
+        result = await orchestrate_edit(
+            operator_user_id=operator_user_id,
+            customer_id=customer_id,
+            prompt=prompt,
+            providers=providers,
+            images=images,
+            model=model,
+            size=size,
+            n=n,
+            mask=mask,
+            record_id=record_id,
+            write_history=False,
+        )
+        await _finalize_success(
+            record_id=record_id,
+            result=result,
+            gen_ms=result.latency_ms,
+            size=size,
+            n=n,
+            quality="",
+            requested_model=model,
+        )
+    except (ImageGenerationError, NoProviderConfigured) as exc:
+        await _finalize_failure(
+            record_id=record_id,
+            error_code=getattr(exc, "error_code", "image_gen_failed"),
+            error_message=str(exc),
+            gen_ms=int((time.perf_counter() - started) * 1000),
+        )
+    except Exception as exc:
+        _log.exception("image_gen edit task %s unexpected error", record_id)
+        await _finalize_failure(
+            record_id=record_id,
+            error_code="image_gen_failed",
+            error_message=str(exc),
+            gen_ms=int((time.perf_counter() - started) * 1000),
+        )
 
 
 async def _run_agent_image_task(

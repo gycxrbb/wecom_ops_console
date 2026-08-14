@@ -51,7 +51,7 @@ import { collectAgentRoundOutputImageSlots, extractAgentReferenceIds, getAgentCu
 import { showBrowserNotification } from './lib/browserNotification'
 import { IMAGE_FETCH_CORS_HINT } from './lib/imageApiShared'
 import { getFalErrorMessage, getFalQueuedImageResult } from './lib/falAiImageApi'
-import { getCustomQueuedImageResult, pollAgentImageTaskResult, submitAgentImageTask } from './lib/openaiCompatibleImageApi'
+import { AGENT_IMAGE_TASK_PATH, HOSTED_IMAGE_TASK_PATH, getCustomQueuedImageResult, pollAgentImageTaskResult, submitAgentImageTask } from './lib/openaiCompatibleImageApi'
 import { validateMaskMatchesImage } from './lib/canvasImage'
 import { orderInputImagesForMask } from './lib/mask'
 import { getChangedParams, normalizeParamsForSettings } from './lib/paramCompatibility'
@@ -1039,6 +1039,11 @@ function isAsyncCustomProviderTask(settings: AppSettings, provider: string, hasI
   if (!customProvider?.poll) return false
   const submitMapping = hasInputImages && customProvider.editSubmit ? customProvider.editSubmit : customProvider.submit
   return Boolean(submitMapping.taskIdPath)
+}
+
+function isHostedImageGenProfile(profile: ApiProfile | null): boolean {
+  // 指向宿主后端代理（企微 image-gen）的 images 模式 profile → 生图走任务化提交+轮询
+  return Boolean(profile && profile.provider === 'openai' && profile.apiMode === 'images' && profile.baseUrl.includes('/api/image-gen/v1'))
 }
 
 function clearOpenAIWatchdogTimer(taskId: string) {
@@ -3621,6 +3626,7 @@ async function executeTask(taskId: string) {
   if (
     taskProvider !== 'fal' &&
     !isAsyncCustomProviderTask(requestSettings, taskProvider, task.inputImageIds.length > 0) &&
+    !isHostedImageGenProfile(activeProfile) &&
     !usesConcurrentOpenAIImageRequests(activeProfile, task.params)
   ) {
     scheduleOpenAIWatchdog(taskId, activeProfile.timeout, activeProfile)
@@ -4418,14 +4424,19 @@ async function recoverAgentImageTask(taskId: string) {
   if (!task || !task.customTaskId || task.status === 'done') return
   if ((task.apiProvider ?? 'openai') !== 'openai') return
 
-  const imageProfile = getAgentImageApiProfile(settings)
-  if (!imageProfile?.apiKey) {
+  // agent 任务轮询 /agent/image-tasks/{id}；画廊任务化任务轮询 /image-tasks/{id}
+  const taskPath = isAgentTask(task) ? AGENT_IMAGE_TASK_PATH : HOSTED_IMAGE_TASK_PATH
+  const profile = isAgentTask(task)
+    ? getAgentImageApiProfile(settings)
+    : getActiveApiProfile(settings)
+  const apiKey = profile?.apiKey
+  if (!apiKey) {
     scheduleAgentRecovery(taskId)
     return
   }
 
   try {
-    const result = await pollAgentImageTaskResult(imageProfile.apiKey, task.customTaskId)
+    const result = await pollAgentImageTaskResult(apiKey, task.customTaskId, undefined, undefined, taskPath)
     clearAgentRecoveryTimer(taskId)
     if (!result.image) {
       if (useStore.getState().tasks.some((item) => item.id === taskId)) {

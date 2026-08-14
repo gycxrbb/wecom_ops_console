@@ -409,6 +409,10 @@ export async function callOpenAICompatibleImageApi(opts: CallApiOptions, profile
     return callCustomHttpImageApi(opts, profile, customProvider)
   }
 
+  // 宿主后端代理（企微 image-gen）走任务化：提交 + 轮询，避免长 HTTP 被中间层超时掐断
+  const hosted = await callHostedImageTaskApi(opts, profile)
+  if (hosted) return hosted
+
   return profile.apiMode === 'responses'
     ? callResponsesImageApi(opts, profile)
     : callImagesApi(opts, profile)
@@ -875,12 +879,14 @@ export async function getCustomQueuedImageResult(
 }
 
 // ---------------------------------------------------------------------------
-// agent 生图任务化（宿主后端 /api/v1/image-gen/agent/image-tasks：提交 task_id + 轮询，刷新可恢复）
-// 仅用于 agent hybrid 无参考图的直出生图；带参考图的编辑仍走上面的画廊同步链路。
+// 宿主后端生图任务化（/v1/image-gen/{,agent/}image-tasks：提交 task_id + 轮询，刷新可恢复）
+// agent hybrid 无参考图直出走 agent/ 前缀；画廊直出/编辑走通用前缀（含 multipart 编辑）。
 // 鉴权用父页注入的 JWT（imageProfile.apiKey），路径相对 origin，不依赖 profile.baseUrl。
 // ---------------------------------------------------------------------------
 
 const AGENT_IMAGE_TASK_PATH = '/v1/image-gen/agent/image-tasks'
+const HOSTED_IMAGE_TASK_PATH = '/v1/image-gen/image-tasks'
+export { AGENT_IMAGE_TASK_PATH, HOSTED_IMAGE_TASK_PATH }
 const AGENT_IMAGE_TASK_POLL_INTERVAL_MS = 3000
 const AGENT_IMAGE_TASK_TIMEOUT_SECONDS = 600
 
@@ -901,6 +907,69 @@ export async function submitAgentImageTask(
   return taskId
 }
 
+export async function submitHostedDirectImageTask(
+  apiKey: string,
+  body: { prompt: string; model?: string | null; size?: string; n?: number; quality?: string },
+): Promise<string> {
+  const response = await fetch(hostApiBase() + HOSTED_IMAGE_TASK_PATH, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    cache: 'no-store',
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) throw new Error(await getApiErrorMessage(response))
+  const payload = await response.json() as { task_id?: string; taskId?: string; status?: string }
+  const taskId = payload.task_id ?? payload.taskId
+  if (!taskId) throw new Error('任务提交未返回 task_id')
+  return taskId
+}
+
+export async function submitHostedEditImageTask(
+  apiKey: string,
+  opts: {
+    prompt: string
+    model?: string | null
+    size: string
+    n: number
+    inputDataUrls: string[]
+    maskDataUrl?: string
+  },
+): Promise<string> {
+  const formData = new FormData()
+  formData.append('prompt', opts.prompt)
+  if (opts.model) formData.append('model', opts.model)
+  formData.append('size', opts.size)
+  formData.append('n', String(opts.n))
+
+  const imageBlobs: Blob[] = []
+  for (let i = 0; i < opts.inputDataUrls.length; i++) {
+    const dataUrl = opts.inputDataUrls[i]
+    const blob = opts.maskDataUrl && i === 0
+      ? await imageDataUrlToPngBlob(dataUrl)
+      : await dataUrlToBlob(dataUrl)
+    imageBlobs.push(blob)
+  }
+  const maskBlob = opts.maskDataUrl ? await maskDataUrlToPngBlob(opts.maskDataUrl) : null
+  for (let i = 0; i < imageBlobs.length; i++) {
+    const blob = imageBlobs[i]
+    const ext = blob.type.split('/')[1] || 'png'
+    formData.append('image', blob, `input-${i + 1}.${ext}`)
+  }
+  if (maskBlob) formData.append('mask', maskBlob, 'mask.png')
+
+  const response = await fetch(hostApiBase() + HOSTED_IMAGE_TASK_PATH + '/edits', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}` },
+    cache: 'no-store',
+    body: formData,
+  })
+  if (!response.ok) throw new Error(await getApiErrorMessage(response))
+  const payload = await response.json() as { task_id?: string; taskId?: string; status?: string }
+  const taskId = payload.task_id ?? payload.taskId
+  if (!taskId) throw new Error('任务提交未返回 task_id')
+  return taskId
+}
+
 export interface AgentImageTaskPollResult {
   image: string | null
   error: string | null
@@ -912,6 +981,7 @@ export async function pollAgentImageTaskResult(
   taskId: string,
   signal?: AbortSignal,
   timeoutSeconds = AGENT_IMAGE_TASK_TIMEOUT_SECONDS,
+  taskPath = AGENT_IMAGE_TASK_PATH,
 ): Promise<AgentImageTaskPollResult> {
   const deadline = Date.now() + timeoutSeconds * 1000
   let first = true
@@ -928,7 +998,7 @@ export async function pollAgentImageTaskResult(
 
     let payload: { status?: string; data?: Array<{ b64_json?: string; url?: string; record_id?: string }>; error?: { code?: string; message?: string } }
     try {
-      const response = await fetch(`${hostApiBase()}${AGENT_IMAGE_TASK_PATH}/${encodeURIComponent(taskId)}`, {
+      const response = await fetch(`${hostApiBase()}${taskPath}/${encodeURIComponent(taskId)}`, {
         method: 'GET',
         headers: { Authorization: `Bearer ${apiKey}` },
         cache: 'no-store',
@@ -954,6 +1024,57 @@ export async function pollAgentImageTaskResult(
       return { image: normalizeBase64Image(b64, 'image/png'), error: null, rawResponsePayload }
     }
     // running → 继续轮询
+  }
+}
+
+/**
+ * 画廊任务化：宿主后端生图（直出 + 参考图编辑）改为提交 task + 轮询。
+ *
+ * 走宿主后端代理（baseUrl 含 /api/image-gen/v1）的长 HTTP 生图会被中间层
+ * proxy_read_timeout 掐断（后端还在生、前端已 504），故改任务化：提交秒回 202，
+ * 轮询拿到 b64 立即显示；任务 id 落 customTaskId，刷新后可恢复。
+ * 非宿主后端 profile 返回 null，走原同步链路。
+ */
+export async function callHostedImageTaskApi(opts: CallApiOptions, profile: ApiProfile): Promise<CallApiResult | null> {
+  if (profile.provider !== 'openai' || profile.apiMode !== 'images') return null
+  if (!profile.baseUrl.includes('/api/image-gen/v1')) return null
+
+  const apiKey = profile.apiKey
+  const isEdit = opts.inputImageDataUrls.length > 0
+  const params = opts.params
+  let taskId: string
+
+  if (isEdit) {
+    taskId = await submitHostedEditImageTask(apiKey, {
+      prompt: opts.prompt,
+      model: profile.model,
+      size: params.size,
+      n: params.n > 0 ? params.n : 1,
+      inputDataUrls: opts.inputImageDataUrls,
+      maskDataUrl: opts.maskDataUrl,
+    })
+  } else {
+    taskId = await submitHostedDirectImageTask(apiKey, {
+      prompt: opts.prompt,
+      model: profile.model,
+      size: params.size,
+      n: params.n > 0 ? params.n : 1,
+      quality: params.quality,
+    })
+  }
+  opts.onCustomTaskEnqueued?.({ taskId })
+
+  const polled = await pollAgentImageTaskResult(apiKey, taskId, undefined, undefined, HOSTED_IMAGE_TASK_PATH)
+  if (!polled.image) {
+    const err = new Error(polled.error || '生图失败')
+    ;(err as any).rawResponsePayload = polled.rawResponsePayload
+    throw err
+  }
+  return {
+    images: [polled.image],
+    actualParams: { size: params.size, quality: params.quality, n: 1 },
+    actualParamsList: [ { size: params.size, quality: params.quality, n: 1 } ],
+    revisedPrompts: [opts.prompt],
   }
 }
 
