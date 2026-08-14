@@ -628,10 +628,10 @@ export default function TaskCard({
                 </span>
               )}
             </div>
-            {/* 操作按钮 */}
+            {/* 操作按钮：允许换行——失败卡片比重试按钮会把删除挤出 overflow 可视区（hide-scrollbar 看不出可横滑） */}
             <div
               data-tag-scroll-area
-              className="flex items-center gap-1 flex-shrink-0 mt-0.5 ml-auto max-w-full overflow-x-auto hide-scrollbar mask-edge-r pr-2"
+              className="flex flex-wrap items-center justify-end gap-1 flex-shrink-0 mt-0.5 ml-auto max-w-full pr-2"
               onClick={(e) => e.stopPropagation()}
               onTouchStart={(e) => e.stopPropagation()}
               onTouchMove={(e) => e.stopPropagation()}
