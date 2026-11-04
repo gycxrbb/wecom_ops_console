@@ -240,14 +240,7 @@ def _try_crm_token_fallback(token: str, db):
     if not user:
         return None
 
-    # CRM 用户首次通过 JWT 访问时，自动补上 crm_profile 权限
-    perms = json_loads(user.permissions_json, {})
-    if not perms.get("crm_profile"):
-        perms["crm_profile"] = True
-        user.permissions_json = json_dumps(perms)
-        db.commit()
-        db.refresh(user)
-
+    # 权限只在创建用户时初始化，登录必须保留管理员的授权/撤权结果。
     return user
 
 

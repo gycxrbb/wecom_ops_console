@@ -18,7 +18,7 @@ class User(Base, TimestampMixin):
     avatar_url: Mapped[str] = mapped_column(String(255), default='')
     auth_source: Mapped[str] = mapped_column(String(32), default='local')
     role: Mapped[str] = mapped_column(String(32), default='coach')
-    permissions_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    permissions_json: Mapped[str | None] = mapped_column(Text, nullable=True, default='{"crm_profile":"own"}')
     status: Mapped[int] = mapped_column(Integer, default=1)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     crm_admin_id: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)

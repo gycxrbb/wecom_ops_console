@@ -1439,7 +1439,6 @@ async def upsert_user(request: Request, db: Session = Depends(get_db)):
     if not data.get('id'):
         db.add(target)
         target.auth_source = 'local'
-        target.permissions_json = target.permissions_json or '{}'
     target.username = username
     target.display_name = data.get('display_name', username)
     target.role = data.get('role', 'coach')
