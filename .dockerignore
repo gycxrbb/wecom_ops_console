@@ -25,3 +25,6 @@ bug.md
 memory.md
 scripts/
 *.tsbuildinfo
+
+# Runtime login RSA caches must never enter release images.
+data/.rsa_key_*.pem

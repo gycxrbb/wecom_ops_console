@@ -48,6 +48,7 @@ htmlcov/
 .hypothesis/
 tests/*
 !tests/test_user_default_permissions.py
+!tests/test_deployment_release.py
 
 # --- 环境变量/配置 ---
 # 真实 .env 永不入 git；只允许提交模板 .env.example / .env.*.example
@@ -127,6 +128,11 @@ certs/
 # --- AI/IDE 工具文件 ---
 .claude/
 .github/
+!/.github/
+/.github/*
+!/.github/workflows/
+/.github/workflows/*
+!/.github/workflows/deploy.yml
 .kiro/
 .tasks/
 .vscode/
