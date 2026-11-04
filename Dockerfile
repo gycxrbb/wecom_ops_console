@@ -4,7 +4,8 @@ WORKDIR /build
 COPY frontend/package.json frontend/package-lock.json* ./
 RUN npm install --registry=https://registry.npmmirror.com
 COPY frontend/ .
-RUN npx vite build
+ARG VITE_NODE_HEAP_MB=1152
+RUN NODE_OPTIONS="--max-old-space-size=${VITE_NODE_HEAP_MB}" npx vite build
 
 # === Stage 2: Python 应用 ===
 FROM python:3.11-slim
