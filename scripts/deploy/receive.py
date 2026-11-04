@@ -16,9 +16,9 @@ RESERVE = 512 * 1024**2
 
 
 def parse_command(command):
-    match = re.fullmatch(r'deploy ([0-9a-f]{40})', command)
+    match = re.fullmatch(r'(?:deploy|build|fetch) ([0-9a-f]{40})', command)
     if not match:
-        raise ValueError('Only deploy followed by a full commit SHA is permitted')
+        raise ValueError('Only deploy/build/fetch followed by a full commit SHA is permitted')
     return match.group(1)
 
 
@@ -41,39 +41,8 @@ def validate_manifest(data, expected):
 
 
 def unpack(stream, directory, expected, disk_free=None):
-    seen = set()
-    manifest = None
-    with tarfile.open(fileobj=stream, mode='r|') as archive:
-        for member in archive:
-            name = member.name
-            if name not in LIMITS or name in seen or not member.isfile():
-                raise ValueError('Unexpected, repeated, or unsafe archive entry')
-            if not 0 < member.size <= LIMITS[name]:
-                raise ValueError('Release entry exceeds size limit')
-            if not seen and name != 'manifest.json':
-                raise ValueError('Manifest must be the first entry')
-            free = disk_free() if disk_free else shutil.disk_usage(str(directory)).free
-            if free < member.size + RESERVE:
-                raise ValueError('Insufficient disk space to receive release')
-            source = archive.extractfile(member)
-            destination = Path(directory) / name
-            digest = hashlib.sha256()
-            with destination.open('wb') as output:
-                os.chmod(str(destination), 0o600)
-                while True:
-                    chunk = source.read(1024 * 1024)
-                    if not chunk:
-                        break
-                    digest.update(chunk)
-                    output.write(chunk)
-            seen.add(name)
-            if name == 'manifest.json':
-                manifest = validate_manifest(json.loads(destination.read_text()), expected)
-            elif digest.hexdigest() != manifest['files'][name]:
-                raise ValueError('Release checksum mismatch')
-    if seen != set(LIMITS):
-        raise ValueError('Incomplete release')
-    return manifest
+    from archive_protocol import unpack_entries
+    return unpack_entries(stream,directory,expected,LIMITS,'manifest.json',validate_manifest,disk_free)
 
 
 def check_resources(directory, manifest):
@@ -91,16 +60,36 @@ def check_resources(directory, manifest):
 
 
 def main():
-    environment = sys.argv[1]
-    if environment not in PROJECTS:
-        raise ValueError('Unknown deployment environment')
-    sha = parse_command(os.environ.get('SSH_ORIGINAL_COMMAND', ''))
+    environment=sys.argv[1]
+    if environment not in PROJECTS: raise ValueError('Unknown deployment environment')
+    command=os.environ.get('SSH_ORIGINAL_COMMAND','')
+    sha=parse_command(command)
+    action=command.split(' ',1)[0]
+    if action=='build' and environment!='test':
+        raise ValueError('Images may only be built on the test host')
     os.umask(0o077)
-    with tempfile.TemporaryDirectory(prefix='wecom-release-', dir='/var/tmp') as directory:
-        manifest = unpack(sys.stdin.buffer, directory, sha)
-        check_resources(directory, manifest)
-        worker = Path(__file__).with_name('deploy.sh')
-        subprocess.run(['bash', str(worker), environment, PROJECTS[environment], sha, directory], check=True)
+    with tempfile.TemporaryDirectory(prefix='wecom-release-',dir='/var/tmp') as directory:
+        home=Path(__file__).parent
+        if action=='build':
+            from source_release import unpack_source,check_build_resources
+            unpack_source(sys.stdin.buffer,directory,sha)
+            check_build_resources(directory)
+            subprocess.run(['bash',str(home/'build_test.sh'),PROJECTS[environment],sha,directory],check=True)
+            return
+        if action=='fetch':
+            from fetch_release import fetch_archive,validate_descriptor
+            config=json.loads((home/'config.json').read_text())
+            raw=sys.stdin.buffer.read(65537)
+            if len(raw)>65536: raise ValueError('Release descriptor too large')
+            descriptor=validate_descriptor(json.loads(raw),sha,config['artifact_base_url'])
+            archive=fetch_archive(descriptor,directory)
+            with archive.open('rb') as source: manifest=unpack(source,directory,sha)
+            if manifest['image_id']!=descriptor['image_id']: raise ValueError('Descriptor image mismatch')
+            archive.unlink()
+        else:
+            manifest=unpack(sys.stdin.buffer,directory,sha)
+        check_resources(directory,manifest)
+        subprocess.run(['bash',str(home/'deploy.sh'),environment,PROJECTS[environment],sha,directory],check=True)
 
 
 if __name__ == '__main__':

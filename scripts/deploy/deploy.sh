@@ -52,10 +52,17 @@ git fetch "$inbox/source.bundle" HEAD
 test "$(git rev-parse FETCH_HEAD)" = "$sha"
 git merge-base --is-ancestor "$old_sha" "$sha"
 say IMAGE_LOADING
-gzip -dc "$inbox/image.tar.gz" | docker load
+present_image=$(docker image inspect --format '{{.Id}}' "$image_tag" 2>/dev/null || true)
+if [ "$present_image" != "$expected_image" ]; then gzip -dc "$inbox/image.tar.gz" | docker load; fi
 test "$(docker image inspect --format '{{.Id}}' "$image_tag")" = "$expected_image"
 test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image_tag")" = "$sha"
 test "$(docker image inspect --format '{{.Architecture}}' "$image_tag")" = amd64
+if [ "$old_sha" = "$sha" ] && [ "$old_image" = "$expected_image" ]; then
+  test "$(docker inspect --format '{{.State.Health.Status}}' "$service")" = healthy
+  docker exec -i "$service" python - < "$(dirname "$0")/probe.py"
+  say "DEPLOY_ALREADY_CURRENT $sha"
+  exit 0
+fi
 docker tag "$old_image" wecom-ops-console-rollback:previous
 changed=1
 git merge --ff-only "$sha"

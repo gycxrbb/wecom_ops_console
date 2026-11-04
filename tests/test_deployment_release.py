@@ -7,15 +7,20 @@ import io
 import json
 import os
 import subprocess
+import sys
 import tarfile
 import tempfile
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(ROOT/'scripts/deploy'))
 SPEC = importlib.util.spec_from_file_location('release_receiver', ROOT/'scripts/deploy/receive.py')
 receiver = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(receiver)
+from source_release import unpack_source
+from fetch_release import validate_descriptor,fetch_archive,NoRedirect
+from publish_release import prune_artifacts
 SHA = 'a'*40
 BLOBS = {'source.bundle': b'bundle', 'image.tar.gz': b'image'}
 MANIFEST = {'protocol':1, 'commit':SHA, 'image_id':'sha256:'+'b'*64,
@@ -49,7 +54,8 @@ class ReleaseIntegrityTests(unittest.TestCase):
         self.assertEqual(self.unpack(archive()), MANIFEST)
 
     def test_command_accepts_only_full_sha(self):
-        self.assertEqual(receiver.parse_command('deploy '+SHA), SHA)
+        for action in ['deploy','build','fetch']:
+            self.assertEqual(receiver.parse_command(action+' '+SHA),SHA)
         for command in ['bash','deploy '+SHA+'; id','deploy '+SHA+'\n','deploy abc','deploy '+'A'*40]:
             with self.subTest(command=command), self.assertRaises(ValueError):
                 receiver.parse_command(command)
@@ -90,6 +96,61 @@ class ReleaseIntegrityTests(unittest.TestCase):
             self.unpack(io.BytesIO(info.tobuf()+b'\0'*10240))
 
 
+class SourceAndFetchTests(unittest.TestCase):
+    def test_source_bundle_is_small_and_checksummed(self):
+        metadata={'protocol':2,'commit':SHA,'files':{'source.bundle':hashlib.sha256(b'bundle').hexdigest()}}
+        stream=io.BytesIO()
+        with tarfile.open(fileobj=stream,mode='w') as tar:
+            for name,value in [('source.json',json.dumps(metadata).encode()),('source.bundle',b'bundle')]:
+                item=tarfile.TarInfo(name);item.size=len(value)
+                tar.addfile(item,io.BytesIO(value))
+        stream.seek(0)
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(unpack_source(stream,directory,SHA,disk_free=lambda:10*1024**3),metadata)
+
+    def descriptor(self,data=b'archive'):
+        return {'protocol':2,'commit':SHA,'image_id':'sha256:'+'b'*64,
+                'url':'https://gezelling.com/uploads/pipeline-releases/'+SHA+'-'+'c'*32+'/release.tar',
+                'archive_size':len(data),'archive_sha256':hashlib.sha256(data).hexdigest()}
+
+    def test_fixed_origin_prevents_ssrf_and_path_escape(self):
+        base='https://gezelling.com/uploads/pipeline-releases'
+        metadata=self.descriptor()
+        self.assertEqual(validate_descriptor(metadata,SHA,base),metadata)
+        for url in ['http://169.254.169.254/latest/meta-data/',
+                    metadata['url'].replace('gezelling.com','evil.example'),
+                    metadata['url'].replace('https://','http://'),
+                    metadata['url']+'?token=unexpected',
+                    metadata['url'].replace('/release.tar','/../private')]:
+            with self.subTest(url=url),self.assertRaises(ValueError):
+                validate_descriptor(dict(metadata,url=url),SHA,base)
+
+    def test_download_verifies_size_and_checksum(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=fetch_archive(self.descriptor(),directory,opener=lambda req,timeout:io.BytesIO(b'archive'))
+            self.assertEqual(path.read_bytes(),b'archive')
+        with tempfile.TemporaryDirectory() as directory,self.assertRaisesRegex(ValueError,'checksum'):
+            fetch_archive(self.descriptor(),directory,opener=lambda req,timeout:io.BytesIO(b'corrupt'))
+
+    def test_artifact_cleanup_preserves_user_assets_and_current_candidate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            old=root/('a'*40+'-'+'a'*32);old.mkdir()
+            previous=root/('b'*40+'-'+'b'*32);previous.mkdir()
+            current=root/('c'*40+'-'+'c'*32);current.mkdir()
+            user=root/'user-assets';user.mkdir()
+            os.utime(str(old),(1,1));os.utime(str(previous),(2**31-1,2**31-1))
+            prune_artifacts(root,current)
+            self.assertFalse(old.exists())
+            self.assertTrue(previous.exists())
+            self.assertTrue(current.exists())
+            self.assertTrue(user.exists())
+
+    def test_redirects_do_not_escape_the_fixed_origin(self):
+        with self.assertRaises(ValueError):
+            NoRedirect().redirect_request(None,None,302,'redirect',{},'http://169.254.169.254/')
+
+
 FAKE_DOCKER = r'''#!/usr/bin/env python3
 import json,os,sys
 from pathlib import Path
@@ -103,13 +164,24 @@ if a[0]=='inspect':
     elif '.State.Health' in fmt: print('unhealthy' if s['current']==s['new'] and s['fail'] else 'healthy')
     else: print(s['current'])
 elif a[:2]==['image','inspect']:
+    if not s.get('has_image'): sys.exit(1)
+    if '--format' not in a:
+        print(json.dumps([{'Id':s['new'],'Config':{'Labels':{'org.opencontainers.image.revision':s['sha']}},'Architecture':'amd64','Size':10}]))
+        sys.exit(0)
     fmt=a[3]
     if '.Id' in fmt: print(s['new'])
     elif 'revision' in fmt: print(s['sha'])
     elif '.Architecture' in fmt: print('amd64')
 elif a[0]=='load':
     sys.stdin.buffer.read()
+    s['has_image']=True
     print('Loaded test image')
+elif a[0]=='build':
+    context=Path(a[-1])
+    s['build_context_entries']=[str(p.relative_to(context)) for p in context.rglob('*') if p.is_file()]
+    s['has_image']=True
+elif a[0]=='save':
+    sys.stdout.buffer.write(b'fake-docker-image')
 elif a[0]=='tag' and a[2]=='wecom-test:latest':
     s['tag']=a[1]
 elif a[0]=='compose':
@@ -123,7 +195,7 @@ path.write_text(json.dumps(s))
 
 @unittest.skipUnless(os.name == 'posix', 'Linux shell integration runs in CI/on the test host')
 class DeploymentTransactionTests(unittest.TestCase):
-    def run_scenario(self, fail=False, probe_fail=False):
+    def run_scenario(self, fail=False, probe_fail=False, build=False):
         with tempfile.TemporaryDirectory(prefix='wecom-deploy-test-') as folder:
             root=Path(folder)
             project=root/'project'
@@ -134,7 +206,8 @@ class DeploymentTransactionTests(unittest.TestCase):
             git('config','user.name','Deployment test')
             git('config','user.email','deployment-test@example.invalid')
             (project/'marker').write_text('old')
-            git('add','marker')
+            (project/'Dockerfile').write_text('FROM scratch\n')
+            git('add','marker','Dockerfile')
             git('commit','-m','old')
             old=git('rev-parse','HEAD')
             (project/'marker').write_text('new')
@@ -144,6 +217,10 @@ class DeploymentTransactionTests(unittest.TestCase):
             inbox.mkdir()
             git('bundle','create',str(inbox/'source.bundle'),old+'..HEAD')
             git('reset','--keep',old)
+            (project/'.env').write_text('SYNTHETIC_SECRET=not-for-build-context')
+            (project/'data/uploads').mkdir(parents=True)
+            config=root/'config.json'
+            config.write_text(json.dumps({'artifact_base_url':'https://gezelling.com/uploads/pipeline-releases'}))
             with gzip.open(str(inbox/'image.tar.gz'),'wb') as image:
                 image.write(b'isolated fake image stream')
             manifest=copy.deepcopy(MANIFEST)
@@ -160,8 +237,10 @@ class DeploymentTransactionTests(unittest.TestCase):
             docker.write_text(FAKE_DOCKER)
             docker.chmod(0o755)
             env=dict(os.environ, PATH=str(binary)+os.pathsep+os.environ['PATH'],
-                     FAKE_DOCKER_STATE=str(state_path),WECOM_STATE_DIR=str(root/'state'),WECOM_HEALTH_ATTEMPTS='1')
-            result=subprocess.run(['bash',str(ROOT/'scripts/deploy/deploy.sh'),'test',str(project),sha,str(inbox)],
+                     FAKE_DOCKER_STATE=str(state_path),WECOM_STATE_DIR=str(root/'state'),WECOM_HEALTH_ATTEMPTS='1',WECOM_CONFIG_PATH=str(config))
+            command=['bash',str(ROOT/'scripts/deploy/deploy.sh'),'test',str(project),sha,str(inbox)]
+            if build: command=['bash',str(ROOT/'scripts/deploy/build_test.sh'),str(project),sha,str(inbox)]
+            result=subprocess.run(command,
                                   env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,universal_newlines=True,timeout=40)
             final=json.loads(state_path.read_text())
             if fail or probe_fail:
@@ -174,6 +253,15 @@ class DeploymentTransactionTests(unittest.TestCase):
                 self.assertEqual(git('rev-parse','HEAD'),sha)
                 self.assertEqual(final['current'],state['new'])
                 self.assertIn('DEPLOY_OK',result.stdout)
+                if build:
+                    self.assertNotIn('.env',final['build_context_entries'])
+                    self.assertIn('Dockerfile',final['build_context_entries'])
+                    self.assertIn('RELEASE_DESCRIPTOR_JSON',result.stdout)
+                    descriptors=[line.split(' ',1)[1] for line in result.stdout.splitlines() if line.startswith('RELEASE_DESCRIPTOR_JSON ')]
+                    validate_descriptor(json.loads(descriptors[-1]),sha,'https://gezelling.com/uploads/pipeline-releases')
+
+    def test_clean_builder_never_copies_untracked_runtime_secrets(self):
+        self.run_scenario(build=True)
 
     def test_success_advances_code_and_image(self):
         self.run_scenario()
