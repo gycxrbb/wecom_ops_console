@@ -38,7 +38,7 @@ jobs:
           import app.config as config
           config.settings = config.Settings(_env_file=None, database_url='sqlite://')
           import pytest
-          sys.exit(pytest.main(['tests/test_user_default_permissions.py', 'tests/test_deployment_release.py', '-q']))
+          sys.exit(pytest.main(['tests/test_user_default_permissions.py', 'tests/test_deployment_release.py', 'tests/test_image_identity.py', '-q']))
           PY
       - name: Frontend type check
         working-directory: frontend

@@ -52,12 +52,16 @@ git fetch "$inbox/source.bundle" HEAD
 test "$(git rev-parse FETCH_HEAD)" = "$sha"
 git merge-base --is-ancestor "$old_sha" "$sha"
 say IMAGE_LOADING
-present_image=$(docker image inspect --format '{{.Id}}' "$image_tag" 2>/dev/null || true)
-if [ "$present_image" != "$expected_image" ]; then gzip -dc "$inbox/image.tar.gz" | docker load; fi
-test "$(docker image inspect --format '{{.Id}}' "$image_tag")" = "$expected_image"
+identity="$(dirname "$0")/image_identity.py"
+local_image=$(python3 "$identity" "$image_tag" "$expected_image" "$sha" 2>/dev/null || true)
+if [ -z "$local_image" ]; then
+  gzip -dc "$inbox/image.tar.gz" | docker load
+  local_image=$(python3 "$identity" "$image_tag" "$expected_image" "$sha")
+fi
+say "IMAGE_IDENTITY_VERIFIED config=$expected_image local=$local_image"
 test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image_tag")" = "$sha"
 test "$(docker image inspect --format '{{.Architecture}}' "$image_tag")" = amd64
-if [ "$old_sha" = "$sha" ] && [ "$old_image" = "$expected_image" ]; then
+if [ "$old_sha" = "$sha" ] && [ "$old_image" = "$local_image" ]; then
   test "$(docker inspect --format '{{.State.Health.Status}}' "$service")" = healthy
   docker exec -i "$service" python - < "$(dirname "$0")/probe.py"
   say "DEPLOY_ALREADY_CURRENT $sha"
@@ -66,7 +70,7 @@ fi
 docker tag "$old_image" wecom-ops-console-rollback:previous
 changed=1
 git merge --ff-only "$sha"
-docker tag "$expected_image" "$image_name"
+docker tag "$local_image" "$image_name"
 docker compose -f docker-compose.prod.yml up -d --no-deps --no-build "$service"
 say SERVICE_STARTED
 healthy=0
@@ -78,20 +82,20 @@ for attempt in $(seq 1 "${WECOM_HEALTH_ATTEMPTS:-60}"); do
   sleep 3
 done
 test "$healthy" = 1
-test "$(docker inspect --format '{{.Image}}' "$service")" = "$expected_image"
+test "$(docker inspect --format '{{.Image}}' "$service")" = "$local_image"
 docker exec -i "$service" python - < "$(dirname "$0")/probe.py"
-python3 - "$state_dir" "$sha" "$expected_image" "$old_sha" "$old_image" <<'PY'
+python3 - "$state_dir" "$sha" "$local_image" "$old_sha" "$old_image" "$expected_image" <<'PY'
 import json, os, sys, time
 from pathlib import Path
-root, sha, image, old_sha, old_image = sys.argv[1:]
+root, sha, image, old_sha, old_image, config_id = sys.argv[1:]
 path = Path(root) / 'current.json'
 tmp = path.with_suffix('.tmp')
 tmp.write_text(json.dumps({'commit':sha, 'image_id':image, 'previous_commit':old_sha,
-                           'previous_image_id':old_image, 'deployed_at':int(time.time())}))
+                           'previous_image_id':old_image, 'image_config_id':config_id, 'deployed_at':int(time.time())}))
 os.replace(str(tmp), str(path))
 PY
 success=1
-say "DEPLOY_OK $sha $expected_image"
+say "DEPLOY_OK $sha $local_image config=$expected_image"
 # Only application release tags are candidates; never prune unrelated images.
 while IFS= read -r tag; do
   case "$tag" in

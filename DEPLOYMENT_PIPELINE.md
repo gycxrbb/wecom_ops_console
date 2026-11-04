@@ -6,7 +6,7 @@
 2. 打开 [GitHub Actions — Build and deploy](https://github.com/gycxrbb/wecom_ops_console/actions/workflows/deploy.yml)。
 3. 自动执行：GitHub 后端/部署回归与前端类型检查 → 小体积 Git 源码包 → 测试机干净构建一次 → 隔离启动烟测 → 测试环境部署与健康检查。
 4. 测试成功后，生产阶段显示等待审批。确认测试环境符合预期，再点击 **Review deployments → production → Approve and deploy**。
-5. 生产通过测试站点现有 HTTPS 静态入口获取同一次运行的镜像产物，核对归档 SHA256 和镜像 ID，不重新构建。失败时查看运行结果；服务器详细日志不上传到公开 Actions 日志。
+5. 生产通过测试站点现有 HTTPS 静态入口获取同一次运行的镜像产物，核对归档 SHA256 和原始镜像配置摘要，不重新构建。失败时查看运行结果；服务器详细日志不上传到公开 Actions 日志。
 
 生产审批人：仓库所有者 `gycxrbb`。允许该账号批准自己触发的发布，避免单人维护仓库无法审批；不会由脚本自动批准。
 GitHub 小描述文件保留 7 天；测试机镜像归档仅保留最近 2 份且不超过 7 天，以先到者为准。请审批最新通过测试的运行；过期候选需重新构建。过期运行若已被较新生产版本超越，会被禁止反向覆盖。
@@ -25,7 +25,7 @@ GitHub 小描述文件保留 7 天；测试机镜像归档仅保留最近 2 份�
 ## 发布约束
 
 - GitHub 托管 runner 运行回归和类型检查，只跨境传输小源码包；测试机构建 linux/amd64 镜像，生产只加载镜像，不安装依赖或构建前端。首轮实测海外大镜像直传/HTTPS拉取都过慢，已弃用。
-- 发布包绑定完整 Git SHA、镜像 ID、镜像 revision 标签和文件 SHA256。测试运行的镜像直接打包，生产获取同一份产物；GitHub 仅保存小源码包和描述文件。
+- 发布包绑定完整 Git SHA、原始镜像配置摘要、revision 标签和文件 SHA256。Docker经典存储与Docker29/containerd可能显示不同本地ID；接收器核对导出配置原文摘要、manifest引用、文件层和有效运行配置后，才使用本机ID打标签和检查容器，不能直接把manifest摘要与config摘要相等比较。测试运行的镜像直接打包，生产获取同一份产物；GitHub 仅保存小源码包和描述文件。
 - PR 运行测试与构建，不获得部署环境密钥、不进入发布阶段；环境仅允许 master 分支。
 - GitHub 每个环境有并发门禁；服务器另有部署锁。只更新应用容器，不重启 Qdrant、数据库或其他项目。
 - 服务器保留 `.env`、上传文件、证书、数据库等运行数据。运行时 RSA 私钥缓存禁止打入镜像。
@@ -42,7 +42,7 @@ GitHub 小描述文件保留 7 天；测试机镜像归档仅保留最近 2 份�
 
 - 发布接收器：`/usr/local/lib/wecom-deploy/receive.py`。
 - 部署脚本：`/usr/local/lib/wecom-deploy/deploy.sh`；测试构建：同目录 `build_test.sh`；容器探针：`probe.py`；固定分发站点配置：`config.json`。
-- 发布状态：`/var/lib/wecom-deploy/<环境>/current.json`，含当前/上一提交和镜像 ID。
+- 发布状态：`/var/lib/wecom-deploy/<环境>/current.json`，含当前/上一提交、本机镜像 ID和可移植image_config_id。
 - 私有日志：同目录 `deploy-<完整提交>.log`，仅 root 可访问。
 - 回退镜像：`wecom-ops-console-rollback:previous`。
 
