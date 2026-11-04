@@ -21,6 +21,7 @@ SPEC.loader.exec_module(receiver)
 from source_release import unpack_source
 from fetch_release import validate_descriptor,fetch_archive,NoRedirect
 from publish_release import prune_artifacts
+from ensure_bases import ensure
 SHA = 'a'*40
 BLOBS = {'source.bundle': b'bundle', 'image.tar.gz': b'image'}
 MANIFEST = {'protocol':1, 'commit':SHA, 'image_id':'sha256:'+'b'*64,
@@ -151,6 +152,41 @@ class SourceAndFetchTests(unittest.TestCase):
             NoRedirect().redirect_request(None,None,302,'redirect',{},'http://169.254.169.254/')
 
 
+class BaseCacheTests(unittest.TestCase):
+    def scenario(self,cached=False,mismatch=False):
+        calls=[]
+        reference='m.daocloud.io/docker.io/library/node@sha256:'+'a'*64
+        config={'base_images':{'node:18-alpine':{'reference':reference,'config_id':'sha256:'+'b'*64}}}
+        def run(args,**kwargs):
+            calls.append(args)
+            if args[1:3]==['image','inspect']:
+                if args[-1]=='node:18-alpine':
+                    return subprocess.CompletedProcess(args,0 if cached else 1,stdout='existing\n',stderr='')
+                return subprocess.CompletedProcess(args,0,stdout='sha256:'+('c' if mismatch else 'b')*64+'\n',stderr='')
+            return subprocess.CompletedProcess(args,0,stdout='',stderr='')
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory)/'Dockerfile').write_text('FROM node:18-alpine AS frontend-builder\n')
+            if mismatch:
+                with self.assertRaisesRegex(ValueError,'differs'):
+                    ensure(Path(directory),config,run)
+                self.assertFalse(any(args[1]=='tag' for args in calls))
+            else:
+                ensure(Path(directory),config,run)
+        return calls
+
+    def test_existing_base_tag_is_not_replaced(self):
+        calls=self.scenario(cached=True)
+        self.assertFalse(any(args[1] in ['pull','tag'] for args in calls))
+
+    def test_missing_base_is_verified_before_tagging(self):
+        calls=self.scenario()
+        self.assertTrue(any(args[1]=='pull' and '@sha256:' in args[-1] for args in calls))
+        self.assertEqual(calls[-1][1],'tag')
+
+    def test_mismatched_proxy_image_is_not_trusted(self):
+        self.scenario(mismatch=True)
+
+
 FAKE_DOCKER = r'''#!/usr/bin/env python3
 import json,os,sys
 from pathlib import Path
@@ -164,6 +200,8 @@ if a[0]=='inspect':
     elif '.State.Health' in fmt: print('unhealthy' if s['current']==s['new'] and s['fail'] else 'healthy')
     else: print(s['current'])
 elif a[:2]==['image','inspect']:
+    if a[-1] in ['node:18-alpine','python:3.11-slim']:
+        print('sha256:'+'c'*64); sys.exit(0)
     if not s.get('has_image'): sys.exit(1)
     if '--format' not in a:
         print(json.dumps([{'Id':s['new'],'Config':{'Labels':{'org.opencontainers.image.revision':s['sha']}},'Architecture':'amd64','Size':10}]))

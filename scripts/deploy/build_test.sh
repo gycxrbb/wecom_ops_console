@@ -36,6 +36,7 @@ mkdir "$context"
 git archive "$sha" | tar -x -C "$context"
 image="wecom-ops-console-release:$sha"
 say "BUILD_START $sha"
+python3 "$home/ensure_bases.py" "$context"
 # Bound this application's build resources; do not change other containers.
 DOCKER_BUILDKIT=0 docker build --memory=1536m --memory-swap=1664m --cpu-shares=256 \
   --label "org.opencontainers.image.revision=$sha" -t "$image" "$context"
